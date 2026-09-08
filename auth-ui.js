@@ -5,13 +5,20 @@
   function send(action, data) {
     if (busy) return;
     busy = true;
+    document.body.classList.add('app-busy');
+    document.getElementById('auth-form').setAttribute('aria-busy', 'true');
     var buttons = document.querySelectorAll('button');
     buttons.forEach(function (button) { button.disabled = true; });
     fetch('auth.php', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf}, body: JSON.stringify({action: action, data: data})})
       .then(function (response) { return response.json().then(function (body) { if (!response.ok) throw new Error(body.error || 'Please try again.'); return body; }); })
       .then(function (body) { window.location.assign(body.redirect === 'index.php' ? 'index.php' : 'login.php'); })
       .catch(function (err) { Swal.fire({icon: 'error', title: 'Unable to continue', text: err.message, confirmButtonText: 'Try again'}); })
-      .finally(function () { busy = false; buttons.forEach(function (button) { button.disabled = false; }); });
+      .finally(function () {
+        busy = false;
+        document.body.classList.remove('app-busy');
+        document.getElementById('auth-form').removeAttribute('aria-busy');
+        buttons.forEach(function (button) { button.disabled = false; });
+      });
   }
   document.getElementById('auth-form').addEventListener('submit', function (event) {
     event.preventDefault();

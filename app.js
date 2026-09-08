@@ -38,6 +38,14 @@
   function date(v, full) { return new Date(v).toLocaleDateString('en-PH', full ? {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'} : {month: 'short', day: 'numeric'}); }
   function status(c) { return '<span class="status status-' + slug(c.status) + '">' + e(c.status) + '</span>'; }
   function priority(c) { return '<span class="priority priority-' + slug(c.priority) + '"><span class="priority-dot"></span>' + e(c.priority) + '</span>'; }
+  function nextStep(c) {
+    var copy = {
+      resident: {Submitted: 'Waiting for barangay review', 'Under Review': 'Barangay is preparing the action', Assigned: 'A response team is assigned', 'In Progress': 'Work is underway', Resolved: 'Review and verify the result', Verified: 'Closed after your confirmation', Reopened: 'Returned for another assessment', 'Returned for Information': 'Add the requested information', Rejected: 'Read the recorded reason', 'Referred to Another Office': 'Follow the referral details'},
+      official: {Submitted: 'Review and recommend an action', 'Under Review': 'Assign the responsible team', Assigned: 'Waiting for the team to accept', 'In Progress': 'Monitor the team’s work', Resolved: 'Waiting for resident verification', Verified: 'Complete and recorded', Reopened: 'Reassess and assign another action', 'Returned for Information': 'Waiting for resident details', Rejected: 'No further action', 'Referred to Another Office': 'Monitor the referral separately'},
+      personnel: {Assigned: 'Accept this assignment', 'In Progress': 'Add an update or record resolution', Resolved: 'Waiting for resident verification', Verified: 'Complete and recorded', Reopened: 'Waiting for reassignment'}
+    };
+    return (copy[state.actor.role] && copy[state.actor.role][c.status]) || 'Open for details';
+  }
   function find(id) { return state.cases.filter(function (c) { return c.id === id; })[0]; }
   function active(c) { return ['Verified', 'Rejected', 'Referred to Another Office'].indexOf(c.status) < 0; }
   function review(c) { return ['Submitted', 'Under Review', 'Reopened'].indexOf(c.status) >= 0; }
@@ -59,7 +67,9 @@
         if (response.status === 401) window.location.assign('login.php');
         if (!response.ok) {
           if (response.status === 409 && body.state) state = body.state;
-          throw new Error(body.error || 'The request could not be completed.');
+          var requestError = new Error(body.error || 'The request could not be completed.');
+          requestError.status = response.status;
+          throw requestError;
         }
         return body;
       }); });
@@ -85,6 +95,13 @@
   function navigate(page, tab) { ui.page = page; resetFilters(); ui.tab = tab || 'all'; ui.mobile = false; render(); window.scrollTo({top: 0, behavior: 'instant'}); }
   function quick(tab) { navigate('complaints', tab); }
   function navItem(page, label, name, count) { return '<button class="nav-link' + (ui.page === page ? ' active' : '') + '" data-nav="' + page + '"' + (ui.page === page ? ' aria-current="page"' : '') + '>' + icon(name) + '<span>' + label + '</span>' + (count !== undefined ? '<span class="nav-count">' + count + '</span>' : '') + '</button>'; }
+  function mobileDock() {
+    var resident = state.actor.role === 'resident', official = state.actor.role === 'official';
+    var mainAction = resident
+      ? '<button class="mobile-primary" data-new aria-label="Report a concern">' + icon('plus') + '<span>Report</span></button>'
+      : '<button class="mobile-primary" data-quick="' + (official ? 'assessment' : 'pending') + '">' + icon(official ? 'clipboard' : 'tool') + '<span>' + (official ? 'Review' : 'My work') + '</span></button>';
+    return '<nav class="mobile-dock" aria-label="Quick navigation"><button class="' + (ui.page === 'overview' ? 'active' : '') + '" data-nav="overview">' + icon('grid') + '<span>Overview</span></button><button class="' + (ui.page === 'complaints' ? 'active' : '') + '" data-nav="complaints">' + icon('inbox') + '<span>' + (resident ? 'My reports' : official ? 'Complaints' : 'Assignments') + '</span></button>' + mainAction + '<button class="' + (ui.page === 'history' ? 'active' : '') + '" data-nav="history">' + icon('clock') + '<span>History</span></button><button data-menu>' + icon('menu') + '<span>More</span></button></nav>';
+  }
   function render(preserveFocus) {
     var focused = preserveFocus ? document.activeElement : null, focusId = focused && focused.id, caret = focused && focused.selectionStart;
     var m = metrics(), a = state.actor, official = a.role === 'official', resident = a.role === 'resident';
@@ -100,7 +117,7 @@
       (official ? navItem('insights', 'Reports & insights', 'chart') + navItem('knowledge', 'Solution library', 'book') : '') + (!isDemo() && official ? '<div class="sidebar-line"></div>' + navItem('users', 'User management', 'users') : '') + '</nav>' +
       '<div class="sidebar-bottom"><button class="nav-link" data-help>' + icon('help') + 'How it works</button><div class="demo-note"><strong><span class="demo-dot"></span>' + (isDemo() ? 'Prototype workspace' : 'Saved workspace') + '</strong><p>' + (isDemo() ? 'Fictional reports. Changes stay in your current PHP demo session.' : 'Reports and their histories are saved, even after you sign out.') + '</p></div><div class="sidebar-footer">' + icon('building') + 'Barangay community services</div></div></aside>' +
       '<header class="topbar"><div class="breadcrumb-label"><button class="icon-btn menu-toggle" data-menu aria-label="Open navigation">' + icon('menu') + '</button><span class="workspace-crumb">Workspace</span><span class="workspace-crumb">/</span><strong>' + pageNames[ui.page] + '</strong></div><div class="topbar-right"><span class="date-label">' + new Date().toLocaleDateString('en-PH', {weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'}) + '</span><div class="profile"><span class="avatar me">' + e(initials(a.name)) + '</span><div><div class="profile-name">' + e(a.name) + '</div><div class="profile-role">' + e(roleLabel(a.role)) + '</div></div></div></div></header>' +
-      workspaceToolbar() + '<main class="main" id="main-content">' + pageContent() + '<footer class="main-footer"><span>BarangayResolve · Community Complaint & Resolution Management</span><span>' + (isDemo() ? 'Sample data only · Demo session' : 'Saved account workspace') + '</span></footer></main></div>';
+      workspaceToolbar() + '<main class="main" id="main-content">' + pageContent() + '<footer class="main-footer"><span>BarangayResolve · Community Complaint & Resolution Management</span><span>' + (isDemo() ? 'Sample data only · Demo session' : 'Saved account workspace') + '</span></footer></main>' + mobileDock() + '</div>';
     if (focusId) { var input = document.getElementById(focusId); if (input) { input.focus(); if (typeof caret === 'number' && input.setSelectionRange) input.setSelectionRange(caret, caret); } }
   }
   function heading(title, description, actions) {
@@ -209,7 +226,7 @@
     return '<section class="panel"><div class="panel-header"><div><h2 class="panel-title">' + (compact ? 'Recent complaints' : ui.page === 'history' ? 'Complaint outcomes' : 'Complaint register') + ' <span class="count-pill">' + all.length + '</span></h2>' + (!compact ? '<p class="panel-subtitle">Open a complaint to view its details and available actions.</p>' : '') + '</div>' + (compact ? '<button class="link-button" data-nav="complaints">View all ' + icon('arrow') + '</button>' : '') + '</div>' +
       '<div class="panel-toolbar"><div class="filter-tabs" aria-label="Complaint filters">' + tabs + '</div>' + (compact ? searchField() : '') + '</div>' +
       (!compact ? '<div class="filter-row pt-3">' + searchField() + '<select class="form-select form-select-sm" id="category-filter" aria-label="Filter by category">' + options(state.categories, ui.category, 'All categories') + '</select><select class="form-select form-select-sm" id="priority-filter" aria-label="Filter by priority">' + options(state.priorities, ui.priority, 'All priorities') + '</select><select class="form-select form-select-sm" id="status-filter" aria-label="Filter by status">' + options(state.statuses, ui.status, 'All statuses') + '</select></div>' : '') +
-      (rows.length ? '<div class="table-responsive"><table class="table complaint-table"><caption class="visually-hidden">Complaints available to your account</caption><thead><tr><th scope="col">Complaint</th><th scope="col" class="category-cell">Category</th><th scope="col">Priority</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Open</span></th></tr></thead><tbody>' + rows.map(function (c) { return '<tr><td><button class="case-link" data-open="' + e(c.id) + '">' + e(c.title) + '</button><div class="case-meta"><span class="case-ref">' + e(c.id) + '</span>' + icon('pin') + e(c.location) + '</div></td><td class="category-cell">' + e(c.category) + '</td><td>' + priority(c) + '</td><td>' + status(c) + '</td><td><button class="icon-btn border-0" data-open="' + e(c.id) + '" aria-label="Open complaint ' + e(c.id) + '">' + icon('chevron') + '</button></td></tr>'; }).join('') + '</tbody></table></div>' :
+      (rows.length ? '<div class="table-responsive"><table class="table complaint-table"><caption class="visually-hidden">Complaints available to your account</caption><thead><tr><th scope="col">Complaint</th><th scope="col" class="category-cell">Category</th><th scope="col">Priority</th><th scope="col">Status & next step</th><th scope="col"><span class="visually-hidden">Open</span></th></tr></thead><tbody>' + rows.map(function (c) { return '<tr><td data-label="Complaint"><button class="case-link" data-open="' + e(c.id) + '">' + e(c.title) + '</button><div class="case-meta"><span class="case-ref">' + e(c.id) + '</span>' + icon('pin') + e(c.location) + '</div></td><td class="category-cell" data-label="Category">' + e(c.category) + '</td><td data-label="Priority">' + priority(c) + '</td><td data-label="Status">' + status(c) + '<span class="next-step">' + e(nextStep(c)) + '</span></td><td class="open-cell"><button class="open-case-btn" data-open="' + e(c.id) + '">Open ' + icon('chevron') + '</button></td></tr>'; }).join('') + '</tbody></table></div>' :
       '<div class="empty-state">' + icon('inbox') + '<h3>No complaints match this view</h3><p>Try a different search or clear the filters.</p><button class="btn btn-light btn-sm" data-clear>Clear all filters</button></div>') +
       '<div class="table-foot"><span>Showing ' + rows.length + ' of ' + all.length + ' complaints</span>' + ((ui.tab !== 'all' || ui.search || ui.category || ui.priority || ui.status) ? '<button class="link-button" data-clear>Clear filters</button>' : '<span>Updated with each action</span>') + '</div></section>';
   }
@@ -314,6 +331,8 @@
   function mutate(action, data, id, form) {
     if (busy) return Promise.resolve(null);
     busy = true;
+    document.body.classList.add('app-busy');
+    if (form) form.setAttribute('aria-busy', 'true');
     var buttons = form ? Array.prototype.slice.call(form.querySelectorAll('button')) : [];
     buttons.forEach(function (b) { b.disabled = true; });
     return api(action, data, id).then(function (result) {
@@ -335,7 +354,19 @@
       if (messages[action]) Toast.fire({icon: 'success', title: messages[action]});
       if (['create_user', 'update_user', 'profile'].indexOf(action) >= 0) Toast.fire({icon: 'success', title: action === 'create_user' ? 'Account created.' : action === 'profile' ? 'Your profile was saved.' : 'Account access updated.'});
       return result;
-    }).catch(function (err) { error(err); return null; }).finally(function () { busy = false; buttons.forEach(function (b) { b.disabled = false; }); });
+    }).catch(function (err) {
+      if (err.status === 409) {
+        render();
+        if (currentCase && find(currentCase)) renderCase();
+      }
+      error(err);
+      return null;
+    }).finally(function () {
+      busy = false;
+      document.body.classList.remove('app-busy');
+      if (form) form.removeAttribute('aria-busy');
+      buttons.forEach(function (b) { b.disabled = false; });
+    });
   }
   function help() {
     dialog({title: 'One concern. A complete journey.', html: '<div class="text-start"><p><strong>1. Resident:</strong> report a concern and suggest a solution.</p><p><strong>2. Official:</strong> assess the category and priority, save the official recommendation, then assign a team.</p><p><strong>3. Personnel:</strong> use the assigned team’s view, start work, record updates, and submit the resolution.</p><p><strong>4. Resident:</strong> verify the result or reopen the concern.</p><hr><p class="small text-muted mb-0">' + (isDemo() ? 'Use “Explore as” to switch roles. The demo resident is Alex Santos. Demo changes stay in your PHP session and may expire. Reset restores fictional sample data.' : 'Your account determines which complaints and actions are available. Officials manage personnel accounts and teams. Saved complaints and photos remain available after sign-out.') + ' No notifications are sent.</p></div>', confirmButtonText: 'Explore the workspace', width: 620});

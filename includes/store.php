@@ -36,6 +36,11 @@ final class ComplaintStore
         INSERT OR IGNORE INTO settings(name,value) VALUES('next_id','1');
         CREATE TABLE IF NOT EXISTS login_attempts (bucket TEXT NOT NULL, attempted_at INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS attempts_bucket ON login_attempts(bucket,attempted_at);");
+        $columns = $this->db->query('PRAGMA table_info(users)')->fetchAll();
+        if (!in_array('auth_version', array_column($columns, 'name'), true)) {
+            $this->db->exec('ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 1');
+        }
+        $this->db->exec('PRAGMA optimize');
     }
 
     private function transaction(callable $work): mixed

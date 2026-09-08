@@ -12,6 +12,8 @@ Source: the user's pasted BarangayResolve brief and instruction to use PHP, HTML
 | Dashboard and history | Overview, register, outcome history, category/location/status reports, CSV |
 | Optional solution knowledge base | Verified category matches; previous recommendation copied as an editable draft |
 | Additional statuses | Return for information and resubmit, reject with reason, refer with receiving office |
+| User management | First-official setup, resident registration, sign-in, role-based accounts, personnel teams, profile/password updates, deactivation |
+| Persistent records | SQLite-backed complaints and histories with concurrent-edit conflict detection |
 
 Normal journey:
 
@@ -21,6 +23,6 @@ Unsuccessful resident verification:
 
 Resolved → Reopened → Under Review → Assigned → In Progress → Resolved → Verified
 
-Prototype decisions: fictional sample data; Alex Santos as demo resident; Maria Dela Cruz as demo official; five selectable teams; PHP-session persistence; role switching instead of authentication. These are implementation assumptions, not claimed historical decisions.
+Prototype decisions: fictional sample data for the freely switchable demo; Alex Santos as demo resident; Maria Dela Cruz as demo official; five selectable personnel teams; SQLite persistence for saved accounts and complaints. The demo remains separate so presentations do not modify saved records. These are implementation assumptions, not claimed historical decisions.
 
 Future features remain out of scope: SMS/email, maps/heatmaps, QR codes, mobile apps, AI suggestions, automated recurrence detection, public transparency, LGU integration, and advanced analytics.

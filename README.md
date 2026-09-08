@@ -1,6 +1,6 @@
 # BarangayResolve prototype
 
-A working PHP prototype based on the supplied BarangayResolve project brief.
+A working PHP prototype based on the supplied BarangayResolve project brief. It includes a guided demo and a saved SQLite workspace with real local accounts.
 
 ## Run locally
 
@@ -9,21 +9,32 @@ The project is in C:\xampp\htdocs\MaintainPro.
 1. Start **Apache** from the XAMPP Control Panel.
 2. Open **http://localhost/MaintainPro/**.
 
+That URL is the only entry point you need. On first use, it guides you through creating the first barangay-official account. Residents can then register themselves, while officials create personnel and additional official accounts. Choose **Explore the prototype** on the sign-in page to enter the fictional demo immediately.
+
 Alternatively, from the project folder run:
 
-    C:\xampp\php\php.exe -S 127.0.0.1:8080
+    C:\xampp\php\php.exe -S 127.0.0.1:8080 router.php
 
 Then open **http://127.0.0.1:8080/**. Use PHP 8.1+ with mbstring, sessions, and image metadata support (included in this XAMPP installation).
 
 ## Stack
 
-- PHP for session storage, role-scoped API responses, validation, and workflow rules.
+- PHP for authentication, role-scoped API responses, validation, and workflow rules.
+- SQLite for saved user accounts, complaint records, history, and optimistic concurrency checks.
 - HTML and custom CSS for the interface.
 - Bootstrap 5.3.3 for layout, forms, and accessible modal dialogs.
 - SweetAlert2 11.14.5 for confirmations, errors, and success notifications.
 - Plain JavaScript for interaction with the PHP API.
 
-Bootstrap and SweetAlert are vendored in assets/vendor; no Node.js, build step, CDN connection, or database setup is required.
+Bootstrap and SweetAlert are vendored in assets/vendor; no Node.js, build step, CDN connection, or separate database server is required. PHP creates the SQLite database on first use.
+
+## Fastest access
+
+- Double-click **Open BarangayResolve.cmd** to start the local app and open it in your browser.
+- Open **http://localhost/MaintainPro/**.
+- Select **Explore the prototype** for instant access to fictional sample data.
+- On a phone-sized screen, use the fixed bottom bar for Overview, Complaints, the primary action, History, and More.
+- Every complaint displays its current status and the next step expected from the signed-in role.
 
 ## Demonstrate the complete workflow
 
@@ -51,14 +62,18 @@ All sample names, complaints, locations, and records are fictional. Dates are re
 - Category-based matches to previous verified cases; an official can copy a prior recommendation as a draft before reviewing and saving it.
 - Responsive layout, keyboard-accessible Bootstrap dialogs, and visible focus indicators.
 - SweetAlert confirmations for verification, reopening, outcomes, and resetting sample data.
+- Registration and sign-in for saved resident accounts.
+- Official account management for personnel teams and other officials.
+- Saved SQLite complaints that remain after sign-out.
+- Password hashing, login throttling, session revocation on password change or account deactivation, CSRF protection, and conflict detection for simultaneous edits.
 
 ## Prototype boundaries
 
 This is a local demonstration, **not a production deployment**.
 
-- **Demo role switching replaces registration and login.** It is deliberately available to explore all workflows; it is not real authentication.
-- Complaints and photos are stored in the **current PHP session**, isolated from other browser sessions. Refresh retains changes while the session remains valid. Session expiry, clearing cookies, or resetting the demo can remove changes.
-- No database, permanent accounts, real notifications, or public transparency dashboard is included.
+- The freely switchable **demo** remains separate from the saved workspace and is not authentication.
+- Demo complaints and photos use the current PHP session. Saved accounts and their records use SQLite.
+- There is no email/SMS delivery, password-reset email, identity verification, or public transparency dashboard.
 - Images accept JPEG, PNG, or WebP, up to 1 MB and 20 megapixels. The server validates image contents. Total session data is limited to 12 MB.
 - Recommendations are written and approved by the official. Similar cases use category matching, not AI.
 - CSV exports include this session's complaint data and neutralize spreadsheet formula prefixes.
@@ -67,8 +82,9 @@ This is a local demonstration, **not a production deployment**.
 ## Verification
 
     C:\xampp\php\php.exe tests\workflow.php
+    C:\xampp\php\php.exe tests\store.php
 
-Checks cover the full workflow, role restrictions, invalid transitions, atomic validation, photo validation, reopening, additional information, rejection, referral, evidence history, and session serialization.
+Checks cover the full workflow, accounts, role restrictions, invalid transitions, atomic validation, photo validation, reopening, additional information, rejection, referral, evidence history, persistent storage, password behavior, and simultaneous-edit protection.
 
 ## Project files
 
@@ -76,8 +92,10 @@ Checks cover the full workflow, role restrictions, invalid transitions, atomic v
 - app.js: interface and PHP API integration.
 - styles.css: visual design and responsive styling.
 - api.php: session-scoped JSON API and CSV reports.
+- auth.php and login.php: account access and first-time setup.
 - includes/domain.php: workflow and fictional seed records.
-- includes/bootstrap.php: session setup and response headers.
-- tests/workflow.php: regression checks.
+- includes/store.php: SQLite persistence and account management.
+- includes/bootstrap.php: session setup, storage selection, and response headers.
+- tests/workflow.php, tests/store.php, and tests/http.php: regression checks.
 
 The shared ChatGPT conversation could not be retrieved. The pasted BarangayResolve brief is the requirements source; no additional historical decisions are implied.
