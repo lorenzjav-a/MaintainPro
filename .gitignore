@@ -1,3 +1,4 @@
 .data/*
 !.data/.htaccess
 tests/tmp/
+includes/mail.local.php

@@ -1,101 +1,83 @@
-# BarangayResolve prototype
+# MaintainPro / BarangayResolve
 
-A working PHP prototype based on the supplied BarangayResolve project brief. It includes a guided demo and a saved SQLite workspace with real local accounts.
+PHP complaint management with local accounts and persistent MySQL/MariaDB storage. The workspace starts empty, with no sample accounts, seeded complaints, or demo role switching.
 
-## Run locally
+## Run with XAMPP
 
-The project is in C:\xampp\htdocs\MaintainPro.
+1. Start **Apache** and **MySQL** in the XAMPP Control Panel.
+2. On a new installation, run `C:\xampp\php\php.exe database\setup.php` from the project folder. The database on this PC has already been created.
+3. Open **http://localhost/MaintainPro/** and create your first barangay-official account.
+4. Residents can register from the sign-in page. Officials create personnel and additional official accounts under **User management**.
 
-1. Start **Apache** from the XAMPP Control Panel.
-2. Open **http://localhost/MaintainPro/**.
+The default database is **maintainpro**, available in **http://localhost/phpmyadmin/**. Connection defaults match local XAMPP: host `127.0.0.1`, port `3306`, username `root`, empty password.
+To use different credentials, set `BR_DB_HOST`, `BR_DB_PORT`, `BR_DB_NAME`, `BR_DB_USER`, and `BR_DB_PASSWORD` in the PHP process environment, then restart Apache. Defaults are in `database/database.php`.
 
-That URL is the only entry point you need. On first use, it guides you through creating the first barangay-official account. Residents can then register themselves, while officials create personnel and additional official accounts. Choose **Explore the prototype** on the sign-in page to enter the fictional demo immediately.
+`database/setup.php` creates the configured database and imports `database/schema.sql`. It can be rerun without deleting records or resetting complaint IDs. For manual phpMyAdmin setup, create an empty database named `maintainpro` with collation `utf8mb4_unicode_ci`, select it, and import `database/schema.sql`.
 
-Alternatively, from the project folder run:
+The InnoDB tables are:
 
-    C:\xampp\php\php.exe -S 127.0.0.1:8080 router.php
+- `users`: accounts, password hashes, roles, teams, and session versions.
+- `complaints`: ownership, assignment, status, version, and a JSON payload containing details, photos, and timeline history.
+- `settings`: the next complaint number, initially 1.
+- `login_attempts`: sign-in throttling records.
+- `password_resets`: hashed email codes and single-use password-reset grants.
+- `password_reset_requests`: email and IP request limits.
 
-Then open **http://127.0.0.1:8080/**. Use PHP 8.1+ with mbstring, sessions, and image metadata support (included in this XAMPP installation).
+The old `.data/barangayresolve.sqlite` file is no longer used. Browser sessions from the former demo cannot grant account access.
 
-## Stack
+## Workflow
 
-- PHP for authentication, role-scoped API responses, validation, and workflow rules.
-- SQLite for saved user accounts, complaint records, history, and optimistic concurrency checks.
-- HTML and custom CSS for the interface.
-- Bootstrap 5.3.3 for layout, forms, and accessible modal dialogs.
-- SweetAlert2 11.14.5 for confirmations, errors, and success notifications.
-- Plain JavaScript for interaction with the PHP API.
+1. A resident signs in and reports a concern, optionally adding a suggested solution and photo.
+2. An official reviews it, saves a recommendation and priority, and assigns a team.
+3. Personnel in that team sign in, start work, add progress notes, and record the resolution.
+4. The reporting resident verifies the result or reopens the complaint with feedback.
 
-Bootstrap and SweetAlert are vendored in assets/vendor; no Node.js, build step, CDN connection, or separate database server is required. PHP creates the SQLite database on first use.
+The app also supports returns for information, rejection, referral, search and filters, dashboards, resolution history, CSV exports, and category-based comparisons with previous verified cases.
+Account permissions, CSRF tokens, password hashing, login throttling, and stale-edit detection are enforced on the server. Database transactions serialize writes to protect first-account setup, permissions, complaint numbering, and version checks.
 
-## Fastest access
+Bootstrap and SweetAlert are included in `assets/vendor`; no Node.js build or CDN connection is needed. PHP 8.1+ needs `pdo_mysql`, `mbstring`, `openssl`, sessions, and image metadata support. XAMPP supplies these. Photos accept JPEG, PNG, or WebP up to the application's 1 MB limit. Email is used for password recovery; other email/SMS notifications and identity verification are not implemented.
 
-- Double-click **Open BarangayResolve.cmd** to start the local app and open it in your browser.
-- Open **http://localhost/MaintainPro/**.
-- Select **Explore the prototype** for instant access to fictional sample data.
-- On a phone-sized screen, use the fixed bottom bar for Overview, Complaints, the primary action, History, and More.
-- Every complaint displays its current status and the next step expected from the signed-in role.
+## Gmail and password recovery
 
-## Demonstrate the complete workflow
+PHPMailer 7.0.2 is bundled in `includes/PHPMailer`, extracted from the supplied `PHPMailer-master.zip` with its license. The supplied PDF and PHP SEASON 2 example demonstrate Gmail SMTP and generated-password delivery. This project uses that SMTP approach to email an OTP before allowing the user to choose a new password. Existing passwords are never emailed.
 
-1. Use **Explore as → Resident**. The demo resident is **Alex Santos**.
-2. Select **Report a concern**, enter the details, and optionally add a suggestion and photo.
-3. Switch to **Barangay official**. Open the new complaint, set category and priority, enter an official recommended action, and **Save assessment**.
-4. Select a responsible team and **Assign complaint**.
-5. Switch to **Barangay personnel**, then choose that same team.
-6. Open the complaint, select **Accept & start work**, add progress notes, and record a resolution with optional completion evidence.
-7. Switch back to **Resident**. Select **Yes, resolved** or enter feedback and select **Problem still exists**.
-8. Inspect **Resolution history** and, as an official, **Reports & insights** or **Solution library**.
+1. Enable **2-Step Verification** on the Gmail sender account and create a **Google App Password**: https://support.google.com/accounts/answer/185833. App Password availability depends on the Google account and its policies.
+2. Edit **`includes/mail.local.php`**. Set `username` to the Gmail sender address and `password` to its App Password (not the normal Google password). The file is prepared on this PC and excluded from Git. On another PC, copy `includes/mail.example.php` to that path first.
+3. Keep `host` as `smtp.gmail.com`, `port` as `587`, and `encryption` as `tls`. Leave `from_email` blank to use the sender address. TLS certificate verification remains enabled.
+4. Run `C:\xampp\php\php.exe includes\check-mail.php` to check SMTP authentication without sending an email.
+5. Open the sign-in page and choose **Forgot password?** Enter an existing account's email, enter the emailed six-digit OTP, then set and confirm a new password. The new-password form becomes available only after successful verification. Sign in again after resetting.
 
-All sample names, complaints, locations, and records are fictional. Dates are relative to the day a new demo session is created.
+The sender settings follow [PHPMailer's Gmail example](https://github.com/PHPMailer/PHPMailer/blob/master/examples/gmail.phps). Optional environment overrides are `BR_SMTP_HOST`, `BR_SMTP_PORT`, `BR_SMTP_ENCRYPTION`, `BR_SMTP_USERNAME`, `BR_SMTP_PASSWORD`, `BR_SMTP_FROM_EMAIL`, and `BR_SMTP_FROM_NAME`. Local file edits apply on the next request; environment changes require restarting Apache. Real SMTP connections require authentication and TLS. Unauthenticated, unencrypted SMTP is allowed only for a loopback test inbox.
 
-## Included
+Codes expire after 10 minutes and allow five attempts. Verification grants expire after another 10 minutes and stay in the requesting browser's server session. Only hashes are stored in MySQL. Resending invalidates the previous challenge. Requests are limited to one per email per 60 seconds, three per email per 15 minutes, and ten per client IP per 15 minutes. Successful resets revoke prior login sessions and preserve all complaint data. The registered address and current account version are checked again before changing the password.
 
-- Reporting with photo preview and optional resident suggested solution.
-- Separate official recommendation, assessment notes, category, and priority.
-- Assignment to five selectable teams.
-- Server-enforced role and status transitions.
-- Progress timeline with actors, timestamps, notes, and retained completion evidence.
-- Resolution, resident verification, feedback, and reassessment after reopening.
-- Return for information and resubmission, rejection with reason, referral with receiving office.
-- Search, category/priority/status filters, role-scoped lists, dashboard, history, and CSV export.
-- Category-based matches to previous verified cases; an official can copy a prior recommendation as a draft before reviewing and saving it.
-- Responsive layout, keyboard-accessible Bootstrap dialogs, and visible focus indicators.
-- SweetAlert confirmations for verification, reopening, outcomes, and resetting sample data.
-- Registration and sign-in for saved resident accounts.
-- Official account management for personnel teams and other officials.
-- Saved SQLite complaints that remain after sign-out.
-- Password hashing, login throttling, session revocation on password change or account deactivation, CSRF protection, and conflict detection for simultaneous edits.
-
-## Prototype boundaries
-
-This is a local demonstration, **not a production deployment**.
-
-- The freely switchable **demo** remains separate from the saved workspace and is not authentication.
-- Demo complaints and photos use the current PHP session. Saved accounts and their records use SQLite.
-- There is no email/SMS delivery, password-reset email, identity verification, or public transparency dashboard.
-- Images accept JPEG, PNG, or WebP, up to 1 MB and 20 megapixels. The server validates image contents. Total session data is limited to 12 MB.
-- Recommendations are written and approved by the official. Similar cases use category matching, not AI.
-- CSV exports include this session's complaint data and neutralize spreadsheet formula prefixes.
-- Average resolution time includes currently Resolved and Verified cases. Reopened, referred, and rejected complaints are excluded. Repeated categories do not prove that a specific problem recurred.
+For privacy, registered and unknown addresses receive the same request response. Inactive or unknown accounts receive no email. Missing sender configuration returns a temporary-unavailability message. If SMTP delivery fails, the challenge is invalidated and a generic diagnostic is written to the PHP error log; the public response still does not reveal whether the account exists. No OTPs, email bodies, or SMTP passwords are logged. Use `includes/check-mail.php` when diagnosing delivery, and check the recipient's spam folder.
 
 ## Verification
 
-    C:\xampp\php\php.exe tests\workflow.php
-    C:\xampp\php\php.exe tests\store.php
+With XAMPP MySQL running, execute from the project folder:
 
-Checks cover the full workflow, accounts, role restrictions, invalid transitions, atomic validation, photo validation, reopening, additional information, rejection, referral, evidence history, persistent storage, password behavior, and simultaneous-edit protection.
+```powershell
+C:\xampp\php\php.exe tests\workflow.php
+C:\xampp\php\php.exe tests\store.php
+C:\xampp\php\php.exe tests\password-reset.php
+C:\xampp\php\php.exe tests\http.php
+```
+
+Database and HTTP tests create randomly named `maintainpro_test_*` databases and remove them afterward. They do not insert test records into `maintainpro`. The HTTP suite starts and stops its own PHP server and SMTP inbox on free loopback ports. PHPMailer sends only to that local test inbox; no test messages go to Gmail or real recipients. Test credentials need permission to create and drop these test databases; the default local XAMPP root account supports this. The password-reset suite deliberately simulates an SMTP failure and prints the corresponding generic diagnostic.
 
 ## Project files
 
-- index.php: HTML shell and local dependencies.
-- app.js: interface and PHP API integration.
-- styles.css: visual design and responsive styling.
-- api.php: session-scoped JSON API and CSV reports.
-- auth.php and login.php: account access and first-time setup.
-- includes/domain.php: workflow and fictional seed records.
-- includes/store.php: SQLite persistence and account management.
-- includes/bootstrap.php: session setup, storage selection, and response headers.
-- tests/workflow.php, tests/store.php, and tests/http.php: regression checks.
+- `index.php`, `app.js`, `styles.css`: application interface.
+- `auth.php`, `login.php`, `auth-ui.js`: sign-in, registration, and first-account setup.
+- `api.php`: account-scoped JSON API and CSV exports.
+- `includes/domain.php`: complaint workflow and validation.
+- `includes/store.php`: MySQL persistence and account management.
+- `database/database.php`: database connection settings.
+- `includes/bootstrap.php`: authenticated sessions and response headers.
+- `includes/mail.php`, `includes/mail.local.php`: PHPMailer integration and private SMTP settings.
+- `includes/check-mail.php`: CLI-only SMTP authentication check.
+- `database/schema.sql`, `database/setup.php`: empty schema and setup command.
+- `tests/`: workflow, database, and HTTP regression checks.
 
-The shared ChatGPT conversation could not be retrieved. The pasted BarangayResolve brief is the requirements source; no additional historical decisions are implied.
+Private database scripts, application internals, tests, and dot directories are blocked by Apache rules and the PHP development router. To use PHP's development server, run `C:\xampp\php\php.exe -S 127.0.0.1:8080 router.php` with MySQL running.

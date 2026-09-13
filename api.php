@@ -6,11 +6,11 @@ function payload(): array
     $actor = br_actor();
     if (!$actor) throw new DomainException('Sign in to continue.');
     return [
-        'mode' => br_is_demo() ? 'demo' : 'account', 'actor' => $actor,
-        'cases' => ComplaintDemo::visible(br_state(), $actor),
-        'users' => !br_is_demo() && $actor['role'] === 'official' ? br_store()->users($actor['id']) : [],
-        'categories' => ComplaintDemo::CATEGORIES, 'teams' => ComplaintDemo::TEAMS,
-        'statuses' => ComplaintDemo::STATUSES, 'priorities' => ComplaintDemo::PRIORITIES,
+        'mode' => 'account', 'actor' => $actor,
+        'cases' => ComplaintWorkflow::visible(br_state(), $actor),
+        'users' => $actor['role'] === 'official' ? br_store()->users($actor['id']) : [],
+        'categories' => ComplaintWorkflow::CATEGORIES, 'teams' => ComplaintWorkflow::TEAMS,
+        'statuses' => ComplaintWorkflow::STATUSES, 'priorities' => ComplaintWorkflow::PRIORITIES,
     ];
 }
 header('Content-Type: application/json; charset=utf-8');
@@ -60,18 +60,9 @@ try {
     if (!is_string($action) || !is_array($data)) throw new DomainException('Invalid request.');
     $id = is_string($input['id'] ?? null) ? $input['id'] : '';
     if (in_array($action, ['switch_role', 'reset'], true)) {
-        if (!br_is_demo()) {
-            http_response_code(403);
-            throw new DomainException('Role switching and sample resets are only available in the separate demo.');
-        }
-        if ($action === 'reset') $_SESSION['br_state'] = ComplaintDemo::seed();
-        else {
-            $nextActor = ComplaintDemo::actor(is_string($data['role'] ?? null) ? $data['role'] : '', is_string($data['team'] ?? null) ? $data['team'] : ($_SESSION['br_team'] ?? 'Sanitation team'));
-            $_SESSION['br_role'] = $nextActor['role'];
-            if ($nextActor['team']) $_SESSION['br_team'] = $nextActor['team'];
-        }
+        http_response_code(403);
+        throw new DomainException('This action is unavailable. Your account determines your role.');
     } elseif (in_array($action, ['create_user', 'update_user', 'profile'], true)) {
-        if (br_is_demo()) throw new DomainException('Sign in to the saved workspace to manage real accounts.');
         if ($action === 'create_user') br_store()->createUser($actor['id'], $data);
         if ($action === 'update_user') br_store()->updateUser($actor['id'], $id, $data);
         if ($action === 'profile') {
@@ -79,12 +70,6 @@ try {
             $_SESSION['br_auth_version'] = (int)br_store()->user($actor['id'])['auth_version'];
             session_regenerate_id(true);
         }
-    } elseif (br_is_demo()) {
-        $candidate = br_state();
-        if ($action === 'submit') $id = ComplaintDemo::submit($candidate, $actor, $data);
-        else ComplaintDemo::apply($candidate, $actor, $id, $action, $data);
-        if (strlen(serialize($candidate)) > 12000000) throw new DomainException('This demo session is full. Reset the sample data to start again.');
-        $_SESSION['br_state'] = $candidate;
     } else {
         $id = br_store()->mutate($actor['id'], $action, $id, $data, $input['version'] ?? null);
     }

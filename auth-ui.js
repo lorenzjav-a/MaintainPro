@@ -11,7 +11,10 @@
     buttons.forEach(function (button) { button.disabled = true; });
     fetch('auth.php', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf}, body: JSON.stringify({action: action, data: data})})
       .then(function (response) { return response.json().then(function (body) { if (!response.ok) throw new Error(body.error || 'Please try again.'); return body; }); })
-      .then(function (body) { window.location.assign(body.redirect === 'index.php' ? 'index.php' : 'login.php'); })
+      .then(function (body) {
+        var destinations = ['index.php', 'login.php', 'login.php?view=verify', 'login.php?view=reset'];
+        window.location.assign(destinations.indexOf(body.redirect) >= 0 ? body.redirect : 'login.php');
+      })
       .catch(function (err) { Swal.fire({icon: 'error', title: 'Unable to continue', text: err.message, confirmButtonText: 'Try again'}); })
       .finally(function () {
         busy = false;
@@ -30,8 +33,10 @@
     }
     send(event.target.getAttribute('data-action'), data);
   });
-  document.getElementById('open-demo').addEventListener('click', function () { send('demo', {}); });
-  document.getElementById('show-password').addEventListener('change', function (event) {
+  var resend = document.getElementById('resend-code');
+  if (resend) resend.addEventListener('click', function () { send('request_reset', {}); });
+  var showPassword = document.getElementById('show-password');
+  if (showPassword) showPassword.addEventListener('change', function (event) {
     document.getElementById('account-password').type = event.target.checked ? 'text' : 'password';
     var confirm = document.getElementById('confirm-password');
     if (confirm) confirm.type = event.target.checked ? 'text' : 'password';

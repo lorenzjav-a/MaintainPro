@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/includes/bootstrap.php';
+require_once __DIR__ . '/includes/mail.php';
 header('Content-Type: application/json; charset=utf-8');
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -20,6 +21,33 @@ try {
     $data = $input['data'] ?? [];
     if (in_array($action, ['register', 'setup'], true) && ($data['password'] ?? '') !== ($data['confirm_password'] ?? null)) throw new DomainException('The passwords do not match.');
     switch ($action) {
+        case 'request_reset':
+            $mailer = br_mailer();
+            $email = $data['email'] ?? ($_SESSION['br_reset_email'] ?? '');
+            $challenge = br_store()->requestPasswordReset($email, $_SERVER['REMOTE_ADDR'] ?? 'local',
+                fn(string $recipient, string $code) => br_send_reset_code($mailer, $recipient, $code));
+            session_regenerate_id(true);
+            unset($_SESSION['br_reset_token'], $_SESSION['br_reset_verified_until']);
+            $_SESSION['br_reset_challenge'] = $challenge;
+            $_SESSION['br_reset_email'] = strtolower(trim($email));
+            $_SESSION['br_reset_until'] = time() + 600;
+            $_SESSION['br_csrf'] = bin2hex(random_bytes(32));
+            echo json_encode(['ok' => true, 'redirect' => 'login.php?view=verify']);
+            exit;
+        case 'verify_reset':
+            $token = br_store()->verifyPasswordReset($_SESSION['br_reset_challenge'] ?? '', $data['code'] ?? null);
+            session_regenerate_id(true);
+            $_SESSION['br_reset_token'] = $token;
+            $_SESSION['br_reset_verified_until'] = time() + 600;
+            $_SESSION['br_csrf'] = bin2hex(random_bytes(32));
+            echo json_encode(['ok' => true, 'redirect' => 'login.php?view=reset']);
+            exit;
+        case 'reset_password':
+            br_store()->resetPassword($_SESSION['br_reset_challenge'] ?? '', $_SESSION['br_reset_token'] ?? '', $data);
+            $_SESSION = ['br_csrf' => bin2hex(random_bytes(32)), 'br_password_reset_done' => true];
+            session_regenerate_id(true);
+            echo json_encode(['ok' => true, 'redirect' => 'login.php']);
+            exit;
         case 'login':
             br_enter_account(br_store()->login($data['email'] ?? null, $data['password'] ?? null, $_SERVER['REMOTE_ADDR'] ?? 'local'));
             break;
@@ -29,19 +57,9 @@ try {
         case 'setup':
             br_enter_account(br_store()->setup($data));
             break;
-        case 'demo':
-            unset($_SESSION['br_user_id']);
-            session_regenerate_id(true);
-            $_SESSION['br_mode'] = 'demo';
-            $_SESSION['br_role'] = 'official';
-            $_SESSION['br_team'] = 'Sanitation team';
-            $_SESSION['br_state'] ??= ComplaintDemo::seed();
-            $_SESSION['br_csrf'] = bin2hex(random_bytes(32));
-            break;
         case 'logout':
             unset($_SESSION['br_user_id']);
             session_regenerate_id(true);
-            $_SESSION['br_mode'] = 'account';
             $_SESSION['br_csrf'] = bin2hex(random_bytes(32));
             echo json_encode(['ok' => true, 'redirect' => 'login.php']);
             exit;
@@ -49,6 +67,9 @@ try {
             throw new DomainException('Unknown account action.');
     }
     echo json_encode(['ok' => true, 'redirect' => 'index.php']);
+} catch (MailConfigurationException $e) {
+    http_response_code(503);
+    echo json_encode(['ok' => false, 'error' => $e->getMessage()]);
 } catch (DomainException | JsonException $e) {
     if (http_response_code() < 400) http_response_code(422);
     echo json_encode(['ok' => false, 'error' => $e->getMessage()]);

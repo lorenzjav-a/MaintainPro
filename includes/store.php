@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once __DIR__ . '/domain.php';
+require_once dirname(__DIR__) . '/database/database.php';
 
 final class ConflictException extends DomainException {}
 
@@ -8,50 +9,25 @@ final class ComplaintStore
 {
     private PDO $db;
 
-    public function __construct(?string $path = null)
+    public function __construct(?PDO $db = null)
     {
-        $path ??= dirname(__DIR__) . '/.data/barangayresolve.sqlite';
-        if (!is_dir(dirname($path))) {
-            mkdir(dirname($path), 0700, true);
-        }
-        $this->db = new PDO('sqlite:' . $path, null, null, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        ]);
-        $this->db->exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000');
-        $this->db->exec("CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('resident','official','personnel')),
-            team TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1,
-            auth_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS complaints (
-            id TEXT PRIMARY KEY, resident_id TEXT NOT NULL REFERENCES users(id),
-            team TEXT NOT NULL, status TEXT NOT NULL, version INTEGER NOT NULL,
-            created_at TEXT NOT NULL, updated_at TEXT NOT NULL, payload TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS complaints_resident ON complaints(resident_id);
-        CREATE INDEX IF NOT EXISTS complaints_team ON complaints(team);
-        CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL);
-        INSERT OR IGNORE INTO settings(name,value) VALUES('next_id','1');
-        CREATE TABLE IF NOT EXISTS login_attempts (bucket TEXT NOT NULL, attempted_at INTEGER NOT NULL);
-        CREATE INDEX IF NOT EXISTS attempts_bucket ON login_attempts(bucket,attempted_at);");
-        $columns = $this->db->query('PRAGMA table_info(users)')->fetchAll();
-        if (!in_array('auth_version', array_column($columns, 'name'), true)) {
-            $this->db->exec('ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 1');
-        }
-        $this->db->exec('PRAGMA optimize');
+        $this->db = $db ?? br_database();
     }
 
     private function transaction(callable $work): mixed
     {
-        $this->db->exec('BEGIN IMMEDIATE');
+        $this->db->beginTransaction();
         try {
+            // Lock before any reads so simultaneous writes see the latest committed state.
+            // This protects setup, account permissions, complaint IDs and version checks.
+            $lock = $this->db->query("SELECT value FROM settings WHERE name='next_id' FOR UPDATE");
+            if ($lock->fetchColumn() === false) throw new RuntimeException('Run database/setup.php to initialize storage.');
+            $lock->closeCursor();
             $result = $work();
-            $this->db->exec('COMMIT');
+            $this->db->commit();
             return $result;
         } catch (Throwable $e) {
-            $this->db->exec('ROLLBACK');
+            if ($this->db->inTransaction()) $this->db->rollBack();
             throw $e;
         }
     }
@@ -114,14 +90,14 @@ final class ComplaintStore
         $email = self::email($data['email'] ?? '');
         $password = self::password($data['password'] ?? '');
         if (!in_array($role, ['resident', 'official', 'personnel'], true)) throw new DomainException('Choose a valid role.');
-        if ($role === 'personnel' && !in_array($team, ComplaintDemo::TEAMS, true)) throw new DomainException('Choose a team for the personnel account.');
+        if ($role === 'personnel' && !in_array($team, ComplaintWorkflow::TEAMS, true)) throw new DomainException('Choose a team for the personnel account.');
         if ($role !== 'personnel') $team = '';
         $id = 'user-' . bin2hex(random_bytes(12));
         try {
             $q = $this->db->prepare('INSERT INTO users(id,name,email,password_hash,role,team,created_at) VALUES(?,?,?,?,?,?,?)');
             $q->execute([$id, $name, $email, password_hash($password, PASSWORD_DEFAULT), $role, $team, date(DATE_ATOM)]);
         } catch (PDOException $e) {
-            if ((int)($e->errorInfo[1] ?? 0) === 19) throw new DomainException('That email address is already registered.');
+            if ((int)($e->errorInfo[1] ?? 0) === 1062) throw new DomainException('That email address is already registered.');
             throw $e;
         }
         return $this->user($id);
@@ -161,12 +137,16 @@ final class ComplaintStore
             $role = $data['role'] ?? '';
             if (!in_array($role, ['resident', 'official', 'personnel'], true)) throw new DomainException('Choose a valid role.');
             $team = $role === 'personnel' ? ($data['team'] ?? '') : '';
-            if ($role === 'personnel' && !in_array($team, ComplaintDemo::TEAMS, true)) throw new DomainException('Choose a personnel team.');
+            if ($role === 'personnel' && !in_array($team, ComplaintWorkflow::TEAMS, true)) throw new DomainException('Choose a personnel team.');
             if (!isset($data['active']) || !in_array($data['active'], ['1', '0'], true)) throw new DomainException('Choose an account status.');
             $active = $data['active'] === '1';
             if ($id === $officialId && (!$active || $role !== 'official')) throw new DomainException('You cannot deactivate or remove official access from your own account.');
             $q = $this->db->prepare('UPDATE users SET role=?,team=?,active=? WHERE id=?');
             $q->execute([$role, $team, $active ? 1 : 0, $id]);
+            if (!$active) {
+                $q = $this->db->prepare('DELETE FROM password_resets WHERE user_id=?');
+                $q->execute([$id]);
+            }
         });
     }
 
@@ -187,7 +167,7 @@ final class ComplaintStore
                 $q = $this->db->prepare('UPDATE users SET name=?,email=?,password_hash=?,auth_version=auth_version+? WHERE id=?');
                 $q->execute([$name, $email, $hash, $newPassword !== '' ? 1 : 0, $id]);
             } catch (PDOException $e) {
-                if ((int)($e->errorInfo[1] ?? 0) === 19) throw new DomainException('That email address is already registered.');
+                if ((int)($e->errorInfo[1] ?? 0) === 1062) throw new DomainException('That email address is already registered.');
                 throw $e;
             }
         });
@@ -222,6 +202,101 @@ final class ComplaintStore
         return $this->user($row['id']);
     }
 
+    public function requestPasswordReset(mixed $email, string $client, callable $send): string
+    {
+        $email = self::email($email);
+        $challenge = bin2hex(random_bytes(32));
+        $code = (string)random_int(100000, 999999);
+        $recipient = $this->transaction(function () use ($email, $client, $challenge, $code) {
+            $now = time();
+            $q = $this->db->prepare('DELETE FROM password_reset_requests WHERE requested_at < ?');
+            $q->execute([$now - 900]);
+            $q = $this->db->prepare('DELETE FROM password_resets WHERE expires_at < ? AND (reset_expires_at IS NULL OR reset_expires_at < ?)');
+            $q->execute([$now, $now]);
+            $buckets = [hash('sha256', 'email:' . $email) => 3, hash('sha256', 'ip:' . $client) => 10];
+            foreach ($buckets as $bucket => $limit) {
+                $q = $this->db->prepare('SELECT COUNT(*) AS total, MAX(requested_at) AS latest FROM password_reset_requests WHERE bucket=?');
+                $q->execute([$bucket]);
+                $row = $q->fetch();
+                if ((int)$row['total'] >= $limit || ($limit === 3 && (int)$row['latest'] > $now - 60)) {
+                    throw new DomainException('Please wait at least 60 seconds between codes. After repeated requests, try again in 15 minutes.');
+                }
+            }
+            foreach ($buckets as $bucket => $limit) {
+                $q = $this->db->prepare('INSERT INTO password_reset_requests(bucket,requested_at) VALUES(?,?)');
+                $q->execute([$bucket, $now]);
+            }
+            $q = $this->db->prepare('SELECT id,email,auth_version FROM users WHERE email=? AND active=1');
+            $q->execute([$email]);
+            $user = $q->fetch();
+            // Hash even for unknown addresses; the public response is identical.
+            $hash = password_hash($code, PASSWORD_DEFAULT);
+            if (!$user) return null;
+            $q = $this->db->prepare('DELETE FROM password_resets WHERE user_id=?');
+            $q->execute([$user['id']]);
+            $q = $this->db->prepare('INSERT INTO password_resets(id,user_id,email,auth_version,otp_hash,expires_at) VALUES(?,?,?,?,?,?)');
+            $q->execute([$challenge, $user['id'], $user['email'], $user['auth_version'], $hash, $now + 600]);
+            return $user['email'];
+        });
+        if ($recipient !== null) {
+            try {
+                $send($recipient, $code);
+            } catch (Throwable $e) {
+                $this->transaction(function () use ($challenge) {
+                    $q = $this->db->prepare('DELETE FROM password_resets WHERE id=?');
+                    $q->execute([$challenge]);
+                });
+                // Do not log the message body, code, SMTP credentials, or recipient.
+                error_log('MaintainPro: password reset email delivery failed. Check SMTP connectivity and sender credentials.');
+                // Keep the same public response for existing and unknown accounts.
+            }
+        }
+        return $challenge;
+    }
+
+    private function resetRequest(string $challenge): array|false
+    {
+        $q = $this->db->prepare('SELECT r.* FROM password_resets r JOIN users u ON u.id=r.user_id
+            WHERE r.id=? AND u.active=1 AND r.auth_version=u.auth_version AND r.email=u.email');
+        $q->execute([$challenge]);
+        return $q->fetch();
+    }
+
+    public function verifyPasswordReset(string $challenge, mixed $code): string
+    {
+        $token = $this->transaction(function () use ($challenge, $code) {
+            $row = $this->resetRequest($challenge);
+            if (!$row || $row['reset_token_hash'] !== null || (int)$row['expires_at'] <= time() || (int)$row['attempts'] >= 5) return null;
+            $q = $this->db->prepare('UPDATE password_resets SET attempts=attempts+1 WHERE id=?');
+            $q->execute([$challenge]);
+            if (!is_string($code) || !preg_match('/\A[0-9]{6}\z/', $code) || !password_verify($code, $row['otp_hash'])) return null;
+            $token = bin2hex(random_bytes(32));
+            $q = $this->db->prepare('UPDATE password_resets SET reset_token_hash=?,reset_expires_at=?,otp_hash=? WHERE id=?');
+            $q->execute([hash('sha256', $token), time() + 600, '', $challenge]);
+            return $token;
+        });
+        // Reject after commit so failed attempts cannot be rolled back.
+        if ($token === null) throw new DomainException('The code is incorrect, expired, or no longer available. Request a new code if needed.');
+        return $token;
+    }
+
+    public function resetPassword(string $challenge, string $token, array $data): void
+    {
+        $password = self::password($data['password'] ?? '');
+        if ($password !== ($data['confirm_password'] ?? null)) throw new DomainException('The passwords do not match.');
+        $this->transaction(function () use ($challenge, $token, $password) {
+            $row = $this->resetRequest($challenge);
+            if (!$row || !$row['reset_token_hash'] || (int)$row['reset_expires_at'] <= time()
+                || !hash_equals($row['reset_token_hash'], hash('sha256', $token))) {
+                throw new DomainException('Verify a new email code before resetting your password.');
+            }
+            $q = $this->db->prepare('UPDATE users SET password_hash=?,auth_version=auth_version+1 WHERE id=?');
+            $q->execute([password_hash($password, PASSWORD_DEFAULT), $row['user_id']]);
+            $q = $this->db->prepare('DELETE FROM password_resets WHERE user_id=?');
+            $q->execute([$row['user_id']]);
+        });
+    }
+
     public function state(): array
     {
         $cases = [];
@@ -240,7 +315,7 @@ final class ComplaintStore
             if (!$actor) throw new DomainException('Your account is inactive. Please sign in again.');
             $state = $this->state();
             if ($action === 'submit') {
-                $id = ComplaintDemo::submit($state, $actor, $data);
+                $id = ComplaintWorkflow::submit($state, $actor, $data);
                 $c = $state['cases'][0];
                 $c['version'] = 1;
                 $q = $this->db->prepare('UPDATE settings SET value=? WHERE name=?');
@@ -249,9 +324,9 @@ final class ComplaintStore
                 $q->execute([$id, $c['residentId'], $c['team'], $c['status'], 1, $c['createdAt'], $c['updatedAt'], json_encode($c, JSON_THROW_ON_ERROR)]);
             } else {
                 $index = array_search($id, array_column($state['cases'], 'id'), true);
-                if ($index === false || !ComplaintDemo::canSee($state['cases'][$index], $actor)) throw new DomainException('Complaint not found or unavailable to your account.');
+                if ($index === false || !ComplaintWorkflow::canSee($state['cases'][$index], $actor)) throw new DomainException('Complaint not found or unavailable to your account.');
                 if (!is_int($expectedVersion) || $expectedVersion !== $state['cases'][$index]['version']) throw new ConflictException('Another user updated this complaint. Close and reopen it to load the latest record before saving.');
-                ComplaintDemo::apply($state, $actor, $id, $action, $data);
+                ComplaintWorkflow::apply($state, $actor, $id, $action, $data);
                 $c = $state['cases'][$index];
                 $c['version']++;
                 $q = $this->db->prepare('UPDATE complaints SET team=?,status=?,version=?,updated_at=?,payload=? WHERE id=?');

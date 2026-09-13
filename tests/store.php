@@ -2,6 +2,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Manila');
 require dirname(__DIR__) . '/includes/store.php';
+require __DIR__ . '/database.php';
 $checks = 0;
 function verifyStore(bool $value, string $message): void
 {
@@ -23,13 +24,12 @@ function storedCase(ComplaintStore $store, string $id): array
     foreach ($store->state()['cases'] as $c) if ($c['id'] === $id) return $c;
     throw new RuntimeException('Test case missing');
 }
-$path = tempnam(sys_get_temp_dir(), 'br-store-test-');
-if ($path === false) throw new RuntimeException('Cannot create test database');
+$testDatabase = new TestDatabase();
 $store = null;
 $other = null;
 $rawDb = null;
 try {
-    $store = new ComplaintStore($path);
+    $store = new ComplaintStore($testDatabase->connect());
     $password = 'Test-password-47';
     $adminData = ['name' => 'Test Official', 'email' => 'official@example.test', 'password' => $password];
     $residentData = ['name' => 'Test Resident', 'email' => 'resident@example.test', 'password' => $password];
@@ -40,7 +40,7 @@ try {
     verifyStore($admin['role'] === 'official', 'first account is official');
     verifyStore(!array_key_exists('password_hash', $admin), 'hash excluded from account response');
     denyStore(fn() => $store->setup($adminData), 'first official setup is one-time');
-    $rawDb = new PDO('sqlite:' . $path);
+    $rawDb = $testDatabase->connect();
     $hash = $rawDb->query('SELECT password_hash FROM users')->fetchColumn();
     verifyStore($hash !== $password && password_verify($password, $hash), 'password stored as verified hash');
     verifyStore($store->login('  OFFICIAL@example.test ', $password, 'test-client')['id'] === $admin['id'], 'normalized login');
@@ -65,9 +65,9 @@ try {
     $id = $store->mutate($resident['id'], 'submit', '', $report, null);
     verifyStore($id === 'BR-1', 'saved workspace has own ID sequence');
     verifyStore(storedCase($store, $id)['version'] === 1, 'first record version');
-    $other = new ComplaintStore($path);
+    $other = new ComplaintStore($testDatabase->connect());
     verifyStore(count($other->state()['cases']) === 1, 'second connection sees durable record');
-    verifyStore(ComplaintDemo::visible($other->state(), $resident2) === [], 'other resident cannot read');
+    verifyStore(ComplaintWorkflow::visible($other->state(), $resident2) === [], 'other resident cannot read');
     denyStore(fn() => $other->mutate($resident2['id'], 'verify', $id, [], 1), 'other resident cannot update');
     $assessment = ['category' => 'Drainage and flooding', 'priority' => 'High', 'recommendation' => 'Inspect and clear the drain.', 'assessment' => 'Check outlet as well.'];
     $store->mutate($admin['id'], 'assess', $id, $assessment, 1);
@@ -110,5 +110,5 @@ try {
     echo "PASS: $checks account, access, persistence, transaction, concurrency, and password checks.\n";
 } finally {
     unset($rawDb, $other, $store);
-    if (is_file($path)) unlink($path);
+    $testDatabase->drop();
 }
