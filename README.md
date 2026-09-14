@@ -1,4 +1,4 @@
-# MaintainPro / BarangayResolve
+# MaintainPro
 
 PHP complaint management with local accounts and persistent MySQL/MariaDB storage. The workspace starts empty, with no sample accounts, seeded complaints, or demo role switching.
 
@@ -8,6 +8,22 @@ PHP complaint management with local accounts and persistent MySQL/MariaDB storag
 2. On a new installation, run `C:\xampp\php\php.exe database\setup.php` from the project folder. The database on this PC has already been created.
 3. Open **http://localhost/MaintainPro/** and create your first barangay-official account.
 4. Residents can register from the sign-in page. Officials create personnel and additional official accounts under **User management**.
+
+## Accounts and dashboards
+
+MaintainPro has three account types: resident, barangay official, and barangay personnel. Public registration always creates a resident account. The first official is created only during initial setup; existing officials create additional officials and personnel through **User management → Create account**. Officials can also issue a resident account when needed. Personnel must have an assigned team.
+
+When an official creates an account, MaintainPro generates a temporary password and displays it once in the creation dialog. Copy the details before closing it and share them privately with the account holder. Only a password hash is stored; the password cannot be retrieved from the account list. Staff invitations are not emailed. If the temporary password is lost, the account holder can use email OTP recovery when SMTP is configured.
+
+The new account must sign in and replace its temporary password before accessing complaints, exports, account management, or profile settings. Successful replacement revokes earlier temporary-password sessions. Existing accounts and public resident registrations keep their normal sign-in flow. Email OTP recovery also satisfies the initial password-change requirement.
+
+After sign-in:
+
+- **Resident dashboard:** personal active reports, resolutions awaiting verification, verified reports, and reporting history.
+- **Administrative dashboard:** new reports, assessment queue, urgent concerns, reopened concerns, team workload, and user management.
+- **Personnel work queue:** assigned and in-progress tasks, sorted by priority and then oldest first; separate views show work awaiting resident verification and verified outcomes.
+
+Account lists show **Password change required** until a newly issued account completes that step. On an existing installation, run `C:\xampp\php\php.exe database\setup.php` to add the onboarding field without changing existing accounts. This migration has already been applied on this PC.
 
 The default database is **maintainpro**, available in **http://localhost/phpmyadmin/**. Connection defaults match local XAMPP: host `127.0.0.1`, port `3306`, username `root`, empty password.
 To use different credentials, set `BR_DB_HOST`, `BR_DB_PORT`, `BR_DB_NAME`, `BR_DB_USER`, and `BR_DB_PASSWORD` in the PHP process environment, then restart Apache. Defaults are in `database/database.php`.

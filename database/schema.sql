@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
     team VARCHAR(100) NOT NULL DEFAULT '',
     active TINYINT NOT NULL DEFAULT 1,
     auth_version INT NOT NULL DEFAULT 1,
+    must_change_password TINYINT NOT NULL DEFAULT 0,
     created_at VARCHAR(35) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

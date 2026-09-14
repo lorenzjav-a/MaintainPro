@@ -51,6 +51,11 @@ try {
         case 'login':
             br_enter_account(br_store()->login($data['email'] ?? null, $data['password'] ?? null, $_SERVER['REMOTE_ADDR'] ?? 'local'));
             break;
+        case 'change_password':
+            $actor = br_actor();
+            if (!$actor) throw new DomainException('Sign in with your temporary password first.');
+            br_enter_account(br_store()->changeTemporaryPassword($actor['id'], $data));
+            break;
         case 'register':
             br_enter_account(br_store()->register($data));
             break;
@@ -66,7 +71,7 @@ try {
         default:
             throw new DomainException('Unknown account action.');
     }
-    echo json_encode(['ok' => true, 'redirect' => 'index.php']);
+    echo json_encode(['ok' => true, 'redirect' => br_actor()['must_change_password'] ? 'login.php?view=change-password' : 'index.php']);
 } catch (MailConfigurationException $e) {
     http_response_code(503);
     echo json_encode(['ok' => false, 'error' => $e->getMessage()]);

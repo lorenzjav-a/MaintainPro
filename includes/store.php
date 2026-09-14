@@ -39,11 +39,12 @@ final class ComplaintStore
 
     public function user(string $id): ?array
     {
-        $q = $this->db->prepare('SELECT id,name,email,role,team,active,auth_version,created_at FROM users WHERE id=?');
+        $q = $this->db->prepare('SELECT id,name,email,role,team,active,auth_version,must_change_password,created_at FROM users WHERE id=?');
         $q->execute([$id]);
         $user = $q->fetch();
         if (!$user) return null;
         $user['active'] = (bool)$user['active'];
+        $user['must_change_password'] = (bool)$user['must_change_password'];
         return $user;
     }
 
@@ -56,14 +57,14 @@ final class ComplaintStore
     private function authorizeOfficial(string $id): array
     {
         $actor = $this->actor($id);
-        if (!$actor || $actor['role'] !== 'official') throw new DomainException('Only a barangay official can manage accounts.');
+        if (!$actor || $actor['must_change_password'] || $actor['role'] !== 'official') throw new DomainException('Only a barangay official with a completed account can manage accounts.');
         return $actor;
     }
 
     public function users(string $officialId): array
     {
         $this->authorizeOfficial($officialId);
-        return $this->db->query('SELECT id,name,email,role,team,active,created_at FROM users ORDER BY created_at DESC,name')->fetchAll();
+        return $this->db->query('SELECT id,name,email,role,team,active,must_change_password,created_at FROM users ORDER BY created_at DESC,name')->fetchAll();
     }
 
     private static function name(mixed $name): string
@@ -124,7 +125,32 @@ final class ComplaintStore
     {
         return $this->transaction(function () use ($officialId, $data) {
             $this->authorizeOfficial($officialId);
-            return $this->insertUser($data, is_string($data['role'] ?? null) ? $data['role'] : '', is_string($data['team'] ?? null) ? $data['team'] : '');
+            $temporaryPassword = 'MP-' . bin2hex(random_bytes(10));
+            $user = $this->insertUser(array_replace($data, ['password' => $temporaryPassword]), is_string($data['role'] ?? null) ? $data['role'] : '', is_string($data['team'] ?? null) ? $data['team'] : '');
+            $q = $this->db->prepare('UPDATE users SET must_change_password=1 WHERE id=?');
+            $q->execute([$user['id']]);
+            return $this->user($user['id']) + ['temporary_password' => $temporaryPassword];
+        });
+    }
+
+    public function changeTemporaryPassword(string $id, array $data): array
+    {
+        return $this->transaction(function () use ($id, $data) {
+            $user = $this->actor($id);
+            if (!$user || !$user['must_change_password']) throw new DomainException('This account does not require an initial password change.');
+            $q = $this->db->prepare('SELECT password_hash FROM users WHERE id=?');
+            $q->execute([$id]);
+            $hash = $q->fetchColumn();
+            $current = $data['current_password'] ?? null;
+            if (!is_string($current) || !password_verify($current, $hash)) throw new DomainException('Enter your current temporary password.');
+            $password = self::password($data['password'] ?? '');
+            if ($password !== ($data['confirm_password'] ?? null)) throw new DomainException('The passwords do not match.');
+            if (password_verify($password, $hash)) throw new DomainException('Choose a password different from your temporary password.');
+            $q = $this->db->prepare('UPDATE users SET password_hash=?,must_change_password=0,auth_version=auth_version+1 WHERE id=?');
+            $q->execute([password_hash($password, PASSWORD_DEFAULT), $id]);
+            $q = $this->db->prepare('DELETE FROM password_resets WHERE user_id=?');
+            $q->execute([$id]);
+            return $this->user($id);
         });
     }
 
@@ -153,7 +179,8 @@ final class ComplaintStore
     public function updateProfile(string $id, array $data): void
     {
         $this->transaction(function () use ($id, $data) {
-            if (!$this->actor($id)) throw new DomainException('Sign in again to update your profile.');
+            $actor = $this->actor($id);
+            if (!$actor || $actor['must_change_password']) throw new DomainException('Complete your initial password change before updating your profile.');
             $name = self::name($data['name'] ?? '');
             $email = self::email($data['email'] ?? '');
             $q = $this->db->prepare('SELECT password_hash FROM users WHERE id=?');
@@ -290,7 +317,7 @@ final class ComplaintStore
                 || !hash_equals($row['reset_token_hash'], hash('sha256', $token))) {
                 throw new DomainException('Verify a new email code before resetting your password.');
             }
-            $q = $this->db->prepare('UPDATE users SET password_hash=?,auth_version=auth_version+1 WHERE id=?');
+            $q = $this->db->prepare('UPDATE users SET password_hash=?,must_change_password=0,auth_version=auth_version+1 WHERE id=?');
             $q->execute([password_hash($password, PASSWORD_DEFAULT), $row['user_id']]);
             $q = $this->db->prepare('DELETE FROM password_resets WHERE user_id=?');
             $q->execute([$row['user_id']]);
@@ -313,6 +340,7 @@ final class ComplaintStore
         return $this->transaction(function () use ($userId, $action, $id, $data, $expectedVersion) {
             $actor = $this->actor($userId);
             if (!$actor) throw new DomainException('Your account is inactive. Please sign in again.');
+            if ($actor['must_change_password']) throw new DomainException('Change your temporary password before accessing complaints.');
             $state = $this->state();
             if ($action === 'submit') {
                 $id = ComplaintWorkflow::submit($state, $actor, $data);

@@ -12,7 +12,7 @@
     fetch('auth.php', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf}, body: JSON.stringify({action: action, data: data})})
       .then(function (response) { return response.json().then(function (body) { if (!response.ok) throw new Error(body.error || 'Please try again.'); return body; }); })
       .then(function (body) {
-        var destinations = ['index.php', 'login.php', 'login.php?view=verify', 'login.php?view=reset'];
+        var destinations = ['index.php', 'login.php', 'login.php?view=verify', 'login.php?view=reset', 'login.php?view=change-password'];
         window.location.assign(destinations.indexOf(body.redirect) >= 0 ? body.redirect : 'login.php');
       })
       .catch(function (err) { Swal.fire({icon: 'error', title: 'Unable to continue', text: err.message, confirmButtonText: 'Try again'}); })
@@ -34,6 +34,8 @@
     send(event.target.getAttribute('data-action'), data);
   });
   var resend = document.getElementById('resend-code');
+  var signOut = document.getElementById('account-signout');
+  if (signOut) signOut.addEventListener('click', function () { send('logout', {}); });
   if (resend) resend.addEventListener('click', function () { send('request_reset', {}); });
   var showPassword = document.getElementById('show-password');
   if (showPassword) showPassword.addEventListener('change', function (event) {

@@ -1,6 +1,6 @@
 # Prototype scope and traceability
 
-Source: the user's pasted BarangayResolve brief and instruction to use PHP, HTML, CSS, Bootstrap, and SweetAlert.
+Source: the user's pasted community complaint management brief and instruction to use PHP, HTML, CSS, Bootstrap, and SweetAlert. The project's final name is MaintainPro.
 
 | Requested MVP module | Implemented demonstration |
 | --- | --- |

@@ -65,6 +65,7 @@
     return fetch('api.php', {method: action ? 'POST' : 'GET', credentials: 'same-origin', headers: action ? {'Content-Type': 'application/json', 'X-CSRF-Token': csrf} : {}, body: action ? JSON.stringify({action: action, data: data || {}, id: id || '', version: record ? record.version : null}) : undefined})
       .then(function (response) { return response.json().then(function (body) {
         if (response.status === 401) window.location.assign('login.php');
+        if (response.status === 403 && body.redirect === 'login.php?view=change-password') window.location.assign(body.redirect);
         if (!response.ok) {
           if (response.status === 409 && body.state) state = body.state;
           var requestError = new Error(body.error || 'The request could not be completed.');
@@ -101,28 +102,30 @@
   function render(preserveFocus) {
     var focused = preserveFocus ? document.activeElement : null, focusId = focused && focused.id, caret = focused && focused.selectionStart;
     var m = metrics(), a = state.actor, official = a.role === 'official', resident = a.role === 'resident';
-    var pageNames = {overview: 'Overview', complaints: resident ? 'My complaints' : official ? 'All complaints' : 'Assigned work', history: 'Resolution history', insights: 'Reports & insights', knowledge: 'Solution library', users: 'User management', profile: 'My profile'};
+    var pageNames = {overview: official ? 'Administrative dashboard' : resident ? 'Resident dashboard' : 'Personnel dashboard', complaints: resident ? 'My complaints' : official ? 'All complaints' : 'Work queue', history: 'Resolution history', insights: 'Reports & insights', knowledge: 'Solution library', users: 'User management', profile: 'My profile'};
     if (!official && ['insights', 'knowledge', 'users'].indexOf(ui.page) >= 0) ui.page = 'overview';
+    document.title = pageNames[ui.page] + ' · MaintainPro';
     document.getElementById('app').innerHTML =
       '<a class="visually-hidden-focusable skip-link" href="#main-content">Skip to main content</a><div class="shell">' +
       (ui.mobile ? '<button class="sidebar-scrim" data-menu aria-label="Close navigation"></button>' : '') +
-      '<aside class="sidebar' + (ui.mobile ? ' mobile-open' : '') + '" aria-label="Main navigation"><a href="./" class="brand"><img src="favicon.svg" alt=""><div><div class="brand-title">Barangay<span>Resolve</span></div><small>Community care, connected</small></div></a>' +
-      '<div class="workspace-label">WORKSPACE</div><nav class="nav-list">' + navItem('overview', 'Overview', 'grid') + navItem('complaints', pageNames.complaints, 'inbox', m.total) +
+      '<aside class="sidebar' + (ui.mobile ? ' mobile-open' : '') + '" aria-label="Main navigation"><a href="./" class="brand"><img src="favicon.svg" alt=""><div><div class="brand-title">Maintain<span>Pro</span></div><small>Community care, connected</small></div></a>' +
+      '<div class="workspace-label">WORKSPACE</div><nav class="nav-list">' + navItem('overview', 'Dashboard', 'grid') + navItem('complaints', pageNames.complaints, 'inbox', m.total) +
       (official ? '<button class="nav-link" data-quick="assessment">' + icon('clipboard') + '<span>Needs assessment</span><span class="nav-count">' + m.assessment + '</span></button>' : '') +
       '<div class="sidebar-line"></div><div class="workspace-label">RECORDS & LEARNING</div>' + navItem('history', 'Resolution history', 'clock') +
       (official ? navItem('insights', 'Reports & insights', 'chart') + navItem('knowledge', 'Solution library', 'book') : '') + (official ? '<div class="sidebar-line"></div>' + navItem('users', 'User management', 'users') : '') + '</nav>' +
       '<div class="sidebar-bottom"><button class="nav-link" data-help>' + icon('help') + 'How it works</button><div class="demo-note"><strong><span class="demo-dot"></span>' + 'Saved workspace' + '</strong><p>' + 'Reports and their histories are saved, even after you sign out.' + '</p></div><div class="sidebar-footer">' + icon('building') + 'Barangay community services</div></div></aside>' +
       '<header class="topbar"><div class="breadcrumb-label"><button class="icon-btn menu-toggle" data-menu aria-label="Open navigation">' + icon('menu') + '</button><span class="workspace-crumb">Workspace</span><span class="workspace-crumb">/</span><strong>' + pageNames[ui.page] + '</strong></div><div class="topbar-right"><span class="date-label">' + new Date().toLocaleDateString('en-PH', {weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'}) + '</span><div class="profile"><span class="avatar me">' + e(initials(a.name)) + '</span><div><div class="profile-name">' + e(a.name) + '</div><div class="profile-role">' + e(roleLabel(a.role)) + '</div></div></div></div></header>' +
-      workspaceToolbar() + '<main class="main" id="main-content">' + pageContent() + '<footer class="main-footer"><span>BarangayResolve · Community Complaint & Resolution Management</span><span>' + 'Saved account workspace' + '</span></footer></main>' + mobileDock() + '</div>';
+      workspaceToolbar() + '<main class="main" id="main-content">' + pageContent() + '<footer class="main-footer"><span>MaintainPro · Community Complaint & Resolution Management</span><span>' + 'Saved account workspace' + '</span></footer></main>' + mobileDock() + '</div>';
     if (focusId) { var input = document.getElementById(focusId); if (input) { input.focus(); if (typeof caret === 'number' && input.setSelectionRange) input.setSelectionRange(caret, caret); } }
   }
   function heading(title, description, actions) {
     return '<div class="page-heading"><div><h1>' + title + '</h1><p>' + description + '</p></div><div class="heading-actions">' + (actions || '') + '</div></div>';
   }
   function usersPage() {
-    return heading('User management', 'Manage resident accounts, official access, and personnel teams.', '<button class="btn btn-primary" data-add-user>' + icon('plus') + 'Create account</button>') +
+    return heading('MaintainPro user management', 'Create official and personnel accounts, assign teams, and manage resident access.', '<button class="btn btn-primary" data-add-user>' + icon('plus') + 'Create account</button>') +
+      '<div class="account-access-note account-guide"><strong>How accounts are created</strong><p>Residents can register from the sign-in page. Authorized officials create barangay official and personnel accounts here. Personnel must have an assigned team.</p><p>New accounts receive a temporary password and must change it before accessing the workspace.</p></div>' +
       '<section class="panel user-register"><div class="panel-header"><div><h2 class="panel-title">Workspace accounts <span class="count-pill">' + state.users.length + '</span></h2><p class="panel-subtitle">Deactivated accounts cannot sign in. Complaint histories are retained.</p></div></div><div class="table-responsive"><table class="table mb-0"><caption class="visually-hidden">Saved workspace user accounts</caption><thead><tr><th scope="col">Account</th><th scope="col">Role / team</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead><tbody>' +
-      state.users.map(function (u) { return '<tr><td><strong>' + e(u.name) + (u.id === state.actor.id ? ' <span class="count-pill">YOU</span>' : '') + '</strong><small>' + e(u.email) + '</small></td><td><span class="role-pill">' + e(roleLabel(u.role)) + '</span>' + (u.team ? '<small>' + e(u.team) + '</small>' : '') + '</td><td><span class="status ' + (Number(u.active) ? 'status-verified' : 'status-rejected') + '">' + (Number(u.active) ? 'Active' : 'Inactive') + '</span></td><td><button class="btn btn-light btn-sm" data-edit-user="' + e(u.id) + '" aria-label="Manage account for ' + e(u.name) + '">Manage</button></td></tr>'; }).join('') +
+      state.users.map(function (u) { return '<tr><td><strong>' + e(u.name) + (u.id === state.actor.id ? ' <span class="count-pill">YOU</span>' : '') + '</strong><small>' + e(u.email) + '</small></td><td><span class="role-pill">' + e(roleLabel(u.role)) + '</span>' + (u.team ? '<small>' + e(u.team) + '</small>' : '') + '</td><td><span class="status ' + (Number(u.active) ? 'status-verified' : 'status-rejected') + '">' + (Number(u.active) ? (Number(u.must_change_password) ? 'Password change required' : 'Active') : 'Inactive') + '</span></td><td><button class="btn btn-light btn-sm" data-edit-user="' + e(u.id) + '" aria-label="Manage account for ' + e(u.name) + '">Manage</button></td></tr>'; }).join('') +
       '</tbody></table></div></section>';
   }
   function profilePage() {
@@ -138,8 +141,8 @@
     formOpener = trigger || null;
     document.getElementById('form-content').innerHTML =
       '<div class="modal-header"><div><div class="eyebrow">ACCOUNT MANAGEMENT</div><h2 class="modal-title" id="form-heading">' + (user ? 'Manage ' + e(user.name) : 'Create a workspace account') + '</h2></div><button class="btn-close" data-bs-dismiss="modal" aria-label="Close account form" type="button"></button></div><div class="modal-body"><form data-action="' + (user ? 'update_user' : 'create_user') + '"' + (user ? ' data-id="' + e(user.id) + '"' : '') + '><div class="new-form-body"><div class="row g-3">' +
-      (user ? '<div class="col-12"><p class="info-callout mb-0">' + e(user.email) + (user.id === state.actor.id ? '<br>You cannot deactivate or remove official access from your own account.' : '<br>Changes take effect on the account’s next request.') + '</p></div>' : '<div class="col-sm-6"><label class="form-label" for="user-name">Full name</label><input class="form-control" id="user-name" name="name" required minlength="2" maxlength="100" autocomplete="off"></div><div class="col-sm-6"><label class="form-label" for="user-email">Email address</label><input class="form-control" id="user-email" name="email" type="email" required maxlength="254" autocomplete="off"></div><div class="col-12"><label class="form-label" for="user-password">Initial password</label><input class="form-control" id="user-password" name="password" type="password" required minlength="10" maxlength="72" autocomplete="new-password"><p class="form-text">Use at least 10 characters. The user can change it in My profile. This system does not send account emails.</p></div>') +
-      '<div class="col-sm-6"><label class="form-label" for="user-role">Account role</label><select class="form-select" id="user-role" name="role" required>' + ['resident', 'personnel', 'official'].map(function (r) { return '<option value="' + r + '"' + (r === role ? ' selected' : '') + '>' + roleLabel(r) + '</option>'; }).join('') + '</select></div><div class="col-sm-6" id="user-team-wrap"' + (role !== 'personnel' ? ' hidden' : '') + '><label class="form-label" for="user-team">Personnel team</label><select class="form-select" id="user-team" name="team"' + (role === 'personnel' ? ' required' : '') + '>' + options(state.teams, user ? user.team : '', 'Choose a team') + '</select></div>' +
+      (user ? '<div class="col-12"><p class="info-callout mb-0">' + e(user.email) + (user.id === state.actor.id ? '<br>You cannot deactivate or remove official access from your own account.' : '<br>Changes take effect on the account’s next request.') + '</p></div>' : '<div class="col-sm-6"><label class="form-label" for="user-name">Full name</label><input class="form-control" id="user-name" name="name" required minlength="2" maxlength="100" autocomplete="off"></div><div class="col-sm-6"><label class="form-label" for="user-email">Email address</label><input class="form-control" id="user-email" name="email" type="email" required maxlength="254" autocomplete="off"></div><div class="col-12"><p class="info-callout mb-0">MaintainPro generates a temporary password. You will see it once after creating the account. The user must choose their own password at first sign-in.</p></div>') +
+      '<div class="col-sm-6"><label class="form-label" for="user-role">Account type</label><select class="form-select" id="user-role" name="role" required>' + ['official', 'personnel', 'resident'].map(function (r) { return '<option value="' + r + '"' + (r === role ? ' selected' : '') + '>' + roleLabel(r) + '</option>'; }).join('') + '</select></div><div class="col-sm-6" id="user-team-wrap"' + (role !== 'personnel' ? ' hidden' : '') + '><label class="form-label" for="user-team">Assigned team</label><select class="form-select" id="user-team" name="team"' + (role === 'personnel' ? ' required' : '') + '>' + options(state.teams, user ? user.team : '', 'Choose a team') + '</select></div>' +
       (user ? '<div class="col-sm-6"><label class="form-label" for="user-active">Account status</label><select class="form-select" id="user-active" name="active"><option value="1"' + (Number(user.active) ? ' selected' : '') + '>Active</option><option value="0"' + (!Number(user.active) ? ' selected' : '') + '>Inactive</option></select></div>' : '') +
       '</div></div><div class="form-modal-footer"><small>' + (user ? 'Existing complaint records are retained.' : 'Public registration creates resident accounts only.') + '</small><button class="btn btn-primary" type="submit">' + (user ? 'Save access settings' : 'Create account') + '</button></div></form></div>';
     formModal.show(trigger);
@@ -155,23 +158,34 @@
   function primaryButton() {
     if (state.actor.role === 'resident') return '<button class="btn btn-primary" data-new>' + icon('plus') + 'Report a concern</button>';
     if (state.actor.role === 'official') return '<button class="btn btn-primary" data-quick="assessment">' + icon('clipboard') + 'Review complaints</button>';
-    return '<button class="btn btn-primary" data-quick="pending">' + icon('clipboard') + 'View assignments</button>';
+    return '<button class="btn btn-primary" data-quick="work">' + icon('clipboard') + 'View assignments</button>';
   }
   function stat(label, number, caption, name, color, tab) {
     return '<button class="stat-card ' + color + '" data-quick="' + tab + '"><div class="stat-top"><span>' + label + '</span><span class="stat-icon">' + icon(name) + '</span></div><div class="number">' + number + '</div><div class="stat-caption">' + caption + '</div></button>';
   }
   function stats() {
-    var m = metrics(), official = state.actor.role === 'official';
-    return '<div class="stats-grid">' + stat('Total complaints', m.total, 'All reports in this workspace', 'inbox', '', 'all') +
-      stat(official ? 'Needs assessment' : 'Open complaints', official ? m.assessment : m.pending, official ? 'Review & recommend an action' : 'Including resident verification', 'clipboard', 'amber', official ? 'assessment' : 'pending') +
-      stat('In progress', m.progress, 'Action underway with personnel', 'tool', 'blue', 'progress') +
-      stat('Verified resolutions', m.verified, 'Confirmed by the reporting resident', 'checkCircle', 'green', 'verified') + '</div>';
+    var m = metrics(), role = state.actor.role;
+    if (role === 'resident') return '<div class="stats-grid">' +
+      stat('My active reports', m.pending, 'Your concerns still being handled', 'inbox', '', 'pending') +
+      stat('Awaiting my verification', m.resolved, 'Review the completed work', 'checkCircle', 'amber', 'resolved') +
+      stat('Verified reports', m.verified, 'Resolutions you have confirmed', 'checkCircle', 'green', 'verified') +
+      stat('All my reports', m.total, 'Your complete reporting history', 'clock', 'blue', 'all') + '</div>';
+    if (role === 'personnel') return '<div class="stats-grid">' +
+      stat('New assignments', state.cases.filter(function (c) { return c.status === 'Assigned'; }).length, 'Accept work assigned to your team', 'clipboard', 'amber', 'assigned') +
+      stat('In progress', m.progress, 'Continue work and add updates', 'tool', 'blue', 'progress') +
+      stat('Awaiting verification', m.resolved, 'Work completed; resident review pending', 'checkCircle', '', 'resolved') +
+      stat('Verified work', m.verified, 'Confirmed by the reporting resident', 'checkCircle', 'green', 'verified') + '</div>';
+    return '<div class="stats-grid">' +
+      stat('New reports', state.cases.filter(function (c) { return c.status === 'Submitted'; }).length, 'Newly submitted resident concerns', 'inbox', '', 'submitted') +
+      stat('Needs assessment', m.assessment, 'Review, recommend, and assign', 'clipboard', 'amber', 'assessment') +
+      stat('Urgent concerns', m.urgent, 'Open reports marked urgent', 'flag', 'blue', 'urgent') +
+      stat('Reopened concerns', state.cases.filter(function (c) { return c.status === 'Reopened'; }).length, 'Review the resident feedback', 'refresh', 'green', 'reopened_now') + '</div>';
   }
   function banner() {
     var m = metrics(), a = state.actor;
     if (a.role === 'official') return '<div class="attention-banner"><div class="attention-icon">' + icon('clipboard') + '</div><div class="attention-copy"><strong>' + m.assessment + ' complaint' + (m.assessment === 1 ? '' : 's') + ' need' + (m.assessment === 1 ? 's' : '') + ' your assessment</strong><p>' + (m.urgent ? m.urgent + ' urgent concern' + (m.urgent === 1 ? ' is' : 's are') + ' awaiting action. ' : '') + 'Review the details and recommend the next step.</p></div><button class="link-button" data-quick="assessment">Review queue ' + icon('arrow') + '</button></div>';
     if (a.role === 'resident') return '<div class="attention-banner"><div class="attention-icon">' + icon('checkCircle') + '</div><div class="attention-copy"><strong>' + (m.resolved ? m.resolved + ' resolution' + (m.resolved === 1 ? ' is' : 's are') + ' ready for your verification' : 'Your voice helps improve the community') + '</strong><p>' + (m.resolved ? 'Check the completed work. Confirm the outcome or tell us what still needs attention.' : 'Submit a concern, suggest a solution, and follow the barangay’s response.') + '</p></div><button class="link-button" data-quick="' + (m.resolved ? 'resolved' : 'all') + '">' + (m.resolved ? 'Verify outcome' : 'Track my reports') + ' ' + icon('arrow') + '</button></div>';
-    return '<div class="attention-banner"><div class="attention-icon">' + icon('tool') + '</div><div class="attention-copy"><strong>' + e(a.team) + ' · ' + state.cases.filter(function (c) { return c.status === 'Assigned'; }).length + ' new assignment(s)</strong><p>Follow the official recommended action and record the work performed.</p></div><button class="link-button" data-quick="pending">Open work queue ' + icon('arrow') + '</button></div>';
+    return '<div class="attention-banner"><div class="attention-icon">' + icon('tool') + '</div><div class="attention-copy"><strong>' + e(a.team) + ' · ' + state.cases.filter(function (c) { return c.status === 'Assigned'; }).length + ' new assignment(s)</strong><p>Follow the official recommended action and record the work performed.</p></div><button class="link-button" data-quick="work">Open work queue ' + icon('arrow') + '</button></div>';
   }
   function chart(cases, full) {
     var data = group(cases, 'category'), shown = full ? data : data.slice(0, 5), max = data.length ? data[0].count : 1;
@@ -192,6 +206,10 @@
   }
   function filteredCases() {
     var list = state.cases.filter(function (c) {
+      if (ui.tab === 'work' && ['Assigned', 'In Progress'].indexOf(c.status) < 0) return false;
+      if (ui.tab === 'assigned' && c.status !== 'Assigned') return false;
+      if (ui.tab === 'submitted' && c.status !== 'Submitted') return false;
+      if (ui.tab === 'reopened_now' && c.status !== 'Reopened') return false;
       if (ui.page === 'history' && !(c.resolution || ['Verified', 'Rejected', 'Referred to Another Office'].indexOf(c.status) >= 0)) return false;
       if (ui.tab === 'pending' && !active(c)) return false;
       if (ui.tab === 'assessment' && !review(c)) return false;
@@ -206,7 +224,13 @@
       var haystack = [c.id, c.title, c.location, c.category, c.resident, c.team].join(' ').toLowerCase();
       return !ui.search || haystack.indexOf(ui.search.toLowerCase().trim()) >= 0;
     });
-    list.sort(function (a, b) { return new Date(ui.page === 'history' ? b.updatedAt : b.createdAt) - new Date(ui.page === 'history' ? a.updatedAt : a.createdAt); });
+    list.sort(function (a, b) {
+      if (state.actor.role === 'personnel' && ui.page === 'complaints') {
+        var rank = {Urgent: 0, High: 1, Medium: 2, Low: 3};
+        return rank[a.priority] - rank[b.priority] || new Date(a.createdAt) - new Date(b.createdAt);
+      }
+      return new Date(ui.page === 'history' ? b.updatedAt : b.createdAt) - new Date(ui.page === 'history' ? a.updatedAt : a.createdAt);
+    });
     return list;
   }
   function tab(label, value) { return '<button class="filter-tab' + (ui.tab === value ? ' active' : '') + '" data-tab="' + value + '" aria-pressed="' + (ui.tab === value) + '">' + label + '</button>'; }
@@ -218,7 +242,7 @@
     }
     var all = filteredCases(), rows = compact ? all.slice(0, 6) : all;
     var tabs = tab('All concerns', 'all') + tab('Needs action', 'pending') + tab('Verified', 'verified');
-    if (['all', 'pending', 'verified'].indexOf(ui.tab) < 0) tabs += tab({assessment: 'Assessment', progress: 'In progress', resolved: 'To verify', urgent: 'Urgent', reopened: 'Ever reopened'}[ui.tab], ui.tab);
+    if (['all', 'pending', 'verified'].indexOf(ui.tab) < 0) tabs += tab({assessment: 'Assessment', progress: 'In progress', resolved: 'To verify', urgent: 'Urgent', reopened: 'Ever reopened', submitted: 'New reports', assigned: 'New assignments', work: 'Active work', reopened_now: 'Reopened'}[ui.tab], ui.tab);
     return '<section class="panel"><div class="panel-header"><div><h2 class="panel-title">' + (compact ? 'Recent complaints' : ui.page === 'history' ? 'Complaint outcomes' : 'Complaint register') + ' <span class="count-pill">' + all.length + '</span></h2>' + (!compact ? '<p class="panel-subtitle">Open a complaint to view its details and available actions.</p>' : '') + '</div>' + (compact ? '<button class="link-button" data-nav="complaints">View all ' + icon('arrow') + '</button>' : '') + '</div>' +
       '<div class="panel-toolbar"><div class="filter-tabs" aria-label="Complaint filters">' + tabs + '</div>' + (compact ? searchField() : '') + '</div>' +
       (!compact ? '<div class="filter-row pt-3">' + searchField() + '<select class="form-select form-select-sm" id="category-filter" aria-label="Filter by category">' + options(state.categories, ui.category, 'All categories') + '</select><select class="form-select form-select-sm" id="priority-filter" aria-label="Filter by priority">' + options(state.priorities, ui.priority, 'All priorities') + '</select><select class="form-select form-select-sm" id="status-filter" aria-label="Filter by status">' + options(state.statuses, ui.status, 'All statuses') + '</select></div>' : '') +
@@ -230,9 +254,14 @@
     var a = state.actor, m = metrics();
     if (ui.page === 'users') return usersPage();
     if (ui.page === 'profile') return profilePage();
-    if (ui.page === 'overview') return heading(a.role === 'resident' ? 'Your community, your concerns' : a.role === 'personnel' ? 'Your team’s work overview' : 'Complaint overview', a.role === 'resident' ? 'Report a concern and follow the action taken by your barangay.' : 'Keep community concerns moving toward a verified resolution.', (a.role === 'official' ? exportButton() : '') + primaryButton()) + stats() + banner() +
-      '<div class="overview-grid"><div>' + complaintTable(true) + bottomPanels() + '</div><aside class="side-stack"><section class="panel"><div class="panel-header"><h2 class="panel-title">Complaints by category</h2></div>' + chart(state.cases, false) + '<div class="chart-note">Top categories · ' + m.total + ' total reports</div></section>' + activity() + '<section class="workflow-card">' + icon('shield') + '<h3>Resolution is a shared effort.</h3><p>The barangay recommends and acts.<br>The resident confirms the outcome.</p><button class="link-button" data-help>Explore the complaint journey ' + icon('arrow') + '</button></section></aside></div>';
-    if (ui.page === 'complaints') return heading(a.role === 'resident' ? 'My complaints' : a.role === 'personnel' ? 'Assigned work' : 'All complaints', a.role === 'resident' ? 'Your reports, recommendations, and progress in one place.' : a.role === 'personnel' ? 'Work assigned to ' + e(a.team) + '.' : 'Review concerns, recommend actions, and coordinate the response.', a.role === 'resident' ? primaryButton() : a.role === 'official' ? exportButton() : '') + complaintTable(false);
+    if (ui.page === 'overview') {
+      var title = a.role === 'official' ? 'Administrative dashboard' : a.role === 'resident' ? 'Resident dashboard' : 'Personnel dashboard';
+      var description = a.role === 'official' ? 'Assess new reports, coordinate teams, and follow reopened concerns.' : a.role === 'resident' ? 'Track your reports and confirm completed work.' : 'Track assignments and completed work for ' + e(a.team) + '.';
+      var summary = heading(title, description, (a.role === 'official' ? exportButton() : '') + primaryButton()) + stats() + banner();
+      if (a.role !== 'official') return summary + '<div class="overview-grid"><div>' + complaintTable(true) + '</div><aside class="side-stack">' + activity() + '<section class="workflow-card">' + icon(a.role === 'resident' ? 'checkCircle' : 'tool') + '<h3>' + (a.role === 'resident' ? 'Your confirmation closes the report.' : 'Record the work as it happens.') + '</h3><p>' + (a.role === 'resident' ? 'Once work is marked resolved, review the result. Verify it or explain what still needs attention.' : 'Start assigned work, add progress notes, and submit the resolution for resident verification.') + '</p><button class="link-button" data-help>How the process works ' + icon('arrow') + '</button></section></aside></div>';
+      return summary + '<div class="overview-grid"><div>' + complaintTable(true) + bottomPanels() + '</div><aside class="side-stack"><section class="panel"><div class="panel-header"><h2 class="panel-title">Complaints by category</h2></div>' + chart(state.cases, false) + '<div class="chart-note">Top categories · ' + m.total + ' total reports</div></section>' + activity() + '<section class="workflow-card">' + icon('users') + '<h3>Build your barangay team.</h3><p>Create official and personnel accounts, assign teams, and manage account access.</p><button class="link-button" data-nav="users">User management ' + icon('arrow') + '</button></section></aside></div>';
+    }
+    if (ui.page === 'complaints') return heading(a.role === 'resident' ? 'My complaints' : a.role === 'personnel' ? 'Work queue' : 'All complaints', a.role === 'resident' ? 'Your reports, recommendations, and progress in one place.' : a.role === 'personnel' ? 'Assignments for ' + e(a.team) + ', ordered by priority. Start work or record your next update.' : 'Review concerns, recommend actions, and coordinate the response.', a.role === 'resident' ? primaryButton() : a.role === 'official' ? exportButton() : '') + (a.role === 'personnel' ? stats() + banner() : '') + complaintTable(false);
     if (ui.page === 'history') return heading('Resolution history', 'Resolution attempts, resident decisions, and referrals — with their full timelines.', a.role === 'official' ? exportButton() : '') + complaintTable(false);
     if (ui.page === 'insights') return reports();
     return knowledge();
@@ -338,7 +367,10 @@
           openCase(result.id);
         });
         formModal.hide();
-      } else if (action === 'create_user' || action === 'update_user') {
+      } else if (action === 'create_user') {
+        var account = result.created_account;
+        document.getElementById('form-content').innerHTML = '<div class="modal-header"><h2 class="modal-title" id="form-heading">Account created</h2><button class="btn-close" data-bs-dismiss="modal" aria-label="Close account details" type="button"></button></div><div class="modal-body"><p><strong>' + e(account.name) + '</strong><br>' + e(account.email) + '<br>' + e(roleLabel(account.role)) + (account.team ? ' · ' + e(account.team) : '') + '</p><label class="form-label" for="created-password">Temporary password — shown once</label><input id="created-password" class="form-control temporary-password" type="text" readonly autocomplete="off" value="' + e(account.temporary_password) + '"><p class="form-text mt-3">Copy this password and share it privately with the account holder. They must replace it at first sign-in. Account invitations are not emailed.</p></div><div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">I have saved the account details</button></div>';
+      } else if (action === 'update_user') {
         formModal.hide();
       } else if (currentCase) {
         renderCase();
@@ -434,10 +466,15 @@
   });
   document.getElementById('form-modal').addEventListener('shown.bs.modal', function () { var input = document.getElementById('new-title'); if (input) input.focus(); });
   document.getElementById('form-modal').addEventListener('hidden.bs.modal', function () {
+    document.getElementById('form-content').innerHTML = '';
     if (formOpener && formOpener.isConnected) formOpener.focus();
     else { var fallback = document.querySelector('[data-new]'); if (fallback) fallback.focus(); }
   });
-  api().then(function (data) { state = data; render(); }).catch(function (err) {
+  api().then(function (data) {
+    state = data;
+    if (state.actor.role === 'personnel') { ui.page = 'complaints'; ui.tab = 'work'; }
+    render();
+  }).catch(function (err) {
     document.getElementById('app').innerHTML = '<main class="error-panel"><h1>Unable to open the workspace</h1><p>' + e(err.message) + '</p><p>Open this project through XAMPP’s Apache server or the PHP development server.</p><a class="btn btn-primary" href="./">Try again</a></main>';
   });
 }());

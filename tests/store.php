@@ -56,6 +56,18 @@ try {
     denyStore(fn() => $store->createUser($resident['id'], $adminData), 'resident cannot create staff');
     $staff = $store->createUser($admin['id'], ['name' => 'Sanitation Staff', 'email' => 'staff@example.test', 'password' => $password, 'role' => 'personnel', 'team' => 'Sanitation team']);
     $wrongStaff = $store->createUser($admin['id'], ['name' => 'Maintenance Staff', 'email' => 'maintenance@example.test', 'password' => $password, 'role' => 'personnel', 'team' => 'Maintenance crew']);
+    verifyStore($staff['must_change_password'] && $staff['temporary_password'] !== $password, 'official-created account receives generated temporary password');
+    verifyStore($store->login($staff['email'], $staff['temporary_password'], 'temporary-login')['must_change_password'], 'temporary login remains restricted');
+    verifyStore(!str_contains(json_encode($store->users($admin['id'])), $staff['temporary_password']), 'temporary password absent from user listing');
+    denyStore(fn() => $store->changeTemporaryPassword($staff['id'], ['current_password' => 'wrong', 'password' => $password, 'confirm_password' => $password]), 'temporary password change requires current credential');
+    denyStore(fn() => $store->changeTemporaryPassword($staff['id'], ['current_password' => $staff['temporary_password'], 'password' => $staff['temporary_password'], 'confirm_password' => $staff['temporary_password']]), 'cannot reuse temporary password');
+    denyStore(fn() => $store->updateProfile($staff['id'], []), 'profile cannot bypass initial password change');
+    denyStore(fn() => $store->mutate($staff['id'], 'start', 'BR-1', [], 1), 'pending account cannot mutate complaints');
+    foreach ([$staff, $wrongStaff] as $newStaff) {
+        $completed = $store->changeTemporaryPassword($newStaff['id'], ['current_password' => $newStaff['temporary_password'], 'password' => $password, 'confirm_password' => $password]);
+        verifyStore(!$completed['must_change_password'] && (int)$completed['auth_version'] === 2, 'own password activates account and revokes temporary sessions');
+        denyStore(fn() => $store->login($newStaff['email'], $newStaff['temporary_password'], 'old-temporary'), 'temporary credential invalid after password change');
+    }
     verifyStore($staff['team'] === 'Sanitation team', 'staff has team');
     verifyStore(count($store->users($admin['id'])) === 5, 'official can list users');
     denyStore(fn() => $store->updateUser($admin['id'], $admin['id'], ['role' => 'official', 'active' => '0']), 'cannot deactivate own official account');
@@ -107,6 +119,13 @@ try {
     for ($i = 0; $i < 5; $i++) denyStore(fn() => $store->login('absent@example.test', 'wrong', 'rate-test'), 'failed attempt recorded');
     denyStore(fn() => $store->login('absent@example.test', 'wrong', 'rate-test'), 'attempt limit enforced');
     verifyStore($store->needsSetup() === false, 'no test action resets first setup');
+    $newOfficial = $store->createUser($admin['id'], ['name' => 'Additional Official', 'email' => 'additional-official@example.test', 'role' => 'official']);
+    denyStore(fn() => $store->users($newOfficial['id']), 'new official cannot list accounts until password change');
+    denyStore(fn() => $store->createUser($newOfficial['id'], $residentData), 'new official cannot create accounts until password change');
+    $store->changeTemporaryPassword($newOfficial['id'], ['current_password' => $newOfficial['temporary_password'], 'password' => $password, 'confirm_password' => $password]);
+    verifyStore(count($store->users($newOfficial['id'])) === 6, 'official gets management access after password change');
+    $createdResident = $store->createUser($admin['id'], ['name' => 'Issued Resident', 'email' => 'issued-resident@example.test', 'role' => 'resident']);
+    verifyStore($createdResident['must_change_password'] && $createdResident['role'] === 'resident', 'official can also issue resident account');
     echo "PASS: $checks account, access, persistence, transaction, concurrency, and password checks.\n";
 } finally {
     unset($rawDb, $other, $store);

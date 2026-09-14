@@ -21,6 +21,11 @@ try {
         throw new DomainException('Your session has ended or your account is inactive. Sign in to continue.');
     }
     $method = $_SERVER['REQUEST_METHOD'];
+    if ($actor['must_change_password']) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'Change your temporary password before continuing.', 'redirect' => 'login.php?view=change-password']);
+        exit;
+    }
     if ($method === 'GET') {
         if (($_GET['export'] ?? '') === 'csv') {
             if ($actor['role'] !== 'official') {
@@ -28,7 +33,7 @@ try {
                 throw new DomainException('Only a barangay official can export reports.');
             }
             header('Content-Type: text/csv; charset=utf-8');
-            header('Content-Disposition: attachment; filename="barangayresolve-complaints.csv"');
+            header('Content-Disposition: attachment; filename="maintainpro-complaints.csv"');
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF");
             fputcsv($out, ['Complaint ID', 'Title', 'Category', 'Location', 'Status', 'Priority', 'Assigned team', 'Submitted', 'Resident suggestion', 'Official recommendation', 'Resolution', 'Resident feedback', 'Reopen count']);
@@ -59,11 +64,12 @@ try {
     $data = $input['data'] ?? [];
     if (!is_string($action) || !is_array($data)) throw new DomainException('Invalid request.');
     $id = is_string($input['id'] ?? null) ? $input['id'] : '';
+    $createdAccount = null;
     if (in_array($action, ['switch_role', 'reset'], true)) {
         http_response_code(403);
         throw new DomainException('This action is unavailable. Your account determines your role.');
     } elseif (in_array($action, ['create_user', 'update_user', 'profile'], true)) {
-        if ($action === 'create_user') br_store()->createUser($actor['id'], $data);
+        if ($action === 'create_user') $createdAccount = br_store()->createUser($actor['id'], $data);
         if ($action === 'update_user') br_store()->updateUser($actor['id'], $id, $data);
         if ($action === 'profile') {
             br_store()->updateProfile($actor['id'], $data);
@@ -73,7 +79,9 @@ try {
     } else {
         $id = br_store()->mutate($actor['id'], $action, $id, $data, $input['version'] ?? null);
     }
-    echo json_encode(['ok' => true, 'id' => $id, 'state' => payload()], JSON_THROW_ON_ERROR);
+    $response = ['ok' => true, 'id' => $id, 'state' => payload()];
+    if ($createdAccount !== null) $response['created_account'] = $createdAccount;
+    echo json_encode($response, JSON_THROW_ON_ERROR);
 } catch (ConflictException $e) {
     http_response_code(409);
     echo json_encode(['ok' => false, 'error' => $e->getMessage(), 'state' => payload()], JSON_THROW_ON_ERROR);

@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/includes/bootstrap.php';
-if (br_actor() === null) {
+$actor = br_actor();
+if ($actor === null || $actor['must_change_password']) {
     header('Location: login.php');
     exit;
 }
@@ -12,9 +13,9 @@ if (br_actor() === null) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#102b32">
-  <meta name="description" content="BarangayResolve prototype: report, assess, recommend, assign, resolve, and verify community concerns.">
+  <meta name="description" content="MaintainPro prototype: report, assess, recommend, assign, resolve, and verify community concerns.">
   <meta name="csrf-token" content="<?= htmlspecialchars($_SESSION['br_csrf'], ENT_QUOTES, 'UTF-8') ?>">
-  <title>BarangayResolve · Complaint management</title>
+  <title>MaintainPro · Complaint management</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/vendor/bootstrap.min.css">
   <link rel="stylesheet" href="styles.css">
