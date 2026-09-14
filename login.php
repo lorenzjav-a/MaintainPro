@@ -46,7 +46,7 @@ unset($_SESSION['br_password_reset_done']);
   <title><?= htmlspecialchars($title, ENT_QUOTES, 'UTF-8') ?> · MaintainPro</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/vendor/bootstrap.min.css">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=<?= filemtime(__DIR__ . '/styles.css') ?>">
   <script src="assets/vendor/sweetalert2.all.min.js" defer></script>
   <script src="auth-ui.js" defer></script>
 </head>
@@ -100,12 +100,12 @@ unset($_SESSION['br_password_reset_done']);
         </form>
         <?php if ($changingPassword): ?><p class="mt-3 text-center"><button id="account-signout" type="button" class="btn btn-light">Sign out</button></p><?php endif ?>
         <?php if (!$setup && !$recovery && !$changingPassword): ?>
-        <div class="account-access-note">
-          <?php if (!$register): ?><p>Don't have a resident account? <a href="login.php?view=register">Register here</a>.</p><?php endif ?>
-          <p>Barangay official and personnel accounts are issued by authorized barangay officials.</p>
+        <div class="auth-support">
+          <?php if (!$register): ?><p class="auth-register-prompt">Don't have a resident account? <a href="login.php?view=register">Register here</a>.</p><?php endif ?>
+          <p class="auth-account-note">Barangay official and personnel accounts are issued by authorized barangay officials.</p>
+          <?php if (!$register): ?><p class="auth-recovery-link"><a href="login.php?view=forgot">Forgot password?</a></p><?php endif ?>
         </div>
         <?php endif ?>
-        <?php if (!$setup && !$register && !$recovery && !$changingPassword): ?><p class="mt-3 text-center"><a href="login.php?view=forgot">Forgot password?</a></p><?php endif ?>
         <?php if ($recovery && $view === 'verify'): ?><div class="mt-3 text-center"><button id="resend-code" type="button" class="btn btn-light w-100">Send a new code</button><p class="form-text mt-2">Wait 60 seconds between requests. A new code replaces the previous one.</p><a href="login.php?view=forgot">Use a different email address</a></div><?php endif ?>
         <?php if ($recovery): ?><p class="mt-3 text-center"><a href="login.php">Back to sign in</a></p><?php endif ?>
         <p class="auth-footnote">MaintainPro · Community complaint management</p>
