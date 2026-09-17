@@ -1,8 +1,8 @@
 <?php
 declare(strict_types=1);
 // Always use a disposable MySQL database and a separate local PHP server.
-require __DIR__ . '/database.php';
-require __DIR__ . '/mail-server.php';
+require __DIR__ . '/support/database.php';
+require __DIR__ . '/support/mail-server.php';
 $testDatabase = new TestDatabase();
 $server = null;
 $mailServer = null;
@@ -203,9 +203,10 @@ try {
     $unknownJar = jar();
     $unknownRequest = auth($unknownJar, 'request_reset', ['email' => 'not-registered@example.test'], token($unknownJar, 'login.php?view=forgot'));
     httpCheck($unknownRequest['json'] === $request['json'] && count($mailServer->messages()) === 1, 'unknown email gets same response without sending');
-    foreach (['.data/private', 'includes/store.php', 'includes/mail.local.php', 'includes/PHPMailer/src/PHPMailer.php', 'database/database.php', 'tests/store.php', '%2edata/private', 'database/schema.sql', 'database/setup.php'] as $privatePath) httpCheck(req($adminJar, $privatePath)['status'] === 404, 'private path blocked');
-    foreach (['styles.css', 'app.js', 'auth-ui.js', 'assets/vendor/bootstrap.min.css', 'assets/vendor/sweetalert2.all.min.js'] as $asset) httpCheck(req($adminJar, $asset)['status'] === 200, 'local dependency served');
-    echo "PASS: $checks HTTP checks for accounts, complaint workflow, PHPMailer SMTP, OTP recovery, sessions, and private-file protection.\n";
+    foreach (['.data/private', 'includes/store.php', 'includes/mail.local.php', 'includes/PHPMailer/src/PHPMailer.php', 'database/database.php', 'tests/store.php', '%2edata/private', 'database/schema.sql', 'database/setup.php', 'config/database.php', 'config/mail.local.php', 'config/mail.example.php', 'vendor/phpmailer/src/PHPMailer.php', 'tools/check-mail.php', 'tests/support/database.php', '%63onfig/mail.local.php'] as $privatePath) httpCheck(req($adminJar, $privatePath)['status'] === 404, 'private path blocked: ' . $privatePath);
+    foreach (['assets/css/app.css', 'assets/js/app.js', 'assets/js/auth.js', 'assets/images/favicon.svg', 'assets/vendor/bootstrap.min.css', 'assets/vendor/sweetalert2.all.min.js'] as $asset) httpCheck(req($adminJar, $asset)['status'] === 200, 'local dependency served: ' . $asset);
+    require __DIR__ . '/pages.php';
+    echo "PASS: $checks HTTP checks for accounts, complaint workflow, PHP pages, role permissions, PHPMailer SMTP, OTP recovery, sessions, and private-file protection.\n";
 } finally {
     if (is_resource($server)) { proc_terminate($server); proc_close($server); }
     if ($mailServer) $mailServer->stop();

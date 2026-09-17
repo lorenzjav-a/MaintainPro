@@ -2,7 +2,7 @@
 declare(strict_types=1);
 date_default_timezone_set('Asia/Manila');
 require dirname(__DIR__) . '/includes/store.php';
-require __DIR__ . '/database.php';
+require __DIR__ . '/support/database.php';
 $checks = 0;
 function verifyStore(bool $value, string $message): void
 {
@@ -41,7 +41,7 @@ try {
     verifyStore(!array_key_exists('password_hash', $admin), 'hash excluded from account response');
     denyStore(fn() => $store->setup($adminData), 'first official setup is one-time');
     $rawDb = $testDatabase->connect();
-    $hash = $rawDb->query('SELECT password_hash FROM users')->fetchColumn();
+    $hash = (new MaintainProDatabase($rawDb))->passwordHash($admin['id']);
     verifyStore($hash !== $password && password_verify($password, $hash), 'password stored as verified hash');
     verifyStore($store->login('  OFFICIAL@example.test ', $password, 'test-client')['id'] === $admin['id'], 'normalized login');
     denyStore(fn() => $store->login($adminData['email'], 'incorrect', 'wrong-client'), 'wrong password');

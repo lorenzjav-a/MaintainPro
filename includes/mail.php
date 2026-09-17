@@ -3,17 +3,17 @@ declare(strict_types=1);
 
 use PHPMailer\PHPMailer\PHPMailer;
 
-require_once __DIR__ . '/PHPMailer/src/Exception.php';
-require_once __DIR__ . '/PHPMailer/src/PHPMailer.php';
-require_once __DIR__ . '/PHPMailer/src/SMTP.php';
+require_once dirname(__DIR__) . '/vendor/phpmailer/src/Exception.php';
+require_once dirname(__DIR__) . '/vendor/phpmailer/src/PHPMailer.php';
+require_once dirname(__DIR__) . '/vendor/phpmailer/src/SMTP.php';
 
 final class MailConfigurationException extends RuntimeException {}
 
 function br_mailer(): PHPMailer
 {
-    $config = require __DIR__ . '/mail.example.php';
-    if (is_file(__DIR__ . '/mail.local.php')) {
-        $config = array_replace($config, require __DIR__ . '/mail.local.php');
+    $config = require dirname(__DIR__) . '/config/mail.example.php';
+    if (is_file(dirname(__DIR__) . '/config/mail.local.php')) {
+        $config = array_replace($config, require dirname(__DIR__) . '/config/mail.local.php');
     }
     foreach (['host', 'port', 'encryption', 'username', 'password', 'from_email', 'from_name'] as $key) {
         $value = getenv('BR_SMTP_' . strtoupper($key));

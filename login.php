@@ -44,16 +44,16 @@ unset($_SESSION['br_password_reset_done']);
   <meta name="csrf-token" content="<?= htmlspecialchars($_SESSION['br_csrf'], ENT_QUOTES, 'UTF-8') ?>">
   <meta name="theme-color" content="#102b32">
   <title><?= htmlspecialchars($title, ENT_QUOTES, 'UTF-8') ?> · MaintainPro</title>
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/vendor/bootstrap.min.css">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="assets/css/app.css">
   <script src="assets/vendor/sweetalert2.all.min.js" defer></script>
-  <script src="auth-ui.js" defer></script>
+  <script src="assets/js/auth.js" defer></script>
 </head>
 <body class="auth-page">
   <main class="auth-layout">
     <section class="auth-story">
-      <a class="brand" href="login.php"><img src="favicon.svg" alt=""><div><div class="brand-title">Maintain<span>Pro</span></div><small>Community complaint management</small></div></a>
+      <a class="brand" href="login.php"><img src="assets/images/favicon.svg" alt=""><div><div class="brand-title">Maintain<span>Pro</span></div><small>Community complaint management</small></div></a>
       <div class="auth-story-content">
         <span class="auth-kicker">A CONNECTED BARANGAY</span>
         <h1>A clear path from concern to resolution.</h1>
@@ -79,7 +79,8 @@ unset($_SESSION['br_password_reset_done']);
           <a class="<?= $register ? 'active' : '' ?>" href="login.php?view=register" <?= $register ? 'aria-current="page"' : '' ?>>Register as resident</a>
         </nav>
         <?php endif ?>
-        <form id="auth-form" data-action="<?= $action ?>">
+        <noscript><p class="info-callout">Enable JavaScript to sign in, register, or recover your account.</p></noscript>
+        <form id="auth-form" method="post" action="auth.php" data-action="<?= $action ?>">
           <?php if ($setup || $register): ?>
           <div class="mb-3"><label class="form-label" for="account-name">Full name</label><input id="account-name" name="name" class="form-control" autocomplete="name" required minlength="2" maxlength="100" placeholder="Your full name"></div>
           <?php endif ?>
