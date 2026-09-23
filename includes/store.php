@@ -347,15 +347,14 @@ final class ComplaintStore
                 $index = array_search($id, array_column($state['cases'], 'id'), true);
                 if ($index === false || !ComplaintWorkflow::canSee($state['cases'][$index], $actor)) throw new DomainException('Concern not found or unavailable to your account.');
                 if (!is_int($expectedVersion) || $expectedVersion !== $state['cases'][$index]['version']) throw new ConflictException('Another user updated this concern. Refresh the page to load the latest record before saving.');
-                // Never trust internal assignee/suggestion fields supplied by the client.
-                unset($data['_assignee'], $data['_suggestions']);
+                // Never trust internal assignee/guidance fields supplied by the client.
+                unset($data['_assignee'], $data['_residentGuidance'], $data['_suggestions']);
                 if ($action === 'assign') {
                     $assignedId = $data['personnelId'] ?? '';
                     $assigned = is_string($assignedId) ? $this->user($assignedId) : null;
                     if (!$assigned || !$assigned['active'] || $assigned['role'] !== 'personnel' || !filter_var($assigned['email'], FILTER_VALIDATE_EMAIL)) throw new DomainException('Choose active personnel with a valid email address.');
                     $data['_assignee'] = $assigned;
                 }
-                if ($action === 'edit' && !empty($state['cases'][$index]['concernType'])) $data['_suggestions'] = $this->suggestions($data);
                 $before = $state['cases'][$index];
                 ComplaintWorkflow::apply($state, $actor, $id, $action, $data);
                 $c = $state['cases'][$index];
@@ -385,7 +384,7 @@ final class ComplaintStore
         if (($data['website'] ?? '') !== '') throw new DomainException('Unable to submit this report.');
         return $this->transaction(function () use ($data) {
             if ($this->needsSetup()) throw new DomainException('This workspace is not ready to receive concerns yet.');
-            $data['_suggestions'] = $this->suggestions($data);
+            $data['_residentGuidance'] = $this->suggestions($data);
             $state = $this->state();
             $id = ComplaintWorkflow::submit($state, ['id' => null, 'role' => 'guest', 'name' => 'Anonymous resident'], $data);
             $case = $state['cases'][0];
@@ -395,7 +394,7 @@ final class ComplaintStore
             (new ConcernNotifications($this->db))->changed($case,null,'submit');
             $token = bin2hex(random_bytes(24));
             $this->db->insertTracking($id, hash('sha256', $token));
-            return ['reference' => $id, 'trackingCode' => $token];
+            return ['reference' => $id, 'trackingCode' => $token, 'residentGuidance' => $case['residentGuidance']];
         });
     }
 
@@ -406,12 +405,13 @@ final class ComplaintStore
         $row = $this->db->trackedConcern($reference, hash('sha256', $token));
         if (!$row) throw new DomainException('Reference or tracking code not found.');
         $c = json_decode($row['payload'], true, 64, JSON_THROW_ON_ERROR);
-        // Explicit allowlist: never return free-text notes, addresses, images or staff identities.
+        // Explicit allowlist: only public guidance, never private notes, addresses, images or staff identities.
         $progress = [];
         foreach ($c['timeline'] as $event) {
             if (isset($event['workStatus']) && in_array($event['workStatus'], ConcernCatalog::WORK_STATUSES, true)) $progress[] = ['date' => $event['date'], 'status' => $event['workStatus']];
         }
-        return ['reference' => $c['id'], 'category' => $c['category'], 'concernType' => $c['concernType'], 'status' => $c['status'] === 'Verified' ? 'Closed' : $c['status'], 'reportedAt' => $c['createdAt'], 'updatedAt' => $c['updatedAt'], 'progress' => $progress];
+        $guidance = ConcernCatalog::validGuidance($c['residentGuidance'] ?? null) ? $c['residentGuidance'] : [];
+        return ['reference' => $c['id'], 'category' => $c['category'], 'concernType' => $c['concernType'], 'status' => $c['status'] === 'Verified' ? 'Closed' : $c['status'], 'reportedAt' => $c['createdAt'], 'updatedAt' => $c['updatedAt'], 'progress' => $progress, 'residentGuidance' => $guidance];
     }
 
     public function saveRule(string $officialId, array $data, bool $reset = false): void
@@ -420,10 +420,11 @@ final class ComplaintStore
             $this->authorizeOfficial($officialId);
             [$category, $type] = ConcernCatalog::selections($data);
             if ($reset) { $this->db->deleteSolutionRule($category, $type); return; }
+            if (($data['purpose'] ?? '') !== ConcernCatalog::GUIDANCE_PURPOSE) throw new DomainException('Reload the Solution Library to write temporary guidance for residents.');
             $actions = [];
-            foreach (['action1', 'action2', 'action3'] as $key) $actions[] = ComplaintWorkflow::text($data[$key] ?? '', 'Suggested action', 700);
-            if (count(array_unique($actions)) !== 3) throw new DomainException('Provide three different suggested actions.');
-            $this->db->saveSolutionRule($category, $type, $actions);
+            foreach (['action1', 'action2', 'action3'] as $key) $actions[] = ComplaintWorkflow::text($data[$key] ?? '', 'Resident guidance step', 700);
+            if (count(array_unique($actions)) !== 3) throw new DomainException('Provide three different temporary steps for residents.');
+            $this->db->saveSolutionRule($category, $type, ['purpose' => ConcernCatalog::GUIDANCE_PURPOSE, 'steps' => $actions]);
         });
     }
 }

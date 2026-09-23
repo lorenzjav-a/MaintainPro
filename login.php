@@ -46,7 +46,7 @@ unset($_SESSION['br_password_reset_done']);
   <title><?= htmlspecialchars($title, ENT_QUOTES, 'UTF-8') ?> · MaintainPro</title>
   <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/vendor/bootstrap.min.css">
-  <link rel="stylesheet" href="assets/css/app.css">
+  <link rel="stylesheet" href="assets/css/app.css?v=<?= filemtime(__DIR__ . '/assets/css/app.css') ?>">
   <script src="assets/vendor/sweetalert2.all.min.js" defer></script>
   <script src="assets/js/auth.js" defer></script>
 </head>

@@ -29,6 +29,9 @@ pageHas($form, '//*[@data-key-points]', 'key point section');
 pageHas($form, '//input[@name="exactArea" and @required]', 'required exact area');
 httpCheck($form->query('//textarea[@name="description" and @required]')->length === 0, 'description optional');
 pageHas($form, '//*[@id="suggestions"]', 'suggestions preview');
+pageHas($form, '//*[@id="guidance-heading" and contains(., "While you wait")]', 'guidance is addressed to residents');
+httpCheck($form->query('//*[@name="selectedSuggestion"]')->length === 0, 'no proposed-solution choice on public form');
+pageHas($form, '//*[@id="receipt-guidance"]', 'receipt has resident guidance section');
 foreach (['complaints.php', 'concerns.php', 'history.php', 'reports.php', 'solutions.php', 'users.php', 'profile.php', 'user-create.php', 'user-edit.php?id=' . $staffId, 'complaint.php?id=' . $id] as $path) {
     pageHas(pageDocument($guestJar, $path), '//form[@data-action="login"]', 'anonymous private page gated');
     pageDocument($adminJar, $path);
@@ -39,6 +42,8 @@ pageDocument($otherJar, 'concern.php?id=' . $id, 404);
 pageDocument($adminJar, 'concern.php?id[]=bad', 404);
 pageDocument($adminJar, 'user-edit.php?id=missing', 404);
 $detail = pageDocument($adminJar, 'complaint.php?id=' . $id);
+pageHas($detail, '//details/summary[contains(., "Temporary guidance shared with the resident")]', 'staff guidance is a read-only reference');
+httpCheck(!str_contains($detail->evaluate('string(//body)'), 'reporter preference') && !str_contains($detail->evaluate('string(//body)'), 'FOR ASSESSMENT'), 'guidance not presented as resident preference or staff plan');
 pageHas($detail, '//article[@data-version="7"]', 'version on detail');
 pageHas($detail, '//form[@data-action="edit"]', 'official edits concern at all stages');
 pageHas($detail, '//form[@data-action="reopen"]', 'official reopens closed concern');

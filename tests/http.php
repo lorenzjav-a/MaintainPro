@@ -2,6 +2,7 @@
 declare(strict_types=1);
 // Always use a disposable MySQL database and a separate local PHP server.
 require __DIR__ . '/support/database.php';
+require_once dirname(__DIR__) . '/includes/concern-catalog.php';
 require __DIR__ . '/support/mail-server.php';
 $testDatabase = new TestDatabase();
 $server = null;
@@ -86,17 +87,20 @@ try {
     $public = fn(string $action, array $data, ?string $csrf = null) => req($guestJar, 'public-api.php', ['action' => $action, 'data' => $data], $csrf ?? $guestCsrf);
     $report = ['category' => 'Roads and Infrastructure', 'concernType' => 'Pothole', 'keyPoints' => ['Deep', 'Near school'], 'purok' => 'PRIVATE-PUROK', 'street' => 'PRIVATE-STREET', 'exactArea' => 'PRIVATE-GATE', 'description' => '<script>alert(1)</script>'];
     httpCheck($public('submit', $report, '')['status'] === 403, 'anonymous report CSRF');
-    $recommendations = $public('suggestions', $report);
-    httpCheck($recommendations['status'] === 200 && count($recommendations['json']['suggestions']) === 3, 'three public suggestions');
+    $recommendations = $public('guidance', $report);
+    httpCheck($recommendations['status'] === 200 && count($recommendations['json']['residentGuidance']) === 3, 'three public resident guidance steps');
+    httpCheck($public('suggestions', $report)['json']['suggestions'] === $recommendations['json']['residentGuidance'], 'old preview endpoint returns resident guidance too');
     httpCheck($public('submit', array_replace($report, ['street' => '']))['status'] === 422, 'private location required');
     httpCheck($public('submit', array_replace($report, ['concernType' => 'Exposed wiring']))['status'] === 422, 'dependent type validation');
     httpCheck($public('submit', array_replace($report, ['keyPoints' => ['forged']]))['status'] === 422, 'key point validation');
-    $receipt = $public('submit', $report);
+    $receipt = $public('submit', $report + ['selectedSuggestion' => '1', 'residentGuidance' => ['PRIVATE-INJECTED'], '_residentGuidance' => ['PRIVATE-INJECTED']]);
     httpCheck($receipt['status'] === 200, 'anonymous concern submission');
     $receipt = $receipt['json']['receipt']; $id = $receipt['reference'];
+    httpCheck($receipt['residentGuidance'] === $recommendations['json']['residentGuidance'], 'receipt uses server-generated guidance');
     httpCheck(preg_match('/^CON-[0-9]{4}-[0-9]{6,}$/', $id) === 1 && strlen($receipt['trackingCode']) === 48, 'reference and secure code');
     $tracked = $public('track', $receipt);
     httpCheck($tracked['status'] === 200 && !str_contains($tracked['body'], 'PRIVATE') && !str_contains($tracked['body'], '<script>'), 'safe tracking allowlist');
+    httpCheck($tracked['json']['concern']['residentGuidance'] === $receipt['residentGuidance'], 'guidance accessible later through private tracking');
     httpCheck($public('track', array_replace($receipt, ['trackingCode' => str_repeat('0', 48)]))['status'] === 422, 'wrong code blocked');
     httpCheck($public('track', $receipt, '')['status'] === 403, 'tracking CSRF');
     $created = post($adminJar, 'create_user', ['name' => 'HTTP Staff', 'email' => 'staff@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew'], $adminCsrf);
@@ -142,10 +146,10 @@ try {
     httpCheck(post($staffJar, 'verify', [], $staffCsrf, $id, 6)['status'] === 422, 'personnel cannot close');
     httpCheck(post($adminJar, 'verify', [], $adminCsrf, $id, 6)['status'] === 200, 'official closure');
     httpCheck($public('track', $receipt)['json']['concern']['status'] === 'Closed', 'public closure status');
-    $rules = $report + ['action1' => 'Inspect safely.', 'action2' => 'Assess suitable temporary repair.', 'action3' => 'Plan permanent repair.'];
+    $rules = $report + ['purpose' => ConcernCatalog::GUIDANCE_PURPOSE, 'action1' => 'Use another safe route.', 'action2' => 'Keep children away from the damaged surface.', 'action3' => 'Do not try to patch the road yourself.'];
     httpCheck(post($staffJar, 'save_rule', $rules, $staffCsrf)['status'] === 422, 'personnel cannot manage recommendations');
     httpCheck(post($adminJar, 'save_rule', $rules, $adminCsrf)['status'] === 200, 'official rule management');
-    httpCheck($public('suggestions', $report)['json']['suggestions'][0] === 'Inspect safely.', 'public form uses curated library');
+    httpCheck($public('guidance', $report)['json']['residentGuidance'][0] === 'Use another safe route.', 'public form uses curated resident guidance');
     httpCheck(post($adminJar, 'reset_rule', $rules, $adminCsrf)['status'] === 200, 'restore default suggestions');
     httpCheck(post($adminJar, 'update_user', ['role' => 'personnel', 'team' => 'Maintenance crew', 'active' => '1', 'email' => 'bad-email'], $adminCsrf, $staffId)['status'] === 422, 'edit staff email validation');
     $csv = req($adminJar, 'api.php?export=csv');

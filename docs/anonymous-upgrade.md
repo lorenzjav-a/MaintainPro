@@ -42,13 +42,13 @@ For another installation, run `C:\xampp\php\php.exe database\setup.php`, or sele
 
 ## Anonymous resident workflow
 
-Landing → category → dependent concern type → key points → required private purok/sitio, street/path and exact area → optional landmark/details/photo → three suggested actions → submit → save reference and tracking code.
+Landing → category → dependent concern type → key points → required private purok/sitio, street/path and exact area → optional landmark/details/photo → read three temporary resident steps → submit without choosing a solution → save reference, tracking code and guidance.
 
 There is no name, email, account, password or title input. The server generates a label such as `Pothole Concern`. References use `CON-YYYY-000123`; the existing global sequence remains monotonic across years. The original resident signup URL redirects to the public report form. Existing resident rows remain for history but cannot sign in or receive new recovery codes.
 
 ## Official workflow
 
-Staff login → dashboard/all concerns → read structured points, private location, suggestions and evidence → assess and prioritize → record official recommendation → choose an individual personnel account → review work/evidence → close or reopen.
+Staff login → dashboard/all concerns → read structured points, private location and evidence → assess and prioritize → record official recommendation → choose an individual personnel account → review work/evidence → close or reopen. Temporary resident guidance is available as a separate historical reference, never as a requested staff task.
 
 Officials can edit information/priority at any stage, reassign active work, manage staff names/emails/roles/teams/status, maintain recommendation rules, view all history and export structured analytics. Authorization is checked in the service and API, not just in templates. Existing return-for-information now means staff gather follow-up information; there is no anonymous reporter account to contact. Rejection and referral remain supported.
 
@@ -62,17 +62,17 @@ Work statuses include arrival, inspection, materials, ongoing work, temporary re
 
 Images reuse the existing private database storage; they are not written as executable webroot files. No original upload filename is trusted or stored. Timeline entries include random `evidenceId`, uploader `actorId`, actor name, time, image, work status and action array, inside the associated concern. `evidence.php` checks the current session, completed password setup and exact concern assignment; it serves only fixed image MIME types with a generated `evidence-RANDOM.ext` filename and restrictive headers. Supporting and completion photos remain visible alongside timeline evidence to authorized staff only.
 
-## Three-solution recommendations
+## Temporary resident guidance
 
-`ConcernCatalog` defines expandable rules by category/type. Selected hazards or access indicators adjust the third action to emphasize appropriate safety assessment. Exactly three actions are generated and recalculated on the server during submission; client-supplied suggestion text is ignored.
+`ConcernCatalog` generates three temporary steps for residents to follow while waiting for staff. Category/type and key points adjust the guidance. It is a read-only list, with no reporter preference. The server recalculates and saves a `residentGuidance` snapshot during submission; submitted selections and guidance text are ignored. The receipt, download and private tracking page retain access to those steps.
 
-Officials can load, edit and save three public-safe actions per type in Solution Library, or restore built-in defaults. Curated overrides are reused by the public form. Historical closed-case solutions remain available privately to officials as reference material; their free-text notes are never automatically exposed to visitors. Suggestions and reporter preference are separate from the official recommendation and personnel's actual work. No paid AI service is used. A future provider can replace the suggestion service while preserving the returned three-action interface.
+Officials can maintain resident-directed steps or restore built-in defaults in Solution Library. Old staff-action rules are preserved but excluded from public guidance until rewritten and saved with the resident-guidance purpose marker. Historical suggestions remain labeled as legacy records. Official recommendations and personnel work remain separate. No paid AI service is used. See [resident guidance](resident-guidance.md) for storage compatibility and safety references.
 
 ## Tracking and privacy
 
 Submission returns a random 24-byte (48 hexadecimal character) tracking code once. Only its SHA-256 hash is stored. The receipt can be downloaded locally; the application does not place the secret in URLs, browser storage, cookies or staff records. Losing the code cannot be recovered through identity information because none is collected.
 
-`track.php` requires both reference and code using POST with CSRF. The response explicitly permits only reference, category/type, general status, report/update dates and predefined work-status progress. It excludes exact location, descriptions, photos, staff identities, emails, recommendations and internal notes. Guessing a numeric ID or reference does not reveal a record. Guest reporting is limited to five attempts per client IP per hour; tracking to forty per fifteen minutes. Requests use a honeypot, bounded bodies and server-side validation. These practical limits can affect residents sharing one public connection and should be tuned to deployment needs.
+`track.php` requires both reference and code using POST with CSRF. The response explicitly permits only reference, category/type, general status, report/update dates, predefined work-status progress and the public resident-guidance snapshot. It excludes exact location, descriptions, photos, staff identities, emails, official recommendations and internal notes. Legacy suggestions are not exposed as resident guidance. Guessing a numeric ID or reference does not reveal a record. Guest reporting is limited to five attempts per client IP per hour; tracking to forty per fifteen minutes. Requests use a honeypot, bounded bodies and server-side validation. These practical limits can affect residents sharing one public connection and should be tuned to deployment needs.
 
 ## Email and remaining setup
 

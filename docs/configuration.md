@@ -36,7 +36,7 @@ For manual setup, run `C:\xampp\php\php.exe database\setup.php --schema` to prin
 | `password_reset_requests` | Email and IP recovery request limits |
 | `concern_tracking` | Concern reference bound to a SHA-256 tracking-code hash |
 | `public_attempts` | Hashed client buckets for anonymous report/tracking limits |
-| `solution_rules` | Official-curated, public-safe triples of suggested actions |
+| `solution_rules` | Official-curated temporary resident guidance; purpose-marked JSON with three steps (older staff-action arrays are not published) |
 
 `.data/barangayresolve.sqlite` is legacy data and is not read by the application. It remains protected from browser access. Existing sessions from the old demo cannot grant access.
 

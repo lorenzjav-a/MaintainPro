@@ -61,8 +61,18 @@ async function tab() {
     await until(() => evaluate('document.readyState === "complete" && (!!document.querySelector(".shell") || document.querySelector("#auth-form")?.dataset.action === "change_password")'), action);
   };
   const screenshot = async name => {
+    name = name.replace(/[^a-z0-9_-]/gi, '-');
     const shot = await send('Page.captureScreenshot', {format: 'png', captureBeyondViewport: false});
     fs.writeFileSync(path.join(output, name + '.png'), Buffer.from(shot.data, 'base64'));
+    // Record computed typography beside screenshots for cross-page visual review.
+    const styles = await evaluate(`(() => {
+      const selectors = ['body', '.page-heading h1', '.auth-card h2', '.panel-title', '.section-title', '.form-label', '#guidance-heading', '.form-text', '.guidance-intro', '.choice-card', '.resident-guidance-list li', '.form-control', '.form-select', '.btn-primary', '.auth-support', '.auth-footnote', '.tracking-code'];
+      return selectors.flatMap(selector => Array.from(document.querySelectorAll(selector)).filter(el => el.getClientRects().length).slice(0, 3).map(el => {
+        const css = getComputedStyle(el);
+        return {selector, text: el.textContent.trim().slice(0, 60), font: css.fontFamily, size: css.fontSize, weight: css.fontWeight, color: css.color, lineHeight: css.lineHeight};
+      }));
+    })()`);
+    fs.writeFileSync(path.join(output, name + '-styles.json'), JSON.stringify(styles, null, 2));
   };
   return {send, evaluate, ready, go, fill, click, waitFor, submit, auth, screenshot, targetId};
 }
@@ -94,7 +104,7 @@ async function tab() {
     await official.submit('create_user', {name: 'Browser Personnel', email: 'personnel@example.test', role: 'personnel', team: 'Maintenance crew'});
     const temporary = await official.evaluate('document.getElementById("created-password").value');
     check(temporary.startsWith('MP-'), 'temporary credential shown');
-    await personnel.go('login.php'); await personnel.auth('login', {email: 'personnel@example.test', password: temporary});
+    await personnel.go('login.php'); await personnel.screenshot('staff-login-desktop'); await personnel.auth('login', {email: 'personnel@example.test', password: temporary});
     await personnel.ready('/login.php', '#temporary-password');
     check(await personnel.evaluate('document.querySelector("#auth-form").dataset.action === "change_password"'), 'temporary password gate');
     await personnel.auth('change_password', {current_password: temporary, password, confirm_password: password}); await personnel.ready('/index.php');
@@ -109,10 +119,10 @@ async function tab() {
     check(await guest.evaluate('Array.from(document.querySelector("[name=concernType]").options).some(o=>o.value==="Light not working")'), 'dependent concern choices');
     await guest.fill('[name=concernType]', 'Light not working');
     await guest.click('[name=keyPoints][value="Near pedestrian crossing"]');
-    await until(() => guest.evaluate('document.querySelectorAll("#suggestions input[value=\\"0\\"],#suggestions input[value=\\"1\\"],#suggestions input[value=\\"2\\"]").length===3'), 'three suggestions');
-    check(await guest.evaluate('document.getElementById("suggestions").textContent.includes("temporary safety")'), 'key points affect suggestions');
+    await until(() => guest.evaluate('document.querySelectorAll("#suggestions .resident-guidance-list li").length===3 && document.getElementById("suggestions").getAttribute("aria-busy")==="false"'), 'three read-only resident steps');
+    check(await guest.evaluate('document.getElementById("suggestions").textContent.includes("Help children choose a safe route")'), 'key points affect resident guidance');
     for (const [key,value] of Object.entries({purok:'PRIVATE-PUROK',street:'PRIVATE-STREET',exactArea:'PRIVATE-GATE'})) await guest.fill('[name=' + key + ']', value);
-    await guest.click('[name=selectedSuggestion][value="1"]');
+    check(await guest.evaluate('!document.querySelector("#suggestions input,[name=selectedSuggestion]") && !document.getElementById("suggestions").textContent.includes("No preference")'), 'guidance is not a solution-selection form');
     await setPhoto(guest, '#report-photo');
     await guest.screenshot('report-desktop');
     await guest.click('#public-report button[type=submit]');
@@ -120,14 +130,19 @@ async function tab() {
     const reference = await guest.evaluate('document.getElementById("receipt-reference").value');
     const trackingCode = await guest.evaluate('document.getElementById("receipt-code").value');
     check(reference.startsWith('CON-') && trackingCode.length===48, 'private receipt');
+    check(await guest.evaluate('document.querySelectorAll("#receipt-guidance li").length===3'), 'guidance remains available after submission');
+    await guest.screenshot('receipt-desktop');
     check(await guest.evaluate('location.search === "" && localStorage.length === 0 && sessionStorage.length === 0'), 'tracking secret absent from URLs and storage');
     const detail = 'complaint.php?id=' + reference;
     await guest.go('track.php');
     await guest.fill('[name=reference]', reference); await guest.fill('[name=trackingCode]', trackingCode); await guest.click('#public-track button');
     await until(() => guest.evaluate('!document.getElementById("tracking-result").hidden'), 'track result');
     check(await guest.evaluate('document.getElementById("tracking-result").textContent.includes("Submitted") && !document.body.textContent.includes("PRIVATE")'), 'safe tracking result');
+    check(await guest.evaluate('document.querySelectorAll("#tracking-result .resident-guidance-list li").length===3'), 'private tracking includes resident guidance');
+    await guest.screenshot('tracking-desktop');
     await official.go(detail);
     check(await official.evaluate('document.body.textContent.includes("Near pedestrian crossing") && document.body.textContent.includes("PRIVATE-GATE")'), 'official sees structured report and private location');
+    check(await official.evaluate('document.body.textContent.includes("Temporary guidance shared with the resident") && !document.body.textContent.includes("reporter preference") && !document.body.textContent.includes("FOR ASSESSMENT")'), 'resident guidance is separate from official work plan');
     check(await official.evaluate('Number(document.querySelector("[data-unread-count]").textContent)>0'), 'notification badge for new report');
     await official.click('.notification-trigger');
     check(await official.evaluate('document.querySelector(".notification-menu").open && document.querySelector("[data-recent-notifications]").textContent.includes("New concern")'), 'bell dropdown shows recent event');
@@ -178,8 +193,9 @@ async function tab() {
     await official.fill('form[data-action=save_rule] [name=category]', 'Street Lighting');
     await official.fill('form[data-action=save_rule] [name=concernType]', 'Light not working');
     await official.click('#load-rule');
-    await until(() => official.evaluate('document.querySelector("[name=action1]").value.includes("qualified")'), 'load curated rules');
+    await until(() => official.evaluate('document.querySelector("[name=action1]").value.includes("well-lit alternative route")'), 'load curated resident guidance');
     check(true, 'solution editor loads rules');
+    await official.screenshot('solutions-desktop');
     await official.go('user-edit.php?id=' + staffId);
     await official.submit('update_user', {name:'Updated Personnel',email:'updated@example.test'});
     check(await official.evaluate('document.body.textContent.includes("updated@example.test")'), 'staff name and email edit');
@@ -194,8 +210,16 @@ async function tab() {
     check(true, 'Forward restores concern');
     await official.send('Page.reload'); await official.ready('/complaint.php'); check(true, 'refresh retains detail');
     for (const client of [guest, official, personnel]) await client.send('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:true});
-    for (const page of ['landing.php','report-concern.php','track.php']) {
+    for (const page of ['landing.php','report-concern.php','track.php','login.php','login.php?view=forgot']) {
       await guest.go(page); check(await guest.evaluate('document.documentElement.scrollWidth <= innerWidth'), page + ' fits mobile');
+      if (page === 'report-concern.php') {
+        await guest.fill('[name=category]', 'Waste Management');
+        await guest.fill('[name=concernType]', 'Illegal dumping');
+        await guest.click('[name=keyPoints][value="Blocking access"]');
+        await until(() => guest.evaluate('document.querySelectorAll("#suggestions li").length===3 && document.getElementById("suggestions").getAttribute("aria-busy")==="false"'), 'mobile waste guidance');
+        check(await guest.evaluate('document.getElementById("suggestions").textContent.includes("household rubbish") && !document.querySelector("#suggestions input") && document.documentElement.scrollWidth<=innerWidth'), 'resident waste steps fit mobile without selection');
+        await guest.evaluate('document.getElementById("guidance-heading").scrollIntoView({block:"center"})');
+      }
       await guest.screenshot(page.replace('.php','') + '-mobile');
     }
     await official.go('index.php');

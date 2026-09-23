@@ -21,7 +21,7 @@ C:\xampp\php\php.exe -S 127.0.0.1:8080 router.php
 
 ## Accounts and workflow
 
-- **Guests** select category, type and key points; enter a private location; optionally attach details/photo; save the generated reference and tracking code.
+- **Guests** select category, type and key points; enter a private location; optionally attach details/photo; read three temporary steps to follow while waiting for staff; save the generated reference, tracking code and guidance. No solution selection is required.
 - **Barangay officials** assess, edit, prioritize, recommend, assign/reassign individual personnel, manage the Solution Library and accounts, and review/close/reopen completed work.
 - **Personnel** see only individually assigned concerns, choose structured work updates and attach required image evidence. Accounts require a name, valid email and team.
 
@@ -57,6 +57,7 @@ Private directories are blocked through Apache rules and the development router.
 - [Verification and simultaneous account testing](docs/testing.md)
 - [Requirements and workflow scope](docs/requirements.md)
 - [Anonymous reporting upgrade, file inventory and setup](docs/anonymous-upgrade.md)
+- [Temporary resident guidance and compatibility](docs/resident-guidance.md)
 
 The private mail configuration now lives in **`config/mail.local.php`**. The existing file was moved without changing its contents.
 

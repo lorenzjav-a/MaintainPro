@@ -16,6 +16,16 @@
   function node(tag, text, className) {
     var el = document.createElement(tag); el.textContent = text; if (className) el.className = className; return el;
   }
+  function showGuidance(container, steps, heading) {
+    container.replaceChildren();
+    if (!Array.isArray(steps) || steps.length !== 3) return;
+    if (heading) {
+      container.append(node('h3', heading, 'section-title'), node('p', 'Temporary steps based on your report at submission. Follow current instructions from the barangay or emergency responders.', 'guidance-intro'));
+    }
+    var list = node('ol', '', 'resident-guidance-list');
+    steps.forEach(function (text) { list.append(node('li', text)); });
+    container.append(list);
+  }
   document.querySelectorAll('[data-concern-choices]').forEach(function (wrapper) {
     var catalog = JSON.parse(wrapper.querySelector('.concern-catalog').textContent);
     var category = wrapper.querySelector('[name=category]'), type = wrapper.querySelector('[name=concernType]'), points = wrapper.querySelector('[data-key-points]');
@@ -39,28 +49,22 @@
   var loadRule = document.getElementById('load-rule');
   if (loadRule) loadRule.addEventListener('click', async function () {
     var form = loadRule.closest('form');
-    try { var result = await send('suggestions', values(form)); result.suggestions.forEach(function (text, index) { form.querySelector('[name=action' + (index + 1) + ']').value = text; }); }
+    try { var result = await send('guidance', values(form)); result.residentGuidance.forEach(function (text, index) { form.querySelector('[name=action' + (index + 1) + ']').value = text; }); }
     catch (error) { Swal.fire({icon: 'error', text: error.message}); }
   });
-  var generation = 0, busy = false;
+  var generation = 0, busy = false, receiptGuidance = [];
   if (report) {
     report.querySelector('[data-concern-choices]').addEventListener('change', async function () {
       var version = ++generation, container = document.getElementById('suggestions'), data = values(report);
-      container.replaceChildren(node('p', data.concernType ? 'Loading suggestions…' : 'Select a category and concern type.'));
+      container.replaceChildren(node('p', data.concernType ? 'Loading your temporary guidance…' : 'Select a category and concern type.'));
+      container.setAttribute('aria-busy', data.concernType ? 'true' : 'false');
       if (!data.concernType) return;
       try {
-        var result = await send('suggestions', data);
+        var result = await send('guidance', data);
         if (version !== generation) return;
-        container.replaceChildren();
-        result.suggestions.forEach(function (text, index) {
-          var label = node('label', '', 'suggestion-choice'), radio = document.createElement('input');
-          radio.type = 'radio'; radio.name = 'selectedSuggestion'; radio.value = String(index); radio.className = 'form-check-input';
-          label.append(radio, node('span', text)); container.append(label);
-        });
-        var skip = node('label', '', 'suggestion-choice'), input = document.createElement('input');
-        input.type = 'radio'; input.name = 'selectedSuggestion'; input.value = ''; input.checked = true; input.className = 'form-check-input';
-        skip.append(input, node('span', 'No preference — let the barangay assess.')); container.append(skip);
-      } catch (error) { if (version === generation) container.replaceChildren(node('p', error.message)); }
+        showGuidance(container, result.residentGuidance);
+      } catch (error) { if (version === generation) container.replaceChildren(node('p', 'Temporary guidance could not be loaded. You can still submit your concern; guidance will appear with your tracking details.')); }
+      finally { if (version === generation) container.setAttribute('aria-busy', 'false'); }
     });
     report.addEventListener('submit', async function (event) {
       event.preventDefault(); if (busy) return;
@@ -75,6 +79,8 @@
         var response = await send('submit', data);
         document.getElementById('receipt-reference').value = response.receipt.reference;
         document.getElementById('receipt-code').value = response.receipt.trackingCode;
+        receiptGuidance = response.receipt.residentGuidance || [];
+        showGuidance(document.getElementById('receipt-guidance'), receiptGuidance, 'While you wait');
         document.getElementById('report-panel').hidden = true;
         var receipt = document.getElementById('receipt'); receipt.hidden = false; receipt.focus(); receipt.scrollIntoView({block: 'start'});
         // The receipt is not written into URLs, cookies or browser storage.
@@ -83,6 +89,7 @@
     });
     document.getElementById('save-receipt').addEventListener('click', function () {
       var text = 'MaintainPro\nReference: ' + document.getElementById('receipt-reference').value + '\nTracking Code: ' + document.getElementById('receipt-code').value + '\nKeep these private. Use the Track Concern page.\n';
+      text += '\nWhile you wait — temporary steps for residents\n' + receiptGuidance.map(function (step, i) { return (i + 1) + '. ' + step; }).join('\n') + '\nGuidance is based on your report at submission. Follow current instructions from the barangay or emergency responders.\n';
       var url = URL.createObjectURL(new Blob([text], {type: 'text/plain'})), link = document.createElement('a');
       link.href = url; link.download = 'MaintainPro-tracking.txt'; link.click(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     });
@@ -93,8 +100,13 @@
     errorBox.hidden = true; panel.hidden = true; panel.replaceChildren(); button.disabled = true;
     try {
       var result = (await send('track', values(track))).concern;
-      panel.append(node('h2', result.reference, 'h4'), node('p', result.category + ' / ' + result.concernType), node('p', 'Status: ' + result.status, 'fw-bold'), node('p', 'Reported: ' + new Date(result.reportedAt).toLocaleString()), node('p', 'Last updated: ' + new Date(result.updatedAt).toLocaleString()));
+      panel.append(node('h2', result.reference, 'section-title'), node('p', result.category + ' / ' + result.concernType), node('p', 'Status: ' + result.status, 'fw-bold'), node('p', 'Reported: ' + new Date(result.reportedAt).toLocaleString()), node('p', 'Last updated: ' + new Date(result.updatedAt).toLocaleString()));
       result.progress.forEach(function (entry) { panel.append(node('p', new Date(entry.date).toLocaleString() + ' — ' + entry.status)); });
+      if (result.residentGuidance && result.residentGuidance.length === 3) {
+        var guidance = node('section', '', 'resident-guidance mt-4');
+        showGuidance(guidance, result.residentGuidance, 'Temporary guidance from your report');
+        panel.append(guidance);
+      }
       panel.hidden = false;
     } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
     finally { busy = false; button.disabled = false; }

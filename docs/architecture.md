@@ -43,7 +43,7 @@ MaintainPro/
 | `complaint.php`, `concern.php` with `id` | Full private record, timeline, photos and permitted actions | Official or individually assigned personnel |
 | `new-complaint.php` | Redirect to public `report-concern.php` | Public |
 | `reports.php` | Reports and insights | Official |
-| `solutions.php` | Public-safe recommendation rules plus private historical reference cases | Official |
+| `solutions.php` | Temporary resident guidance rules plus private historical reference cases | Official |
 | `users.php` | Account management | Official |
 | `user-create.php` | Create an account; display its temporary password once | Official |
 | `user-edit.php?id=USER_ID` | Update name, email, role, team or active status | Official |

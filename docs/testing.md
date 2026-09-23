@@ -6,6 +6,8 @@ The current suites cover guest reporting and code-based tracking, official admin
 
 On September 21, 2026, PHP syntax, workflow, store/account, OTP and HTTP/page checks passed. Headless Chrome checks passed for desktop/mobile reporting, dependent choices, three suggestions, tracking, staff creation/onboarding, assignment email, photo-required start/progress/resolution, official closure, history, library, profile/account pages, stale-edit drafts, Back/Forward, refresh and session isolation. Screenshots are in `tests/tmp/`. SMTP tests use only a loopback inbox; real Gmail delivery is unconfigured.
 
+On September 24, 2026, the resident-guidance update passed 68 PHP syntax checks, the SQL boundary check, 161 workflow checks, 51 store checks, 56 staff-insight checks, 42 OTP checks, 325 HTTP/page checks and 57 headless browser checks. Coverage includes removal of solution selection, server-generated resident guidance, preserved snapshots and legacy data, receipt/tracking access, official-plan separation and mobile layout. The browser run required permission outside the Windows sandbox for Chrome's test connection.
+
 | Current suite | Passing checks |
 | --- | ---: |
 | PHP syntax | 57 files |

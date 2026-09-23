@@ -12,6 +12,8 @@ try {
     $data = $input['data'];
     $client = $_SERVER['REMOTE_ADDR'] ?? 'local';
     $result = match ($input['action']) {
+        'guidance' => ['residentGuidance' => br_store()->suggestions($data)],
+        // Keep old open tabs compatible; these values are now resident guidance only.
         'suggestions' => ['suggestions' => br_store()->suggestions($data)],
         'submit' => ['receipt' => br_store()->submitGuest($data, $client)],
         'track' => ['concern' => br_store()->track($data['reference'] ?? '', $data['trackingCode'] ?? '', $client)],

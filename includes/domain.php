@@ -80,20 +80,15 @@ final class ComplaintWorkflow
             'category' => $category, 'locationDetails' => $location,
             'description' => self::text($data['description'] ?? '', 'Additional details', 4000, false),
             'location' => implode(', ', array_filter($location)),
-            'suggestion' => '', 'suggestions' => $data['_suggestions'] ?? [],
-            'selectedSuggestion' => null, 'assignedUserId' => null, 'assignedName' => '',
+            'suggestion' => '', // Retained for legacy exports; new reports never propose a staff action.
+            'residentGuidance' => $data['_residentGuidance'] ?? ConcernCatalog::suggestions($category, $type, $points),
+            'assignedUserId' => null, 'assignedName' => '',
             'photo' => self::photo($data['photo'] ?? ''),
             'status' => 'Submitted', 'priority' => 'Medium', 'team' => '',
             'residentId' => null, 'resident' => 'Anonymous resident',
             'recommendation' => '', 'assessment' => '', 'resolution' => null, 'feedback' => '',
             'reopenCount' => 0, 'createdAt' => date(DATE_ATOM), 'updatedAt' => date(DATE_ATOM), 'timeline' => [],
         ];
-        $selected = $data['selectedSuggestion'] ?? '';
-        if ($selected !== '') {
-            if (!in_array($selected, ['0', '1', '2'], true)) throw new DomainException('Choose one of the three suggestions.');
-            $c['selectedSuggestion'] = (int)$selected;
-            $c['suggestion'] = $c['suggestions'][(int)$selected];
-        }
         self::event($c, $actor, 'Concern submitted', $c['description'], null, $c['photo']);
         $c['timeline'][0]['evidenceType'] = 'Initial Evidence';
         $c['priorityRecommendation'] = ConcernInsights::priority($c);
@@ -197,11 +192,7 @@ final class ComplaintWorkflow
                 $c['description'] = self::text($data['description'] ?? '', 'Additional details', 4000, false);
                 if (!empty($c['concernType'])) {
                     [$category, $type, $points] = ConcernCatalog::selections($data);
-                    if ($category !== $c['category'] || $type !== $c['concernType'] || $points !== $c['keyPoints']) {
-                        $c['suggestions'] = $data['_suggestions'];
-                        $c['selectedSuggestion'] = null;
-                        $c['suggestion'] = '';
-                    }
+                    // Keep the guidance shown at submission and any legacy suggestion as historical snapshots.
                     [$c['category'], $c['concernType'], $c['keyPoints']] = [$category, $type, $points];
                     $c['title'] = $c['concernType'] . ' Concern';
                     foreach (['purok', 'street', 'exactArea', 'landmark'] as $field) $c['locationDetails'][$field] = self::text($data[$field] ?? '', ucfirst($field), 120, $field !== 'landmark');

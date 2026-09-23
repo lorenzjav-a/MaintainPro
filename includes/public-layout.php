@@ -2,7 +2,7 @@
 require_once __DIR__ . '/bootstrap.php';
 require_once __DIR__ . '/view.php';
 function br_public_header(string $title): void { ?>
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="csrf-token" content="<?= h($_SESSION['br_csrf']) ?>"><title><?= h($title) ?> · MaintainPro</title><link rel="icon" href="assets/images/favicon.svg"><link rel="stylesheet" href="assets/vendor/bootstrap.min.css"><link rel="stylesheet" href="assets/css/app.css"><script src="assets/js/public.js" defer></script></head>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="csrf-token" content="<?= h($_SESSION['br_csrf']) ?>"><title><?= h($title) ?> · MaintainPro</title><link rel="icon" href="assets/images/favicon.svg"><link rel="stylesheet" href="assets/vendor/bootstrap.min.css"><link rel="stylesheet" href="assets/css/app.css?v=<?= filemtime(__DIR__ . '/../assets/css/app.css') ?>"><script src="assets/js/public.js?v=<?= filemtime(__DIR__ . '/../assets/js/public.js') ?>" defer></script></head>
 <body class="public-page"><a class="visually-hidden-focusable" href="#main-content">Skip to content</a><header class="public-header"><a class="brand" href="landing.php"><img src="assets/images/favicon.svg" alt=""><div><div class="brand-title">Maintain<span>Pro</span></div><small>Community care, connected</small></div></a><nav aria-label="Public navigation"><a href="report-concern.php">Report a Concern</a><a href="track.php">Track Concern</a><a class="btn btn-light" href="login.php">Staff login</a></nav></header><main id="main-content" class="public-main">
 <?php }
 function br_public_footer(): void { ?>
