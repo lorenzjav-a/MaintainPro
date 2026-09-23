@@ -29,7 +29,7 @@
     if (error.status === 409) {
       // Keep the submitted draft and its original version until the user reloads.
       // Never retry an old draft with a fresh version automatically.
-      return Swal.fire({icon: 'warning', title: 'This complaint has changed', text: 'Another user updated this complaint. Copy any unsaved text you need, then reload to review the latest record before saving.', showCancelButton: true, confirmButtonText: 'Reload latest record', cancelButtonText: 'Keep my draft'}).then(function (answer) {
+      return Swal.fire({icon: 'warning', title: 'This concern has changed', text: 'Another user updated this concern. Copy any unsaved text you need, then reload to review the latest record before saving.', showCancelButton: true, confirmButtonText: 'Reload latest record', cancelButtonText: 'Keep my draft'}).then(function (answer) {
         if (answer.isConfirmed) window.location.reload();
       });
     }
@@ -51,13 +51,13 @@
 
   function confirmation(action, data) {
     var messages = {
-      resolve: ['Record this resolution?', 'The reporting resident will still need to verify the result.', 'Mark as resolved'],
-      reopen: ['Reopen this complaint?', 'Your feedback will return the concern to the barangay for reassessment.', 'Reopen complaint'],
-      verify: ['Confirm the concern is resolved?', 'This will close the complaint as resident-verified.', 'Confirm resolution'],
-      exception: ['Record this assessment outcome?', 'The selected outcome and your reason will be added to the complaint timeline.', 'Record outcome']
+      resolve: ['Record this resolution?', 'An official will review the evidence before closing the concern.', 'Mark as resolved'],
+      reopen: ['Reopen this concern?', 'Your feedback will return the concern to the barangay for reassessment.', 'Reopen concern'],
+      verify: ['Confirm the concern is resolved?', 'This records official review and closes the concern.', 'Confirm resolution'],
+      exception: ['Record this assessment outcome?', 'The selected outcome and your reason will be added to the concern timeline.', 'Record outcome']
     };
     var copy = messages[action];
-    if (action === 'update_user' && data.active === '0') copy = ['Deactivate this account?', 'This account will no longer be able to sign in. Complaint histories will be retained.', 'Deactivate account'];
+    if (action === 'update_user' && data.active === '0') copy = ['Deactivate this account?', 'This account will no longer be able to sign in. Concern histories will be retained.', 'Deactivate account'];
     return copy ? Swal.fire({icon: 'question', title: copy[0], text: copy[1], showCancelButton: true, confirmButtonText: copy[2], cancelButtonText: 'Go back'}).then(function (answer) { return answer.isConfirmed; }) : Promise.resolve(true);
   }
 
@@ -85,10 +85,12 @@
     new FormData(form).forEach(function (value, key) {
       if (typeof value === 'string') data[key] = key.indexOf('password') >= 0 ? value : value.trim();
     });
+    data.keyPoints = new FormData(form).getAll('keyPoints');
+    data.actions = new FormData(form).getAll('actions');
     if (action === 'verification') action = event.submitter ? event.submitter.value : 'verify';
     if (action === 'reopen' && !data.feedback) {
       document.getElementById('feedback').focus();
-      showError(new Error('Please describe what still needs attention before reopening the complaint.')); return;
+      showError(new Error('Please describe what still needs attention before reopening the concern.')); return;
     }
     var blank = Array.prototype.find.call(form.querySelectorAll('[required]'), function (input) { return !input.value.trim(); });
     if (blank) { blank.focus(); showError(new Error('Please complete all required fields. A field cannot contain only spaces.')); return; }
@@ -106,7 +108,7 @@
       document.body.classList.add('app-busy');
       return request('api.php', action, data, id).then(function (result) {
         if (action === 'create_user') { showCreatedAccount(result.created_account); form.reset(); return; }
-        var destination = action === 'profile' ? 'profile.php' : action === 'update_user' ? 'users.php' : 'complaint.php';
+        var destination = action === 'profile' ? 'profile.php' : action === 'update_user' ? 'users.php' : ['save_rule', 'reset_rule'].includes(action) ? 'solutions.php' : 'complaint.php';
         var query = new URLSearchParams({saved: action});
         if (destination === 'complaint.php') query.set('id', result.id || id);
         navigating = true;
@@ -135,7 +137,7 @@
     else if (target.hasAttribute('data-help')) Swal.fire({title: 'One concern. A complete journey.', html: document.getElementById('workflow-help').innerHTML, confirmButtonText: 'Explore the workspace', width: 620});
     else if (target.hasAttribute('data-logout') && !busy) {
       busy = true;
-      Swal.fire({icon: 'question', title: 'Sign out of your workspace?', text: 'Saved complaints and account information will remain available when you sign in again.', showCancelButton: true, confirmButtonText: 'Sign out', cancelButtonText: 'Stay signed in'}).then(function (answer) {
+      Swal.fire({icon: 'question', title: 'Sign out of your workspace?', text: 'Saved concerns and account information will remain available when you sign in again.', showCancelButton: true, confirmButtonText: 'Sign out', cancelButtonText: 'Stay signed in'}).then(function (answer) {
         if (answer.isConfirmed) return request('auth.php', 'logout', {}).then(function () { navigating = true; window.location.assign('login.php'); });
       }).catch(showError).finally(function () { if (!navigating) busy = false; });
     } else if (target.hasAttribute('data-use-recommendation')) {

@@ -5,6 +5,128 @@ require_once dirname(__DIR__) . '/config/database.php';
 // All SQL belongs in this file. Callers pass values to named operations.
 final class MaintainProDatabase
 {
+    public function workloads(): array
+    {
+        return $this->run("SELECT u.id,u.name,u.team,u.active,
+            COALESCE(SUM(c.status IN ('Assigned','In Progress')),0) AS active_work,
+            COALESCE(SUM(c.status IN ('Resolved','Verified')),0) AS completed
+            FROM users u LEFT JOIN complaints c ON c.assigned_user_id=u.id
+            WHERE u.role='personnel' GROUP BY u.id,u.name,u.team,u.active ORDER BY u.name")->fetchAll();
+    }
+
+    public function navigationCounts(array $actor): array
+    {
+        return $this->run("SELECT COUNT(*) AS total,COALESCE(SUM(status IN ('Submitted','Under Review','Reopened')),0) AS assessment
+            FROM complaints WHERE ?='official' OR assigned_user_id=?", [$actor['role'],$actor['id']])->fetch();
+    }
+
+    public function recurrenceGroups(string $since, int $minimum = 2): array
+    {
+        return $this->run("SELECT g.*,c.concern_type,
+            JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.locationDetails.purok')) AS area,
+            JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.locationDetails.street')) AS street
+            FROM (SELECT recurrence_key,COUNT(*) AS total,MAX(created_at) AS latest,MIN(id) AS example_id
+              FROM complaints WHERE created_at>=? AND recurrence_key IS NOT NULL
+              GROUP BY recurrence_key HAVING COUNT(*)>=? ORDER BY total DESC,latest DESC LIMIT 100) g
+            JOIN complaints c ON c.id=g.example_id ORDER BY g.total DESC,g.latest DESC", [$since,$minimum])->fetchAll();
+    }
+
+    public function recurrenceFor(string $id, string $since): array
+    {
+        return $this->run('SELECT c.id,c.status,c.created_at,c.concern_type,c.recurrence_key FROM complaints c
+            JOIN complaints source ON source.recurrence_key=c.recurrence_key
+            WHERE source.id=? AND c.created_at>=? ORDER BY c.created_at DESC,c.id DESC', [$id,$since])->fetchAll();
+    }
+
+    public function createNotification(string $user, string $type, string $title, string $message, string $concern, string $event, bool $queue = false): void
+    {
+        $target = $queue ? 'concerns.php' : 'concern.php?id=' . rawurlencode($concern);
+        $this->run('INSERT INTO notifications (user_id,type,title,message,related_concern_id,target_url,event_key,created_at)
+            SELECT users.id,?,?,?,?,?,?,? FROM users WHERE users.id=? AND active=1 AND role IN (\'official\',\'personnel\')
+            ON DUPLICATE KEY UPDATE notifications.id=notifications.id', [$type,$title,$message,$concern,$target,hash('sha256',$event),time(),$user]);
+    }
+
+    public function officialIds(): array
+    {
+        return $this->run("SELECT id FROM users WHERE active=1 AND role='official'")->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    public function notifications(array $actor, int $before = 0): array
+    {
+        $rows = $this->run('SELECT n.id,n.type,n.title,n.message,n.related_concern_id,n.target_url,n.is_read,n.created_at,n.read_at,c.assigned_user_id
+            FROM notifications n LEFT JOIN complaints c ON c.id=n.related_concern_id
+            WHERE n.user_id=? AND (?=0 OR n.id<?) ORDER BY n.id DESC LIMIT 30', [$actor['id'],$before,$before])->fetchAll();
+        foreach ($rows as &$row) {
+            // A historical assignment message does not restore access after reassignment.
+            if ($actor['role'] !== 'official' && $row['assigned_user_id'] !== $actor['id']) $row['target_url'] = 'concerns.php';
+            unset($row['assigned_user_id']);
+        }
+        unset($row);
+        return ['items' => $rows, 'unread' => (int)$this->run('SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0', [$actor['id']])->fetchColumn()];
+    }
+
+    public function markNotificationsRead(string $user, ?int $id): void
+    {
+        if ($id === null) $this->run('UPDATE notifications SET is_read=1,read_at=? WHERE user_id=? AND is_read=0', [time(),$user]);
+        else {
+            if (!$this->run('SELECT id FROM notifications WHERE id=? AND user_id=?', [$id,$user])->fetchColumn()) throw new DomainException('Notification unavailable.');
+            $this->run('UPDATE notifications SET is_read=1,read_at=COALESCE(read_at,?) WHERE id=? AND user_id=?', [time(),$id,$user]);
+        }
+    }
+
+    // Call inside the normal write transaction. One claim per cooldown, including concurrent requests.
+    public function claimAlert(string $key, int $seconds): bool
+    {
+        $key = hash('sha256',$key);
+        $last = $this->run('SELECT last_sent FROM feature_alerts WHERE alert_key=?', [$key])->fetchColumn();
+        if ($last !== false && (int)$last > time()-$seconds) return false;
+        $this->run('INSERT INTO feature_alerts (alert_key,last_sent) VALUES (?,?) ON DUPLICATE KEY UPDATE last_sent=VALUES(last_sent)', [$key,time()]);
+        return true;
+    }
+
+    public function dueAssignments(int $until): array
+    {
+        return $this->run("SELECT id,assigned_user_id,due_at FROM complaints WHERE status IN ('Assigned','In Progress') AND due_at IS NOT NULL AND due_at<=? AND assigned_user_id IS NOT NULL", [$until])->fetchAll();
+    }
+
+    public function recordPublicAttempt(string $bucket, int $limit, int $window): bool
+    {
+        $this->run('DELETE FROM public_attempts WHERE attempted_at < ?', [time() - 3600]);
+        $count = $this->run('SELECT COUNT(*) FROM public_attempts WHERE bucket=? AND attempted_at>?', [$bucket, time() - $window])->fetchColumn();
+        if ((int)$count >= $limit) return false;
+        $this->run('INSERT INTO public_attempts (bucket,attempted_at) VALUES (?,?)', [$bucket, time()]);
+        return true;
+    }
+
+    public function insertTracking(string $id, string $hash): void
+    {
+        $this->run('INSERT INTO concern_tracking (complaint_id,token_hash) VALUES (?,?)', [$id, $hash]);
+    }
+
+    public function trackedConcern(string $id, string $hash): ?array
+    {
+        return $this->run('SELECT c.payload FROM complaints c JOIN concern_tracking t ON t.complaint_id=c.id WHERE c.id=? AND t.token_hash=?', [$id, $hash])->fetch() ?: null;
+    }
+
+    public function solutionRules(): array
+    {
+        return $this->run('SELECT category,concern_type,actions FROM solution_rules ORDER BY category,concern_type')->fetchAll();
+    }
+
+    public function saveSolutionRule(string $category, string $type, array $actions): void
+    {
+        $this->run('INSERT INTO solution_rules (category,concern_type,actions) VALUES (?,?,?) ON DUPLICATE KEY UPDATE actions=VALUES(actions)', [$category, $type, json_encode($actions, JSON_THROW_ON_ERROR)]);
+    }
+
+    public function deleteSolutionRule(string $category, string $type): void
+    {
+        $this->run('DELETE FROM solution_rules WHERE category=? AND concern_type=?', [$category, $type]);
+    }
+
+    public function updateAccountIdentity(string $id, string $name, string $email): void
+    {
+        $this->run('UPDATE users SET name=?,email=? WHERE id=?', [$name, $email, $id]);
+    }
     public function __construct(private PDO $connection) {}
 
     private function run(string $sql, array $values = []): PDOStatement
@@ -69,7 +191,7 @@ final class MaintainProDatabase
 
     public function updateUser(string $id, string $role, string $team, bool $active): void
     {
-        $this->run('UPDATE users SET role=?,team=?,active=? WHERE id=?', [$role, $team, $active ? 1 : 0, $id]);
+        $this->run('UPDATE users SET auth_version=auth_version+IF(active<>? OR role<>?,1,0),role=?,team=?,active=? WHERE id=?', [$active ? 1 : 0, $role, $role, $team, $active ? 1 : 0, $id]);
     }
 
     public function updateProfile(string $id, string $name, string $email, string $hash, bool $revokeSessions): void
@@ -126,7 +248,7 @@ final class MaintainProDatabase
 
     public function resetUser(string $email): array|false
     {
-        return $this->run('SELECT id,email,auth_version FROM users WHERE email=? AND active=1', [$email])->fetch();
+        return $this->run("SELECT id,email,auth_version FROM users WHERE email=? AND active=1 AND role IN ('official','personnel')", [$email])->fetch();
     }
 
     public function deleteUserResets(string $userId): void
@@ -217,6 +339,19 @@ final class DatabaseMaintenance
         if (!in_array('must_change_password', $columns, true)) {
             $connection->exec('ALTER TABLE users ADD COLUMN must_change_password TINYINT NOT NULL DEFAULT 0');
         }
+        $connection->exec(self::anonymousMigration());
+        $connection->exec(self::insightsMigration());
+    }
+
+    public static function insightsMigration(): string
+    {
+        return file_get_contents(__DIR__ . '/migrations/20260921_staff_insights.sql');
+    }
+
+    public static function anonymousMigration(): string
+    {
+        // This is also supplied as an importable SQL migration for existing installs.
+        return file_get_contents(__DIR__ . '/migrations/20260921_anonymous_concerns.sql');
     }
 
     public static function requireTestDatabase(string $name): void
@@ -309,6 +444,17 @@ SQL;
 // Test fixtures use this same SQL boundary and cannot target the workspace database.
 final class DatabaseTestFixtures
 {
+    public function ageConcern(string $id, string $date): void
+    {
+        $statement = $this->connection->prepare("UPDATE complaints SET created_at=?,payload=JSON_SET(payload,'$.createdAt',?) WHERE id=?");
+        $statement->execute([$date,$date,$id]);
+    }
+
+    public function elapseDeadlineSweep(): void
+    {
+        $statement = $this->connection->prepare('DELETE FROM feature_alerts WHERE alert_key=?');
+        $statement->execute([hash('sha256','deadline-sweep')]);
+    }
     public function __construct(private PDO $connection)
     {
         DatabaseMaintenance::requireTestDatabase((string)$connection->query('SELECT DATABASE()')->fetchColumn());

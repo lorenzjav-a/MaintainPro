@@ -1,92 +1,47 @@
 <?php
 declare(strict_types=1);
-date_default_timezone_set('Asia/Manila');
 require dirname(__DIR__) . '/includes/domain.php';
 $checks = 0;
-function check(bool $condition, string $message): void
-{
-    global $checks;
-    if (!$condition) throw new RuntimeException('FAIL: ' . $message);
-    $checks++;
-}
-function blocked(callable $operation, string $message): void
-{
-    try { $operation(); } catch (DomainException $e) { check(true, $message); return; }
-    throw new RuntimeException('FAIL: expected validation error: ' . $message);
-}
-function record(array $state, string $id): array
-{
-    return $state['cases'][array_search($id, array_column($state['cases'], 'id'), true)];
-}
+function check(bool $ok, string $label): void { global $checks; if (!$ok) throw new RuntimeException('FAIL: ' . $label); $checks++; }
+function denied(callable $call, string $label): void { try { $call(); } catch (DomainException $e) { check(true, $label); return; } throw new RuntimeException('FAIL: expected denial: ' . $label); }
+$guest = ['id' => null, 'name' => 'Anonymous resident', 'role' => 'guest'];
+$official = ['id' => 'official', 'name' => 'Official', 'role' => 'official', 'team' => ''];
+$staff = ['id' => 'staff', 'name' => 'Personnel', 'role' => 'personnel', 'team' => 'Maintenance crew', 'active' => true];
+$other = array_replace($staff, ['id' => 'other']);
+$report = ['category' => 'Roads and Infrastructure', 'concernType' => 'Pothole', 'keyPoints' => ['Deep', 'Near intersection'], 'purok' => 'Purok 2', 'street' => 'Test Street', 'exactArea' => 'Near test court'];
+$photo = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=';
 $state = ['nextId' => 1, 'cases' => []];
-$official = ['id' => 'official-1', 'name' => 'Test Official', 'role' => 'official', 'team' => ''];
-$resident = ['id' => 'resident-1', 'name' => 'Test Resident', 'role' => 'resident', 'team' => ''];
-$sanitation = ['id' => 'personnel-1', 'name' => 'Test Sanitation', 'role' => 'personnel', 'team' => 'Sanitation team'];
-$maintenance = ['id' => 'personnel-2', 'name' => 'Test Maintenance', 'role' => 'personnel', 'team' => 'Maintenance crew'];
-check(ComplaintWorkflow::visible($state, $resident) === [], 'workspace starts empty');
-$payload = ['title' => 'Blocked drain test', 'category' => 'Drainage and flooding', 'description' => 'Blocked drain beside the store.', 'location' => 'Test Street, Purok 3', 'suggestion' => 'Please inspect and clear it.'];
-$id = ComplaintWorkflow::submit($state, $resident, $payload);
-check($id === 'BR-1', 'unique reference');
-check(record($state, $id)['status'] === 'Submitted', 'submission status');
-check(record($state, $id)['suggestion'] === $payload['suggestion'], 'resident suggestion preserved');
-blocked(function () use (&$state, $official, $payload) { ComplaintWorkflow::submit($state, $official, $payload); }, 'official cannot submit as resident');
-blocked(function () use (&$state, $resident, $payload) { ComplaintWorkflow::submit($state, $resident, array_replace($payload, ['title' => '   '])); }, 'whitespace title');
-blocked(function () use (&$state, $resident, $payload) { ComplaintWorkflow::submit($state, $resident, array_replace($payload, ['category' => 'invented'])); }, 'unknown category');
-blocked(function () use (&$state, $official, $id) { ComplaintWorkflow::apply($state, $official, $id, 'assign', ['team' => 'Sanitation team']); }, 'assignment needs assessment');
-$assessment = ['category' => 'Drainage and flooding', 'priority' => 'High', 'recommendation' => 'Inspect, clear the blockage, and check drainage flow.', 'assessment' => 'Site inspection recommended.'];
-blocked(function () use (&$state, $resident, $id, $assessment) { ComplaintWorkflow::apply($state, $resident, $id, 'assess', $assessment); }, 'resident cannot make official recommendation');
-$before = $state;
-blocked(function () use (&$state, $official, $id, $assessment) { ComplaintWorkflow::apply($state, $official, $id, 'assess', array_replace($assessment, ['priority' => 'invalid'])); }, 'invalid priority');
-check($state === $before, 'failed action is atomic');
-ComplaintWorkflow::apply($state, $official, $id, 'assess', $assessment);
-check(record($state, $id)['status'] === 'Under Review', 'assessment advances status');
-check(record($state, $id)['suggestion'] === $payload['suggestion'], 'recommendation does not overwrite suggestion');
-ComplaintWorkflow::apply($state, $official, $id, 'assign', ['team' => 'Sanitation team']);
-check(record($state, $id)['status'] === 'Assigned', 'assignment recorded');
-blocked(function () use (&$state, $maintenance, $id) { ComplaintWorkflow::apply($state, $maintenance, $id, 'start', []); }, 'wrong team cannot start');
-blocked(function () use (&$state, $official, $id) { ComplaintWorkflow::apply($state, $official, $id, 'start', []); }, 'official cannot bypass personnel');
-blocked(function () use (&$state, $sanitation, $id) { ComplaintWorkflow::apply($state, $sanitation, $id, 'resolve', ['notes' => 'Done']); }, 'cannot resolve before starting');
-ComplaintWorkflow::apply($state, $sanitation, $id, 'start', []);
-ComplaintWorkflow::apply($state, $sanitation, $id, 'note', ['notes' => 'Team arrived and inspected the outlet.']);
-check(record($state, $id)['status'] === 'In Progress', 'note does not change status');
-blocked(function () use (&$state, $sanitation, $id) { ComplaintWorkflow::apply($state, $sanitation, $id, 'resolve', ['notes' => '   ']); }, 'resolution needs notes');
-$png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j6n8AAAAASUVORK5CYII=';
-ComplaintWorkflow::apply($state, $sanitation, $id, 'resolve', ['notes' => 'Cleared the drain and verified free water flow.', 'photo' => $png]);
-check(record($state, $id)['status'] === 'Resolved', 'resolution awaits verification');
-check(record($state, $id)['resolution']['photo'] === $png, 'completion evidence retained');
-blocked(function () use (&$state, $official, $id) { ComplaintWorkflow::apply($state, $official, $id, 'verify', []); }, 'official cannot verify');
-blocked(function () use (&$state, $resident, $id) { ComplaintWorkflow::apply($state, $resident, $id, 'reopen', ['feedback' => ' ']); }, 'reopening needs feedback');
-ComplaintWorkflow::apply($state, $resident, $id, 'reopen', ['feedback' => 'Water is still pooling after rain.']);
-check(record($state, $id)['status'] === 'Reopened', 'resident can reopen');
-check(record($state, $id)['reopenCount'] === 1, 'reopen counter');
-check(record($state, $id)['resolution']['photo'] === $png, 'prior resolution retained');
-blocked(function () use (&$state, $sanitation, $id) { ComplaintWorkflow::apply($state, $sanitation, $id, 'start', []); }, 'reopened needs reassessment');
-ComplaintWorkflow::apply($state, $official, $id, 'assess', $assessment);
-ComplaintWorkflow::apply($state, $official, $id, 'assign', ['team' => 'Sanitation team']);
-ComplaintWorkflow::apply($state, $sanitation, $id, 'start', []);
-ComplaintWorkflow::apply($state, $sanitation, $id, 'resolve', ['notes' => 'Inspected and cleared the downstream outlet.']);
-ComplaintWorkflow::apply($state, $resident, $id, 'verify', ['feedback' => 'Water now drains correctly.']);
-check(record($state, $id)['status'] === 'Verified', 'full reassessment and verification');
-check(count(record($state, $id)['timeline']) === 12, 'complete audit trail');
-check(count(array_filter(record($state, $id)['timeline'], fn($t) => ($t['photo'] ?? '') === $png)) === 1, 'prior evidence retained in timeline');
-blocked(function () use (&$state, $resident, $id) { ComplaintWorkflow::apply($state, $resident, $id, 'verify', []); }, 'duplicate verification');
-$id2 = ComplaintWorkflow::submit($state, $resident, $payload);
-ComplaintWorkflow::apply($state, $official, $id2, 'exception', ['status' => 'Returned for Information', 'notes' => 'Please add a landmark.']);
-ComplaintWorkflow::apply($state, $resident, $id2, 'information', ['notes' => 'Beside the yellow corner store.']);
-check(record($state, $id2)['status'] === 'Submitted', 'information returns to queue');
-check(str_contains(record($state, $id2)['description'], 'yellow corner store'), 'information retained');
-blocked(function () use (&$state, $official, $id2) { ComplaintWorkflow::apply($state, $official, $id2, 'exception', ['status' => 'Referred to Another Office', 'notes' => 'Outside barangay scope.']); }, 'referral needs office');
-ComplaintWorkflow::apply($state, $official, $id2, 'exception', ['status' => 'Referred to Another Office', 'notes' => 'For utility inspection.', 'office' => 'Water service provider']);
-check(record($state, $id2)['status'] === 'Referred to Another Office', 'referral distinct from resolved');
-$id3 = ComplaintWorkflow::submit($state, $resident, $payload);
-ComplaintWorkflow::apply($state, $official, $id3, 'exception', ['status' => 'Rejected', 'notes' => 'Duplicate report.']);
-check(record($state, $id3)['status'] === 'Rejected', 'rejection recorded');
-blocked(function () use (&$state, $resident, $payload) { ComplaintWorkflow::submit($state, $resident, array_replace($payload, ['photo' => 'data:image/png;base64,aGVsbG8='])); }, 'fake image rejected');
-blocked(function () use (&$state, $resident, $payload, $png) { ComplaintWorkflow::submit($state, $resident, array_replace($payload, ['photo' => str_replace('image/png', 'image/jpeg', $png)])); }, 'MIME mismatch rejected');
-$otherResident = array_replace($resident, ['id' => 'resident-2']);
-$otherId = ComplaintWorkflow::submit($state, $otherResident, $payload);
-check(ComplaintWorkflow::visible($state, $otherResident) === [record($state, $otherId)], 'resident sees only own complaint');
-blocked(function () use (&$state, $resident, $otherId) { ComplaintWorkflow::apply($state, $resident, $otherId, 'information', ['notes' => 'Unauthorized edit']); }, 'other resident inaccessible');
-$persisted = unserialize(serialize($state));
-check(record($persisted, $id)['status'] === 'Verified', 'session serialization');
-echo "PASS: $checks workflow, role, validation, evidence, and persistence checks.\n";
+$report['_suggestions'] = ConcernCatalog::suggestions($report['category'], $report['concernType'], $report['keyPoints']);
+$id = ComplaintWorkflow::submit($state, $guest, $report);
+check(str_starts_with($id, 'CON-' . date('Y') . '-000001'), 'reference format');
+$c = $state['cases'][0];
+check($c['title'] === 'Pothole Concern' && $c['description'] === '' && $c['residentId'] === null, 'anonymous generated title and optional details');
+check($c['keyPoints'] === $report['keyPoints'] && count($c['suggestions']) === 3, 'structured selections and exactly three suggestions');
+foreach (['purok', 'street', 'exactArea', 'category', 'concernType'] as $field) denied(function () use (&$state, $guest, $report, $field) { ComplaintWorkflow::submit($state, $guest, array_replace($report, [$field => ''])); }, 'required ' . $field);
+denied(function () use (&$state, $guest, $report) { ComplaintWorkflow::submit($state, $guest, array_replace($report, ['keyPoints' => ['Forged']])); }, 'unknown points');
+denied(function () use (&$state, $official, $report) { ComplaintWorkflow::submit($state, $official, $report); }, 'staff cannot impersonate guest action');
+check(!ComplaintWorkflow::canSee($c, $staff), 'unassigned location inaccessible');
+ComplaintWorkflow::apply($state, $official, $id, 'assess', ['priority' => 'High', 'recommendation' => 'Inspect and repair.']);
+ComplaintWorkflow::apply($state, $official, $id, 'assign', ['_assignee' => $staff]);
+check(ComplaintWorkflow::canSee($state['cases'][0], $staff) && !ComplaintWorkflow::canSee($state['cases'][0], $other), 'specific personnel only even on same team');
+$work = ['workStatus' => 'Inspection completed', 'actions' => ['Inspection'], 'photo' => $photo];
+foreach (['', 'data:image/png;base64,' . base64_encode('<?php echo 1; ?>'), 'data:image/svg+xml;base64,' . base64_encode('<svg/>')] as $bad) denied(function () use (&$state, $staff, $id, $work, $bad) { ComplaintWorkflow::apply($state, $staff, $id, 'start', array_replace($work, ['photo' => $bad])); }, 'required real image');
+check($state['cases'][0]['status'] === 'Assigned', 'failed update atomic');
+ComplaintWorkflow::apply($state, $staff, $id, 'start', $work);
+denied(function () use (&$state, $other, $id, $work) { ComplaintWorkflow::apply($state, $other, $id, 'note', $work); }, 'same team cannot act');
+denied(function () use (&$state, $staff, $id, $work) { ComplaintWorkflow::apply($state, $staff, $id, 'note', array_replace($work, ['actions' => []])); }, 'structured action required');
+ComplaintWorkflow::apply($state, $staff, $id, 'note', $work);
+denied(function () use (&$state, $staff, $id, $work) { ComplaintWorkflow::apply($state, $staff, $id, 'resolve', $work); }, 'cannot resolve inspection alone');
+ComplaintWorkflow::apply($state, $staff, $id, 'resolve', array_replace($work, ['workStatus' => 'Fully repaired', 'actions' => ['Repair']]));
+$event = end($state['cases'][0]['timeline']);
+check($event['actorId'] === 'staff' && strlen($event['evidenceId']) === 32 && $event['photo'] === $photo && $event['actions'] === ['Repair'], 'evidence bound to actor and structured event');
+denied(function () use (&$state, $staff, $id) { ComplaintWorkflow::apply($state, $staff, $id, 'verify', []); }, 'personnel cannot close own outcome');
+ComplaintWorkflow::apply($state, $official, $id, 'verify', []);
+check($state['cases'][0]['status'] === 'Verified', 'official closes');
+ComplaintWorkflow::apply($state, $official, $id, 'reopen', ['feedback' => 'Issue returned']);
+check($state['cases'][0]['reopenCount'] === 1 && !ComplaintWorkflow::canSee($state['cases'][0], $staff), 'reopen needs fresh assessment and assignment');
+ComplaintWorkflow::apply($state, $official, $id, 'exception', ['status' => 'Returned for Information', 'notes' => 'Inspect exact area']);
+ComplaintWorkflow::apply($state, $official, $id, 'information', ['notes' => 'Area checked']);
+check($state['cases'][0]['status'] === 'Submitted', 'staff follow-up preserved');
+foreach (ConcernCatalog::TYPES as $category => $types) foreach ($types as $type) check(count(ConcernCatalog::suggestions($category, $type, [])) === 3, 'rules for ' . $type);
+echo "PASS: $checks workflow, structured validation, evidence and authorization checks.\n";

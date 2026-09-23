@@ -3,6 +3,7 @@ $activePage = match ($page) {'complaint', 'new-complaint' => 'complaints', 'user
 $links = [['overview', 'index.php', 'Dashboard', 'grid', null], ['complaints', 'complaints.php', $titles['complaints'], 'inbox', $metrics['total']]];
 if ($actor['role'] === 'official') $links[] = ['assessment', 'complaints.php?tab=assessment', 'Needs assessment', 'clipboard', $metrics['assessment']];
 $records = [['history', 'history.php', 'Resolution history', 'clock', null]];
+$records[] = ['notifications', 'notifications.php', 'Notifications', 'bell', null];
 if ($actor['role'] === 'official') {
     $records[] = ['reports', 'reports.php', 'Reports & insights', 'chart', null];
     $records[] = ['solutions', 'solutions.php', 'Solution library', 'book', null];

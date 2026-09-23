@@ -1,6 +1,6 @@
 <?php
 if ($actor['role'] === 'official') {
-    $bannerTitle = $metrics['assessment'] . ' complaint' . ($metrics['assessment'] === 1 ? ' needs' : 's need') . ' your assessment';
+    $bannerTitle = $metrics['assessment'] . ' concern' . ($metrics['assessment'] === 1 ? ' needs' : 's need') . ' your assessment';
     $bannerText = ($metrics['urgent'] ? $metrics['urgent'] . ' urgent concern(s) awaiting action. ' : '') . 'Review the details and recommend the next step.';
     $bannerUrl = 'complaints.php?tab=assessment'; $bannerAction = 'Review queue'; $bannerIcon = 'clipboard';
 } elseif ($actor['role'] === 'resident') {

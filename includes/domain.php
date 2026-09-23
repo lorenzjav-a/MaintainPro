@@ -1,5 +1,7 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/concern-catalog.php';
+require_once __DIR__ . '/insights.php';
 
 final class ComplaintWorkflow
 {
@@ -11,8 +13,7 @@ final class ComplaintWorkflow
     public static function canSee(array $c, array $actor): bool
     {
         return $actor['role'] === 'official'
-            || ($actor['role'] === 'resident' && $actor['id'] === $c['residentId'])
-            || ($actor['role'] === 'personnel' && $actor['team'] === $c['team']);
+            || ($actor['role'] === 'personnel' && !empty($c['assignedUserId']) && $actor['id'] === $c['assignedUserId']);
     }
 
     public static function visible(array $state, array $actor): array
@@ -20,7 +21,7 @@ final class ComplaintWorkflow
         return array_values(array_filter($state['cases'], fn($c) => self::canSee($c, $actor)));
     }
 
-    private static function text(mixed $value, string $label, int $limit = 4000, bool $required = true): string
+    public static function text(mixed $value, string $label, int $limit = 4000, bool $required = true): string
     {
         if (!is_string($value)) {
             throw new DomainException($label . ' must be text.');
@@ -53,7 +54,7 @@ final class ComplaintWorkflow
         }
         $bytes = base64_decode($match[2], true);
         $info = $bytes !== false ? @getimagesizefromstring($bytes) : false;
-        if (!$info || $info['mime'] !== 'image/' . $match[1] || $info[0] * $info[1] > 20000000) {
+        if (!$info || strlen($bytes) > 1048576 || $info['mime'] !== 'image/' . $match[1] || $info[0] * $info[1] > 20000000) {
             throw new DomainException('The attached image is invalid or exceeds 20 megapixels.');
         }
         return $value;
@@ -62,29 +63,40 @@ final class ComplaintWorkflow
     private static function event(array &$c, array $actor, string $title, string $note = '', ?string $date = null, string $photo = ''): void
     {
         $date ??= date(DATE_ATOM);
-        $c['timeline'][] = ['title' => $title, 'note' => $note, 'actor' => $actor['name'], 'date' => $date, 'photo' => $photo];
+        $c['timeline'][] = ['title' => $title, 'note' => $note, 'actor' => $actor['name'], 'actorId' => $actor['id'] ?? null, 'date' => $date, 'photo' => $photo,
+            'evidenceId' => $photo ? bin2hex(random_bytes(16)) : null];
         $c['updatedAt'] = $date;
     }
 
     public static function submit(array &$state, array $actor, array $data): string
     {
-        if ($actor['role'] !== 'resident') {
-            throw new DomainException('Only residents can submit complaints.');
-        }
+        if ($actor['role'] !== 'guest') throw new DomainException('Use the public concern form.');
+        [$category, $type, $points] = ConcernCatalog::selections($data);
+        $location = [];
+        foreach (['purok', 'street', 'exactArea', 'landmark'] as $field) $location[$field] = self::text($data[$field] ?? '', ucfirst($field), 120, $field !== 'landmark');
         $c = [
-            'id' => 'BR-' . $state['nextId'],
-            'title' => self::text($data['title'] ?? '', 'Complaint title', 140),
-            'category' => self::choice($data['category'] ?? '', self::CATEGORIES, 'category'),
-            'description' => self::text($data['description'] ?? '', 'Description'),
-            'location' => self::text($data['location'] ?? '', 'Location', 250),
-            'suggestion' => self::text($data['suggestion'] ?? '', 'Suggested solution', 2000, false),
+            'id' => 'CON-' . date('Y') . '-' . str_pad((string)$state['nextId'], 6, '0', STR_PAD_LEFT),
+            'title' => $type . ' Concern', 'concernType' => $type, 'keyPoints' => $points,
+            'category' => $category, 'locationDetails' => $location,
+            'description' => self::text($data['description'] ?? '', 'Additional details', 4000, false),
+            'location' => implode(', ', array_filter($location)),
+            'suggestion' => '', 'suggestions' => $data['_suggestions'] ?? [],
+            'selectedSuggestion' => null, 'assignedUserId' => null, 'assignedName' => '',
             'photo' => self::photo($data['photo'] ?? ''),
             'status' => 'Submitted', 'priority' => 'Medium', 'team' => '',
-            'residentId' => $actor['id'], 'resident' => $actor['name'],
+            'residentId' => null, 'resident' => 'Anonymous resident',
             'recommendation' => '', 'assessment' => '', 'resolution' => null, 'feedback' => '',
             'reopenCount' => 0, 'createdAt' => date(DATE_ATOM), 'updatedAt' => date(DATE_ATOM), 'timeline' => [],
         ];
-        self::event($c, $actor, 'Complaint submitted', $c['description']);
+        $selected = $data['selectedSuggestion'] ?? '';
+        if ($selected !== '') {
+            if (!in_array($selected, ['0', '1', '2'], true)) throw new DomainException('Choose one of the three suggestions.');
+            $c['selectedSuggestion'] = (int)$selected;
+            $c['suggestion'] = $c['suggestions'][(int)$selected];
+        }
+        self::event($c, $actor, 'Concern submitted', $c['description'], null, $c['photo']);
+        $c['timeline'][0]['evidenceType'] = 'Initial Evidence';
+        $c['priorityRecommendation'] = ConcernInsights::priority($c);
         $state['nextId']++;
         array_unshift($state['cases'], $c);
         return $c['id'];
@@ -94,65 +106,77 @@ final class ComplaintWorkflow
     {
         $index = array_search($id, array_column($state['cases'], 'id'), true);
         if ($index === false || !self::canSee($state['cases'][$index], $actor)) {
-            throw new DomainException('This complaint is not available to your account.');
+            throw new DomainException('This concern is not available to your account.');
         }
         // Work on a copy: failed validation cannot partially mutate a record.
         $c = $state['cases'][$index];
         $assessment = in_array($c['status'], ['Submitted', 'Under Review', 'Reopened'], true);
         $official = $actor['role'] === 'official';
-        $personnel = $actor['role'] === 'personnel' && $actor['team'] === $c['team'];
-        $resident = $actor['role'] === 'resident' && $actor['id'] === $c['residentId'];
+        $personnel = $actor['role'] === 'personnel' && self::canSee($c, $actor);
         switch ($action) {
             case 'assess':
-                self::guard($official && $assessment, 'This complaint cannot be assessed at this stage.');
+                self::guard($official && $assessment, 'This concern cannot be assessed at this stage.');
                 $c['recommendation'] = self::text($data['recommendation'] ?? '', 'Barangay recommended action');
-                $c['category'] = self::choice($data['category'] ?? '', self::CATEGORIES, 'category');
+                // Category/type are edited together in the concern information form.
                 $c['priority'] = self::choice($data['priority'] ?? '', self::PRIORITIES, 'priority');
                 $c['assessment'] = self::text($data['assessment'] ?? '', 'Assessment notes', 3000, false);
                 $c['status'] = 'Under Review';
                 self::event($c, $actor, 'Assessment recorded', $c['recommendation'] . ($c['assessment'] ? "\nAssessment notes: " . $c['assessment'] : ''));
                 break;
             case 'assign':
-                self::guard($official && $c['status'] === 'Under Review' && $c['recommendation'] !== '', 'Save the official assessment and recommended action before assigning.');
-                $c['team'] = self::choice($data['team'] ?? '', self::TEAMS, 'team');
+                self::guard($official && in_array($c['status'], ['Under Review', 'Assigned', 'In Progress'], true) && $c['recommendation'] !== '', 'Save the official assessment and recommended action before assigning.');
+                $assigned = $data['_assignee'] ?? null;
+                self::guard(is_array($assigned) && $assigned['role'] === 'personnel' && (bool)$assigned['active'], 'Choose an active personnel account.');
+                $c['team'] = self::choice($assigned['team'], self::TEAMS, 'team');
+                $c['assignedUserId'] = $assigned['id'];
+                $c['assignedName'] = $assigned['name'];
+                // A blank deadline is allowed; supplied values use the workspace timezone.
+                $deadline = self::text($data['dueAt'] ?? '', 'Target completion', 16, false);
+                $due = $deadline !== '' ? DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $deadline) : false;
+                self::guard($deadline === '' || ($due && $due->format('Y-m-d\TH:i') === $deadline), 'Choose a valid target completion date and time.');
+                $c['dueAt'] = $due ? $due->getTimestamp() : null;
                 $c['status'] = 'Assigned';
-                self::event($c, $actor, 'Assigned to ' . $c['team'], $c['recommendation']);
+                self::event($c, $actor, 'Personnel assignment updated', $assigned['name'] . ' / ' . $c['team']);
+                $c['timeline'][array_key_last($c['timeline'])]['dueAt'] = $c['dueAt'];
                 break;
             case 'start':
-                self::guard($personnel && $c['status'] === 'Assigned', 'Only the assigned team can start this work.');
-                $c['status'] = 'In Progress';
-                self::event($c, $actor, 'Work started', 'The team accepted the assignment and began work.');
-                break;
             case 'note':
-                self::guard($personnel && $c['status'] === 'In Progress', 'Progress notes are available for your work in progress.');
-                self::event($c, $actor, 'Progress update', self::text($data['notes'] ?? '', 'Progress note'));
-                break;
             case 'resolve':
-                self::guard($personnel && $c['status'] === 'In Progress', 'Only the assigned team can record a resolution after starting work.');
-                $c['resolution'] = ['notes' => self::text($data['notes'] ?? '', 'Work performed'), 'photo' => self::photo($data['photo'] ?? ''), 'date' => date(DATE_ATOM), 'team' => $c['team']];
-                $c['status'] = 'Resolved';
-                self::event($c, $actor, 'Resolution recorded', $c['resolution']['notes'], null, $c['resolution']['photo']);
+                self::guard(($personnel || $official) && ($action === 'start' ? $c['status'] === 'Assigned' : $c['status'] === 'In Progress'), 'This work action is not available at the current stage.');
+                $photo = self::photo($data['photo'] ?? '');
+                self::guard($photo !== '', 'Upload image evidence before recording work or completion.');
+                $workStatus = self::choice($data['workStatus'] ?? '', ConcernCatalog::WORK_STATUSES, 'work status');
+                if ($action === 'resolve') self::guard($workStatus === 'Fully repaired', 'Completion requires the Fully repaired work status.');
+                $actions = ConcernCatalog::multiple($data['actions'] ?? [], ConcernCatalog::ACTIONS, 'action taken', true);
+                $notes = self::text($data['notes'] ?? '', 'Additional notes', 4000, in_array('Other', $actions, true));
+                $note = $workStatus . ': ' . implode(', ', $actions) . ($notes ? "\n" . $notes : '');
+                $c['status'] = $action === 'resolve' ? 'Resolved' : 'In Progress';
+                if ($action === 'resolve') $c['resolution'] = ['notes' => $note, 'photo' => $photo, 'date' => date(DATE_ATOM), 'team' => $c['team'], 'uploadedBy' => $actor['id']];
+                self::event($c, $actor, match ($action) {'start' => 'Work started', 'note' => 'Progress update', default => 'Resolution recorded'}, $note, null, $photo);
+                $last = array_key_last($c['timeline']);
+                $c['timeline'][$last]['workStatus'] = $workStatus;
+                $c['timeline'][$last]['actions'] = $actions;
+                $c['timeline'][$last]['evidenceType'] = $action === 'resolve' ? 'Completion Evidence' : (in_array($workStatus, ['Arrived at location', 'Inspection completed'], true) ? 'Inspection Evidence' : 'Progress Evidence');
                 break;
             case 'verify':
             case 'reopen':
-                self::guard($resident && $c['status'] === 'Resolved', 'Only the reporting resident can verify a resolved complaint.');
+                self::guard($official && in_array($c['status'], $action === 'verify' ? ['Resolved'] : ['Resolved', 'Verified', 'Rejected', 'Referred to Another Office'], true), 'Only an official can review this outcome.');
                 $c['feedback'] = self::text($data['feedback'] ?? '', 'Feedback', 3000, $action === 'reopen');
                 $c['status'] = $action === 'verify' ? 'Verified' : 'Reopened';
                 if ($action === 'reopen') {
                     $c['reopenCount']++;
                 }
-                self::event($c, $actor, $action === 'verify' ? 'Resident verified resolution' : 'Complaint reopened', $c['feedback'] ?: 'The resident confirmed the concern was resolved.');
+                if ($action === 'reopen') { $c['assignedUserId'] = null; $c['assignedName'] = ''; $c['team'] = ''; }
+                self::event($c, $actor, $action === 'verify' ? 'Official closed concern' : 'Concern reopened', $c['feedback'] ?: 'The official reviewed the evidence and closed this concern.');
                 break;
             case 'information':
-                self::guard($resident && $c['status'] === 'Returned for Information', 'Additional information is not currently requested.');
+                self::guard($official && $c['status'] === 'Returned for Information', 'An official can record follow-up inspection information here.');
                 $note = self::text($data['notes'] ?? '', 'Additional information', 2000);
                 $photo = self::photo($data['photo'] ?? '');
-                if ($photo !== '') {
-                    $c['photo'] = $photo;
-                }
                 $c['description'] .= "\n\nAdditional information: " . $note;
                 $c['status'] = 'Submitted';
-                self::event($c, $actor, 'Additional information submitted', $note);
+                self::event($c, $actor, 'Additional information submitted', $note, null, $photo);
+                $c['timeline'][array_key_last($c['timeline'])]['evidenceType'] = 'Inspection Evidence';
                 break;
             case 'exception':
                 self::guard($official && $assessment, 'This action is only available during assessment.');
@@ -164,8 +188,39 @@ final class ComplaintWorkflow
                 }
                 self::event($c, $actor, $c['status'], ($office ? 'Receiving office: ' . $office . "\n" : '') . $note);
                 break;
+            case 'edit':
+                self::guard($official, 'Only an official can edit concern information.');
+                $before = array_intersect_key($c, array_flip(['priority', 'category', 'concernType', 'keyPoints', 'location', 'description', 'recommendation']));
+                $oldPriority = $c['priority'];
+                $c['priority'] = self::choice($data['priority'] ?? '', self::PRIORITIES, 'priority');
+                $c['recommendation'] = self::text($data['recommendation'] ?? '', 'Official recommendation', 4000, false);
+                $c['description'] = self::text($data['description'] ?? '', 'Additional details', 4000, false);
+                if (!empty($c['concernType'])) {
+                    [$category, $type, $points] = ConcernCatalog::selections($data);
+                    if ($category !== $c['category'] || $type !== $c['concernType'] || $points !== $c['keyPoints']) {
+                        $c['suggestions'] = $data['_suggestions'];
+                        $c['selectedSuggestion'] = null;
+                        $c['suggestion'] = '';
+                    }
+                    [$c['category'], $c['concernType'], $c['keyPoints']] = [$category, $type, $points];
+                    $c['title'] = $c['concernType'] . ' Concern';
+                    foreach (['purok', 'street', 'exactArea', 'landmark'] as $field) $c['locationDetails'][$field] = self::text($data[$field] ?? '', ucfirst($field), 120, $field !== 'landmark');
+                    $c['location'] = implode(', ', array_filter($c['locationDetails']));
+                } else {
+                    $c['category'] = self::choice($data['category'] ?? $c['category'], self::CATEGORIES, 'category');
+                    $c['location'] = self::text($data['location'] ?? '', 'Location', 500);
+                }
+                self::event($c, $actor, 'Concern information updated', 'Priority: ' . $oldPriority . ' → ' . $c['priority'] . '. Information and official recommendation reviewed.');
+                $c['timeline'][array_key_last($c['timeline'])]['changes'] = ['before' => $before, 'after' => array_intersect_key($c, $before)];
+                break;
             default:
                 throw new DomainException('Unknown action.');
+        }
+        if (in_array($action, ['assess', 'edit'], true)) {
+            $c['priorityRecommendation'] = ConcernInsights::priority($c);
+            $c['priorityDecision'] = ['priority' => $c['priority'], 'recommended' => $c['priorityRecommendation']['priority'],
+                'overridden' => $c['priority'] !== $c['priorityRecommendation']['priority'], 'actorId' => $actor['id'], 'date' => date(DATE_ATOM)];
+            $c['timeline'][array_key_last($c['timeline'])]['priorityDecision'] = $c['priorityDecision'];
         }
         $state['cases'][$index] = $c;
     }

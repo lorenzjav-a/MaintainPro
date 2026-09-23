@@ -9,7 +9,7 @@ function payload(): array
         'mode' => 'account', 'actor' => $actor,
         'cases' => ComplaintWorkflow::visible(br_state(), $actor),
         'users' => $actor['role'] === 'official' ? br_store()->users($actor['id']) : [],
-        'categories' => ComplaintWorkflow::CATEGORIES, 'teams' => ComplaintWorkflow::TEAMS,
+        'categories' => array_values(array_unique(array_merge(array_keys(ConcernCatalog::TYPES), ComplaintWorkflow::CATEGORIES))), 'teams' => ComplaintWorkflow::TEAMS,
         'statuses' => ComplaintWorkflow::STATUSES, 'priorities' => ComplaintWorkflow::PRIORITIES,
     ];
 }
@@ -27,18 +27,22 @@ try {
         exit;
     }
     if ($method === 'GET') {
+        if (($_GET['view'] ?? '') === 'notifications') {
+            echo json_encode(br_store()->notifications($actor['id']), JSON_THROW_ON_ERROR);
+            exit;
+        }
         if (($_GET['export'] ?? '') === 'csv') {
             if ($actor['role'] !== 'official') {
                 http_response_code(403);
                 throw new DomainException('Only a barangay official can export reports.');
             }
             header('Content-Type: text/csv; charset=utf-8');
-            header('Content-Disposition: attachment; filename="maintainpro-complaints.csv"');
+            header('Content-Disposition: attachment; filename="maintainpro-concerns.csv"');
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF");
-            fputcsv($out, ['Complaint ID', 'Title', 'Category', 'Location', 'Status', 'Priority', 'Assigned team', 'Submitted', 'Resident suggestion', 'Official recommendation', 'Resolution', 'Resident feedback', 'Reopen count']);
+            fputcsv($out, ['Concern ID', 'Title', 'Category', 'Location', 'Status', 'Priority', 'Assigned team', 'Submitted', 'Resident suggestion', 'Official recommendation', 'Resolution', 'Review feedback', 'Reopen count', 'Concern type', 'Key points', 'Assigned personnel', 'Purok / Sitio', 'Street', 'Exact area', 'Landmark']);
             foreach (br_state()['cases'] as $c) {
-                $row = [$c['id'], $c['title'], $c['category'], $c['location'], $c['status'], $c['priority'], $c['team'], $c['createdAt'], $c['suggestion'], $c['recommendation'], $c['resolution']['notes'] ?? '', $c['feedback'], (string)$c['reopenCount']];
+                $row = [$c['id'], $c['title'], $c['category'], $c['location'], $c['status'], $c['priority'], $c['team'], $c['createdAt'], $c['suggestion'], $c['recommendation'], $c['resolution']['notes'] ?? '', $c['feedback'], (string)$c['reopenCount'], $c['concernType'] ?? '', implode('; ', $c['keyPoints'] ?? []), $c['assignedName'] ?? '', $c['locationDetails']['purok'] ?? '', $c['locationDetails']['street'] ?? '', $c['locationDetails']['exactArea'] ?? '', $c['locationDetails']['landmark'] ?? ''];
                 fputcsv($out, array_map(fn($v) => preg_match('/^[\s]*[=+\-@\t\r\n]/u', $v) ? "'" . $v : $v, $row));
             }
             fclose($out);
@@ -65,6 +69,12 @@ try {
     if (!is_string($action) || !is_array($data)) throw new DomainException('Invalid request.');
     $id = is_string($input['id'] ?? null) ? $input['id'] : '';
     $createdAccount = null;
+    if (in_array($action, ['read_notification','read_all_notifications'], true)) {
+        if ($action === 'read_notification' && !preg_match('/\A[1-9][0-9]{0,17}\z/', $id)) throw new DomainException('Invalid notification.');
+        br_store()->readNotifications($actor['id'], $action === 'read_all_notifications' ? null : (int)$id);
+        echo json_encode(['ok' => true] + br_store()->notifications($actor['id']), JSON_THROW_ON_ERROR);
+        exit;
+    }
     if (in_array($action, ['switch_role', 'reset'], true)) {
         http_response_code(403);
         throw new DomainException('This action is unavailable. Your account determines your role.');
@@ -76,11 +86,23 @@ try {
             $_SESSION['br_auth_version'] = (int)br_store()->user($actor['id'])['auth_version'];
             session_regenerate_id(true);
         }
+    } elseif (in_array($action, ['save_rule', 'reset_rule'], true)) {
+        br_store()->saveRule($actor['id'], $data, $action === 'reset_rule');
     } else {
         $id = br_store()->mutate($actor['id'], $action, $id, $data, $input['version'] ?? null);
     }
+    if ($action === 'assign') {
+        // Assignment is already committed; SMTP failure must not roll it back.
+        require_once __DIR__ . '/includes/mail.php';
+        $assignedCase = null;
+        foreach (br_state()['cases'] as $case) if ($case['id'] === $id) $assignedCase = $case;
+        $personnel = $assignedCase ? br_store()->user($assignedCase['assignedUserId']) : null;
+        $sent = $personnel && br_send_assignment($personnel, $assignedCase);
+        $_SESSION['assignment_notice'] = $sent ? 'Assignment saved. Personnel email sent.' : 'Assignment saved, but the personnel email could not be sent. Check the mail configuration and notify the assigned person.';
+    }
     $response = ['ok' => true, 'id' => $id, 'state' => payload()];
     if ($createdAccount !== null) $response['created_account'] = $createdAccount;
+    if ($action === 'assign') $response['notification_sent'] = (bool)$sent;
     echo json_encode($response, JSON_THROW_ON_ERROR);
 } catch (ConflictException $e) {
     http_response_code(409);

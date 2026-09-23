@@ -1,0 +1,6 @@
+<?php $recurringGroups = br_store()->recurrenceGroups($actor['id']); ?>
+<section class="panel mt-4"><div class="panel-header"><div><h2 class="panel-title">Recurring issues</h2><p class="panel-subtitle">Last <?= (int)ConcernInsights::config()['recurrence_days'] ?> days · category, concern type, purok and street</p></div></div>
+<div class="table-responsive"><table class="table mb-0"><thead><tr><th>Concern type</th><th>Area / street</th><th>Reports</th><th>Level</th><th>Related concerns</th></tr></thead><tbody>
+<?php foreach ($recurringGroups as $group): ?><tr><td><?= h($group['concern_type']) ?></td><td><?= h($group['area'] . ' / ' . $group['street']) ?></td><td><?= (int)$group['total'] ?></td><td><?= h(ConcernInsights::recurrenceLevel((int)$group['total'])) ?></td><td><a href="<?= h(br_url('concern.php',['id' => $group['example_id']])) ?>#recurrence">View <?= (int)$group['total'] ?> related concerns</a></td></tr><?php endforeach ?>
+<?php if (!$recurringGroups): ?><tr><td colspan="5">No repeated structured reports in this period.</td></tr><?php endif ?>
+</tbody></table></div><p class="form-text p-3 mb-0">Similar reports remain separate incidents. Matching ignores case and repeated spaces; it does not guess street aliases. Shows up to 100 highest-count groups.</p></section>

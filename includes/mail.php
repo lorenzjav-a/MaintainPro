@@ -60,3 +60,24 @@ function br_send_reset_code(PHPMailer $mail, string $email, string $code): void
         . 'If you did not request this, ignore this email. Your password has not changed. Do not share this code.';
     $mail->send();
 }
+
+function br_send_assignment(array $personnel, array $concern): bool
+{
+    try {
+        $mail = br_mailer();
+        $mail->addAddress($personnel['email'], $personnel['name']);
+        $mail->Subject = 'New MaintainPro Work Assignment';
+        // Exact private location stays behind authentication, even in email.
+        $mail->Body = 'Hello ' . $personnel['name'] . ",\n\nA concern has been assigned to you.\n\nConcern reference: " . $concern['id']
+            . "\nCategory: " . $concern['category'] . "\nConcern: " . ($concern['concernType'] ?? 'Legacy concern — sign in for details')
+            . "\nPriority: " . $concern['priority'] . "\n\nSign in to MaintainPro to view the private location and complete work instructions.";
+        $url = rtrim(getenv('BR_APP_URL') ?: '', '/');
+        if ($url !== '' && filter_var($url, FILTER_VALIDATE_URL) && in_array(parse_url($url, PHP_URL_SCHEME), ['http', 'https'], true)) $mail->Body .= "\n" . $url . '/concern.php?id=' . rawurlencode($concern['id']);
+        $mail->send();
+        return true;
+    } catch (Throwable $e) {
+        // Do not log SMTP credentials, message body, recipient or private location.
+        error_log('MaintainPro: assignment saved but its email notification could not be sent.');
+        return false;
+    }
+}

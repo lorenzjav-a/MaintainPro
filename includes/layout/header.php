@@ -12,6 +12,8 @@
   <link rel="stylesheet" href="assets/css/app.css">
   <script src="assets/vendor/sweetalert2.all.min.js" defer></script>
   <script src="assets/js/app.js" defer></script>
+  <script src="assets/js/public.js" defer></script>
+  <script src="assets/js/notifications.js" defer></script>
 </head>
 <body data-page="<?= h($page) ?>">
 <a class="visually-hidden-focusable skip-link" href="#main-content">Skip to main content</a>
@@ -21,7 +23,8 @@
   <main class="main" id="main-content">
     <noscript><p class="info-callout">You can browse records and use search without JavaScript. Enable JavaScript to submit forms and account actions.</p></noscript>
     <?php
-    $notices = ['submit' => 'Complaint submitted.', 'assess' => 'Assessment and official recommendation saved.', 'assign' => 'Complaint assigned to the selected team.', 'start' => 'Work started. You can now record progress.', 'note' => 'Progress update added to the timeline.', 'resolve' => 'Resolution recorded. Awaiting resident verification.', 'verify' => 'Complaint closed after resident verification.', 'reopen' => 'Complaint reopened for barangay reassessment.', 'information' => 'Additional information sent for review.', 'exception' => 'Assessment outcome recorded.', 'update_user' => 'Account access updated.', 'profile' => 'Your profile was saved.'];
+    $notices = ['edit' => 'Concern information updated.', 'save_rule' => 'Public recommendation rules saved.', 'reset_rule' => 'Built-in recommendations restored.', 'submit' => 'Concern submitted.', 'assess' => 'Assessment and official recommendation saved.', 'assign' => 'Concern assigned to the selected personnel account.', 'start' => 'Work started. You can now record progress.', 'note' => 'Progress update added to the timeline.', 'resolve' => 'Resolution recorded. Awaiting official review.', 'verify' => 'Concern closed after official review.', 'reopen' => 'Concern reopened for barangay reassessment.', 'information' => 'Additional information sent for review.', 'exception' => 'Assessment outcome recorded.', 'update_user' => 'Account access updated.', 'profile' => 'Your profile was saved.'];
     $notice = $notices[br_query('saved')] ?? '';
     ?>
     <?php if ($notice): ?><div class="alert alert-success" role="status"><?= h($notice) ?></div><?php endif ?>
+    <?php if (!empty($_SESSION['assignment_notice'])): ?><div class="alert alert-warning" role="status"><?= h($_SESSION['assignment_notice']) ?></div><?php unset($_SESSION['assignment_notice']); endif ?>

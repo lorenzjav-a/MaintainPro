@@ -22,7 +22,8 @@ $old = 'Original-password-42';
 $new = ['password' => 'Replacement-password-82', 'confirm_password' => 'Replacement-password-82'];
 try {
     $admin = $store->setup(['name' => 'Reset Official', 'email' => 'official@example.test', 'password' => $old]);
-    $user = $store->register(['name' => 'Reset Resident', 'email' => 'resident@example.test', 'password' => $old]);
+    $issued = $store->createUser($admin['id'], ['name' => 'Reset Personnel', 'email' => 'resident@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew']);
+    $user = $store->changeTemporaryPassword($issued['id'], ['current_password' => $issued['temporary_password'], 'password' => $old, 'confirm_password' => $old]);
     $id = $store->requestPasswordReset('  RESIDENT@example.test ', 'client-one', $send);
     $code = $messages[0]['code'];
     resetCheck($messages[0]['email'] === $user['email'] && preg_match('/^[0-9]{6}$/', $code) === 1, 'OTP sent to normalized registered address');
@@ -42,7 +43,7 @@ try {
     resetDenied(fn() => $store->resetPassword($id, $token, ['password' => 'short', 'confirm_password' => 'short']), 'weak new password rejected');
     resetDenied(fn() => $store->resetPassword($id, $token, array_replace($new, ['confirm_password' => 'different'])), 'confirmation required');
     $store->resetPassword($id, $token, $new);
-    resetCheck((int)$store->user($user['id'])['auth_version'] === 2, 'reset revokes all prior sessions');
+    resetCheck((int)$store->user($user['id'])['auth_version'] === 3, 'reset revokes all prior sessions');
     resetCheck($fixtures->resetCount() === 0, 'reset grant removed');
     resetCheck($store->login($user['email'], $new['password'], 'after-reset')['id'] === $user['id'], 'new password signs in');
     resetDenied(fn() => $store->login($user['email'], $old, 'old-password'), 'old password fails');
@@ -91,13 +92,13 @@ try {
     $fixtures->clearResetRate();
     $id = $store->requestPasswordReset($user['email'], 'deactivate', $send);
     $code = end($messages)['code'];
-    $store->updateUser($admin['id'], $user['id'], ['role' => 'resident', 'active' => '0']);
+    $store->updateUser($admin['id'], $user['id'], ['role' => 'personnel', 'team' => 'Maintenance crew', 'active' => '0']);
     resetDenied(fn() => $store->verifyPasswordReset($id, $code), 'inactive account cannot verify');
     $fixtures->clearResetRate();
     $sentBefore = count($messages);
     $store->requestPasswordReset($user['email'], 'inactive', $send);
     resetCheck(count($messages) === $sentBefore, 'inactive account receives no code');
-    $store->updateUser($admin['id'], $user['id'], ['role' => 'resident', 'active' => '1']);
+    $store->updateUser($admin['id'], $user['id'], ['role' => 'personnel', 'team' => 'Maintenance crew', 'active' => '1']);
     resetDenied(fn() => $store->verifyPasswordReset($id, $code), 'reactivation cannot restore old code');
 
     $fixtures->clearResetRate();

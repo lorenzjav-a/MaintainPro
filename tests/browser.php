@@ -2,6 +2,8 @@
 declare(strict_types=1);
 // Browser checks use a disposable database; never point them at maintainpro.
 require __DIR__ . '/support/database.php';
+require __DIR__ . '/support/mail-server.php';
+$mailServer = new TestMailServer();
 $testDatabase = new TestDatabase();
 $server = null;
 $serverLog = tempnam(sys_get_temp_dir(), 'maintainpro-browser-');
@@ -35,5 +37,6 @@ try {
     if (is_resource($server)) { proc_terminate($server); proc_close($server); }
     putenv($oldDatabase === false ? 'BR_DB_NAME' : 'BR_DB_NAME=' . $oldDatabase);
     $testDatabase->drop();
+    $mailServer->stop();
     if (is_file($serverLog)) unlink($serverLog);
 }

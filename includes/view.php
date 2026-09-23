@@ -34,6 +34,7 @@ function br_initials(string $name): string
 function br_icon(string $name): string
 {
     static $paths = [
+        'bell' => '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
         'grid' => '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
         'inbox' => '<path d="M4 4h16l2 12v4H2v-4L4 4Z"/><path d="M2 16h6l2 3h4l2-3h6"/>',
         'clipboard' => '<rect x="5" y="4" width="14" height="17" rx="2"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M9 11h6M9 15h4"/>',
@@ -62,7 +63,7 @@ function br_icon(string $name): string
 
 function br_status(array $case): string
 {
-    return '<span class="status status-' . h(strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $case['status']))) . '">' . h($case['status']) . '</span>';
+    return '<span class="status status-' . h(strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $case['status']))) . '">' . h($case['status'] === 'Verified' ? 'Closed / reviewed' : $case['status']) . '</span>';
 }
 
 function br_priority(array $case): string
@@ -73,7 +74,7 @@ function br_priority(array $case): string
 function br_options(array $values, string $selected = '', string $placeholder = ''): void
 {
     if ($placeholder !== '') echo '<option value="">', h($placeholder), '</option>';
-    foreach ($values as $value) echo '<option value="', h($value), '"', $selected === $value ? ' selected' : '', '>', h($value), '</option>';
+    foreach ($values as $value) echo '<option value="', h($value), '"', $selected === $value ? ' selected' : '', '>', h($value === 'Verified' ? 'Closed / reviewed' : str_replace('complaints', 'concerns', $value)), '</option>';
 }
 
 function br_active(array $case): bool
@@ -117,8 +118,8 @@ function br_next_step(array $c, string $role): string
 {
     $copy = [
         'resident' => ['Submitted' => 'Waiting for barangay review', 'Under Review' => 'Barangay is preparing the action', 'Assigned' => 'A response team is assigned', 'In Progress' => 'Work is underway', 'Resolved' => 'Review and verify the result', 'Verified' => 'Closed after your confirmation', 'Reopened' => 'Returned for another assessment', 'Returned for Information' => 'Add the requested information', 'Rejected' => 'Read the recorded reason', 'Referred to Another Office' => 'Follow the referral details'],
-        'official' => ['Submitted' => 'Review and recommend an action', 'Under Review' => 'Assign the responsible team', 'Assigned' => 'Waiting for the team to accept', 'In Progress' => 'Monitor the team’s work', 'Resolved' => 'Waiting for resident verification', 'Verified' => 'Complete and recorded', 'Reopened' => 'Reassess and assign another action', 'Returned for Information' => 'Waiting for resident details', 'Rejected' => 'No further action', 'Referred to Another Office' => 'Monitor the referral separately'],
-        'personnel' => ['Assigned' => 'Accept this assignment', 'In Progress' => 'Add an update or record resolution', 'Resolved' => 'Waiting for resident verification', 'Verified' => 'Complete and recorded', 'Reopened' => 'Waiting for reassignment'],
+        'official' => ['Submitted' => 'Review and recommend an action', 'Under Review' => 'Assign the responsible team', 'Assigned' => 'Waiting for the team to accept', 'In Progress' => 'Monitor the team’s work', 'Resolved' => 'Waiting for official review', 'Verified' => 'Complete and recorded', 'Reopened' => 'Reassess and assign another action', 'Returned for Information' => 'Staff follow-up inspection needed', 'Rejected' => 'No further action', 'Referred to Another Office' => 'Monitor the referral separately'],
+        'personnel' => ['Assigned' => 'Accept this assignment', 'In Progress' => 'Add an update or record resolution', 'Resolved' => 'Waiting for official review', 'Verified' => 'Complete and recorded', 'Reopened' => 'Waiting for reassignment'],
     ];
     return $copy[$role][$c['status']] ?? 'Open for details';
 }
@@ -137,7 +138,7 @@ function br_primary(array $actor): string
 {
     [$url, $icon, $label] = match ($actor['role']) {
         'resident' => ['new-complaint.php', 'plus', 'Report a concern'],
-        'official' => ['complaints.php?tab=assessment', 'clipboard', 'Review complaints'],
+        'official' => ['complaints.php?tab=assessment', 'clipboard', 'Review concerns'],
         default => ['complaints.php?tab=work', 'clipboard', 'View assignments'],
     };
     return '<a class="btn btn-primary" href="' . h($url) . '">' . br_icon($icon) . $label . '</a>';
@@ -166,8 +167,8 @@ function br_photo(string $photo, string $label): void
     <?php else: ?><div class="photo-label">No <?= h(strtolower($label)) ?> attached.</div><?php endif ?>
 <?php }
 
-function br_upload(string $id, string $label): void
+function br_upload(string $id, string $label, bool $required = false): void
 { ?>
-    <label class="form-label" for="<?= h($id) ?>"><?= h($label) ?> <span class="text-muted fw-normal">(optional)</span></label>
-    <div class="upload-zone"><input class="form-control form-control-sm" type="file" id="<?= h($id) ?>" name="photoFile" accept="image/jpeg,image/png,image/webp" aria-describedby="<?= h($id) ?>-help"><p class="form-text" id="<?= h($id) ?>-help">JPG, PNG, or WebP · Up to 1 MB · Saved with the complaint record.</p><div data-preview="<?= h($id) ?>"></div></div>
+    <label class="form-label" for="<?= h($id) ?>"><?= h($label) ?> <span class="text-muted fw-normal">(<?= $required ? 'required' : 'optional' ?>)</span></label>
+    <div class="upload-zone"><input class="form-control form-control-sm" type="file" id="<?= h($id) ?>" name="photoFile" accept="image/jpeg,image/png,image/webp" <?= $required ? 'required' : '' ?> aria-describedby="<?= h($id) ?>-help"><p class="form-text" id="<?= h($id) ?>-help">JPG, PNG, or WebP · Up to 1 MB · Private evidence saved with the concern record.</p><div data-preview="<?= h($id) ?>"></div></div>
 <?php }

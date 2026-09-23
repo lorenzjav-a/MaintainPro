@@ -1,5 +1,11 @@
 # Requirements and scope
 
+## Current requirements: anonymous concerns
+
+The September 21, 2026 anonymous reporting brief supersedes the resident-account workflow below. The implemented requirements and migration are documented in [Anonymous reporting upgrade](anonymous-upgrade.md). Public visitors report without identity or a manually written title, select structured categories/types/key points, provide a private location, receive three rule-based suggestions and save a reference plus secret tracking code. Staff retain authenticated, role-checked access; officials assess/edit/assign/reassign/close, and personnel supply required image evidence with structured work updates. PHPMailer assignment notifications preserve assignments on failure. Reports include structured types, key points, locations, priorities, workload and monthly counts. Historical records and account rows remain intact.
+
+## Original brief (historical context)
+
 Source: the user's pasted community complaint management brief and instruction to use PHP, HTML, CSS, Bootstrap, and SweetAlert. The project's final name is MaintainPro.
 
 | Requested MVP module | Implemented behavior |

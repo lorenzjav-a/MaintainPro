@@ -1,0 +1,8 @@
+<?php
+declare(strict_types=1);
+require __DIR__ . '/includes/public-layout.php';
+br_public_header('Community concerns'); ?>
+<section class="public-hero"><div><span class="eyebrow">A CONNECTED BARANGAY</span><h1>A clear path from concern to resolution.</h1><p>MaintainPro helps the barangay respond to community maintenance and safety concerns. Report an issue anonymously, and follow the work with your private tracking code.</p><div class="d-flex flex-wrap gap-3"><a class="btn btn-primary btn-lg" href="report-concern.php">Report a Concern</a><a class="btn btn-light btn-lg" href="track.php">Track / View Concern</a></div><p class="form-text mt-3">No account, name, or email needed. Your location stays private.</p></div><div class="hero-emblem" aria-hidden="true"><?= br_icon('building') ?><span>Community care.<br>Documented action.</span></div></section>
+<section class="row g-4 public-steps" aria-label="How reporting works"><?php foreach (['Choose the concern' => 'Select the category, concern type and key points. Add the private location and an optional photo.', 'Barangay reviews and assigns' => 'An official assesses the report and assigns personnel to inspect and act.', 'Track the response' => 'Save your reference and tracking code. Personnel record evidence, and an official reviews the completed work.'] as $title => $copy): ?><div class="col-md-4"><article class="panel h-100 p-4"><h2 class="h5"><?= h($title) ?></h2><p class="mb-0 text-muted"><?= h($copy) ?></p></article></div><?php endforeach ?></section>
+<p class="info-callout mt-4">For immediate danger, contact local emergency services directly. MaintainPro reports are reviewed by barangay staff.</p>
+<?php br_public_footer(); ?>

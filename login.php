@@ -15,10 +15,10 @@ if ($recovery && (($view === 'verify' && (!isset($_SESSION['br_reset_challenge']
     header('Location: login.php?view=forgot');
     exit;
 }
-$register = !$setup && !$changingPassword && $view === 'register';
-$action = $setup ? 'setup' : ($register ? 'register' : 'login');
-$title = $setup ? 'Set up your barangay workspace' : ($register ? 'Create your resident account' : 'Sign in to MaintainPro');
-$description = $setup ? 'Create the first official account to manage complaints and personnel.' : ($register ? 'Report concerns, follow the response, and verify the result.' : 'Sign in to follow concerns and keep community action moving.');
+if ($view === 'register') { header('Location: report-concern.php'); exit; }
+$action = $setup ? 'setup' : 'login';
+$title = $setup ? 'Set up your barangay workspace' : 'Staff sign in to MaintainPro';
+$description = $setup ? 'Create the first official account to manage concerns and personnel.' : 'Barangay officials and personnel sign in here. Residents can report anonymously.';
 if ($recovery) {
     [$action, $title, $description] = match ($view) {
         'forgot' => ['request_reset', 'Forgot your password?', 'Enter the email address you used for your account. We will email a code to verify it.'],
@@ -32,7 +32,7 @@ if ($changingPassword) {
     $description = 'You signed in with a temporary password. Choose a new password before opening your MaintainPro workspace.';
 }
 $showPassword = !$recovery || $view === 'reset';
-$confirmPassword = $setup || $register || $changingPassword || ($recovery && $view === 'reset');
+$confirmPassword = $setup || $changingPassword || ($recovery && $view === 'reset');
 $resetDone = !$recovery && !empty($_SESSION['br_password_reset_done']);
 unset($_SESSION['br_password_reset_done']);
 ?>
@@ -53,15 +53,15 @@ unset($_SESSION['br_password_reset_done']);
 <body class="auth-page">
   <main class="auth-layout">
     <section class="auth-story">
-      <a class="brand" href="login.php"><img src="assets/images/favicon.svg" alt=""><div><div class="brand-title">Maintain<span>Pro</span></div><small>Community complaint management</small></div></a>
+      <a class="brand" href="landing.php"><img src="assets/images/favicon.svg" alt=""><div><div class="brand-title">Maintain<span>Pro</span></div><small>Community concern management</small></div></a>
       <div class="auth-story-content">
         <span class="auth-kicker">A CONNECTED BARANGAY</span>
         <h1>A clear path from concern to resolution.</h1>
         <p>One place for residents, barangay officials, and personnel to work together.</p>
         <ol class="auth-journey">
-          <li><span>01</span><div><strong>Report & suggest</strong><p>Share the concern and the solution you have in mind.</p></div></li>
+          <li><span>01</span><div><strong>Report & suggest</strong><p>Choose the concern and key points. Suggested actions are provided.</p></div></li>
           <li><span>02</span><div><strong>Review & take action</strong><p>The barangay recommends the next step and assigns the right team.</p></div></li>
-          <li><span>03</span><div><strong>Resolve & verify</strong><p>Record the work, confirm the result, and learn from the outcome.</p></div></li>
+          <li><span>03</span><div><strong>Resolve & review</strong><p>Personnel record evidence; officials review and close the concern.</p></div></li>
         </ol>
       </div>
       <div class="auth-story-footer"><span class="auth-status-dot"></span>Community services, with a complete record.</div>
@@ -74,14 +74,11 @@ unset($_SESSION['br_password_reset_done']);
         <?php if ($resetDone): ?><div class="alert alert-success" role="status">Your password was reset. Sign in with your new password.</div><?php endif ?>
         <?php if ($recovery): ?><p class="form-text">Step <?= ['forgot' => 1, 'verify' => 2, 'reset' => 3][$view] ?> of 3 · Email → Verify code → New password</p><?php endif ?>
         <?php if (!$setup && !$recovery && !$changingPassword): ?>
-        <nav class="auth-tabs" aria-label="Account access">
-          <a class="<?= !$register ? 'active' : '' ?>" href="login.php" <?= !$register ? 'aria-current="page"' : '' ?>>Sign in</a>
-          <a class="<?= $register ? 'active' : '' ?>" href="login.php?view=register" <?= $register ? 'aria-current="page"' : '' ?>>Register as resident</a>
-        </nav>
+        <nav class="auth-tabs" aria-label="Account access"><a class="active" href="login.php">Staff sign in</a><a href="report-concern.php">Report a Concern</a></nav>
         <?php endif ?>
-        <noscript><p class="info-callout">Enable JavaScript to sign in, register, or recover your account.</p></noscript>
+        <noscript><p class="info-callout">Enable JavaScript to sign in or recover your staff account.</p></noscript>
         <form id="auth-form" method="post" action="auth.php" data-action="<?= $action ?>">
-          <?php if ($setup || $register): ?>
+          <?php if ($setup): ?>
           <div class="mb-3"><label class="form-label" for="account-name">Full name</label><input id="account-name" name="name" class="form-control" autocomplete="name" required minlength="2" maxlength="100" placeholder="Your full name"></div>
           <?php endif ?>
           <?php if ((!$recovery || $view === 'forgot') && !$changingPassword): ?>
@@ -97,19 +94,19 @@ unset($_SESSION['br_password_reset_done']);
           <?php if ($confirmPassword): ?>
           <div class="mb-4"><label class="form-label" for="confirm-password">Confirm password</label><input id="confirm-password" type="password" name="confirm_password" class="form-control" autocomplete="new-password" required minlength="10" maxlength="72"></div>
           <?php endif ?>
-          <button class="btn btn-primary w-100 auth-submit" type="submit"><?= $changingPassword ? 'Save password and continue' : ($recovery ? ['forgot' => 'Send verification code', 'verify' => 'Verify code', 'reset' => 'Reset password'][$view] : ($setup ? 'Create official account' : ($register ? 'Create resident account' : 'Sign in to workspace'))) ?><span aria-hidden="true">→</span></button>
+          <button class="btn btn-primary w-100 auth-submit" type="submit"><?= $changingPassword ? 'Save password and continue' : ($recovery ? ['forgot' => 'Send verification code', 'verify' => 'Verify code', 'reset' => 'Reset password'][$view] : ($setup ? 'Create official account' : 'Sign in to workspace')) ?><span aria-hidden="true">→</span></button>
         </form>
         <?php if ($changingPassword): ?><p class="mt-3 text-center"><button id="account-signout" type="button" class="btn btn-light">Sign out</button></p><?php endif ?>
         <?php if (!$setup && !$recovery && !$changingPassword): ?>
-        <div class="account-access-note">
-          <?php if (!$register): ?><p>Don't have a resident account? <a href="login.php?view=register">Register here</a>.</p><?php endif ?>
-          <p>Barangay official and personnel accounts are issued by authorized barangay officials.</p>
+        <div class="auth-support">
+          <p class="auth-register-prompt">Residents can <a href="report-concern.php">report anonymously</a>. No account needed.</p>
+          <p class="auth-account-note">Barangay official and personnel accounts are issued by authorized barangay officials.</p>
+          <p class="auth-recovery-link"><a href="login.php?view=forgot">Forgot password?</a></p>
         </div>
         <?php endif ?>
-        <?php if (!$setup && !$register && !$recovery && !$changingPassword): ?><p class="mt-3 text-center"><a href="login.php?view=forgot">Forgot password?</a></p><?php endif ?>
         <?php if ($recovery && $view === 'verify'): ?><div class="mt-3 text-center"><button id="resend-code" type="button" class="btn btn-light w-100">Send a new code</button><p class="form-text mt-2">Wait 60 seconds between requests. A new code replaces the previous one.</p><a href="login.php?view=forgot">Use a different email address</a></div><?php endif ?>
         <?php if ($recovery): ?><p class="mt-3 text-center"><a href="login.php">Back to sign in</a></p><?php endif ?>
-        <p class="auth-footnote">MaintainPro · Community complaint management</p>
+        <p class="auth-footnote">MaintainPro · Community concern management</p>
       </div>
     </section>
   </main>

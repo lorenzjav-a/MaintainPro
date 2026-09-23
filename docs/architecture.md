@@ -1,5 +1,7 @@
 # Project structure
 
+The September 2026 anonymous-reporting update is described in [Anonymous upgrade](anonymous-upgrade.md). Public visitors use `landing.php`, `report-concern.php`, `track.php` and `public-api.php`; authenticated staff retain the dedicated workspace pages. `includes/concern-catalog.php` supplies validated choices and public-safe rules. `evidence.php` authorizes private timeline image delivery. Importable SQL migrations are the only SQL sources outside `database/database.php` and remain under `database/migrations`.
+
 MaintainPro is a multi-page PHP application. Root PHP files are public page and API entry points so bookmarks and existing URLs continue to work. Shared code, assets, configuration, dependencies and development tools each have a dedicated directory.
 
 ```text
@@ -35,18 +37,18 @@ MaintainPro/
 
 | Page | Purpose | Access |
 | --- | --- | --- |
-| `index.php` | Dashboard for the current role | Completed accounts |
-| `complaints.php` | All Complaints / My Complaints / Work Queue | Visible complaint records |
+| `index.php` | Staff dashboard; redirects guests to landing | Completed staff accounts |
+| `complaints.php`, `concerns.php` | All Concerns / Work Queue | Official or individually assigned personnel |
 | `history.php` | Resolution attempts, verification, rejections and referrals | Visible complaint records |
-| `complaint.php?id=BR-1` | Full record, timeline, photos and permitted actions | Reporting resident, assigned team or official |
-| `new-complaint.php` | Report a concern | Resident |
+| `complaint.php`, `concern.php` with `id` | Full private record, timeline, photos and permitted actions | Official or individually assigned personnel |
+| `new-complaint.php` | Redirect to public `report-concern.php` | Public |
 | `reports.php` | Reports and insights | Official |
-| `solutions.php` | Verified solutions and reference cases | Official |
+| `solutions.php` | Public-safe recommendation rules plus private historical reference cases | Official |
 | `users.php` | Account management | Official |
 | `user-create.php` | Create an account; display its temporary password once | Official |
-| `user-edit.php?id=USER_ID` | Update role, team or active status | Official |
+| `user-edit.php?id=USER_ID` | Update name, email, role, team or active status | Official |
 | `profile.php` | Own name, email and password | Completed accounts |
-| `login.php` | Sign-in, resident registration, setup and recovery | Public; signed-in accounts are redirected appropriately |
+| `login.php` | Staff sign-in, initial setup and OTP recovery | Public; signed-in staff are redirected appropriately |
 
 ## Request flow
 
@@ -62,6 +64,12 @@ MaintainPro/
 The database transaction locks the complaint counter before writes to preserve complaint numbering, setup rules and consistent version checks. Passwords and recovery codes are hashed. Account creation shows a generated temporary password only in its creation response; it is not kept in browser storage and is cleared from the page on departure.
 
 There is no SPA page renderer or shared feature modal. JavaScript handles form submission, confirmations, image previews, the mobile menu and alerts. Browse/search pages work without JavaScript; account actions and submissions require it. Sensitive forms explicitly use POST even if JavaScript fails.
+
+## Staff insights integration
+
+`includes/insights.php` holds pure priority/workload/evidence rules. `includes/notifications.php` creates persisted notifications through `MaintainProDatabase` within the existing concern transaction. `notifications.php` is a dedicated authenticated page; the small API notification feed excludes full concern payloads. Notification read actions are owner-scoped and CSRF-protected. Stale assignment links return personnel to their current queue.
+
+The staff-insights migration adds generated columns that index existing JSON assignment, concern type, recurrence group and optional due time. SQL calculates current workload and rolling recurring groups without a second writable source of truth. Priority/official decision snapshots and evidence stages extend the existing concern/timeline JSON. The private evidence endpoint and all image validation remain in use. Deadline alerts use a shared minute throttle and unique event keys; the optional CLI sweep supports Task Scheduler. See [the implementation report](staff-insights-upgrade.md).
 
 ## File organization rules
 
@@ -79,4 +87,4 @@ The root JavaScript, stylesheet and icon were moved into `assets`. Database/SMTP
 
 The unused Bootstrap JavaScript bundle was removed. Twenty-seven unused CSS selectors for old modals, demo controls and loading/error placeholders were removed. The remaining stylesheet was formatted without changing declaration order. Active classes with old demo/modal names were renamed to workspace/form names. The former one-time refactor report was consolidated into these maintained architecture and testing guides.
 
-Existing PHP page URLs, complaint IDs, database schema and account data are preserved. No database migration is needed. The old SQLite file remains protected as legacy data rather than being deleted during source cleanup.
+Existing PHP page URLs, IDs and account data are preserved. The earlier folder cleanup needed no migration; the current anonymous reporting update does require the supplied migration. The old SQLite file remains protected as legacy data.

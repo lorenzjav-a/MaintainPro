@@ -1,0 +1,118 @@
+<?php
+declare(strict_types=1);
+date_default_timezone_set('Asia/Manila');
+require dirname(__DIR__) . '/includes/store.php';
+require __DIR__ . '/support/database.php';
+$test = new TestDatabase(); $checks = 0;
+function check(bool $ok, string $label): void { global $checks; if (!$ok) throw new RuntimeException('FAIL: ' . $label); $checks++; }
+function denied(callable $call, string $label): void { try { $call(); } catch (DomainException $e) { check(true,$label); return; } throw new RuntimeException('FAIL: expected denial: ' . $label); }
+try {
+    $store = new ComplaintStore($test->connect()); $db = new MaintainProDatabase($test->connect()); $fixtures = new DatabaseTestFixtures($test->connect());
+    $admin = $store->setup(['name'=>'Official Test','email'=>'official@example.test','password'=>'Test-password-42']);
+    $makeStaff = function (string $name, string $team = 'Maintenance crew') use ($store,$admin): array {
+        $u = $store->createUser($admin['id'],['name'=>$name,'email'=>strtolower($name).'@example.test','role'=>'personnel','team'=>$team]);
+        $store->changeTemporaryPassword($u['id'],['current_password'=>$u['temporary_password'],'password'=>'Test-password-42','confirm_password'=>'Test-password-42']);
+        return $store->user($u['id']);
+    };
+    $a = $makeStaff('Alpha'); $b = $makeStaff('Beta'); $other = $makeStaff('Gamma','Sanitation team');
+    $report = ['category'=>'Street Lighting','concernType'=>'Exposed wiring','keyPoints'=>['Exposed wires','Near school'],'purok'=>'Purok 3','street'=>'Mabini Street','exactArea'=>'Near gate'];
+    $png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=';
+    $find = function (string $id) use ($store): array { foreach ($store->state()['cases'] as $c) if ($c['id'] === $id) return $c; throw new RuntimeException('Missing concern'); };
+    $mutate = function (array $who,string $id,string $action,array $data) use ($store,$find): array { $store->mutate($who['id'],$action,$id,$data,$find($id)['version']); return $find($id); };
+    $notices = fn($u,$type) => array_values(array_filter($store->notifications($u['id'])['items'],fn($n)=>$n['type']===$type));
+    $first = $store->submitGuest($report+['photo'=>$png],'first'); $id=$first['reference']; $c=$find($id);
+    check($c['priorityRecommendation']['priority']==='Urgent' && $c['priority']==='Medium' && empty($c['priorityDecision']), 'recommendation separate from official decision');
+    check(count($c['priorityRecommendation']['reasons'])===3,'score has explainable electrical and school reasons');
+    check(str_contains($notices($admin,'new_concern')[0]['title'],'Urgent recommended'),'new urgent recommendation notification');
+    check(ConcernInsights::priority(['concernType'=>'Broken sidewalk'])['priority']==='Low','minor concern low without risk indicators');
+    check(ConcernInsights::priority(['concernType'=>'Other community concern','keyPoints'=>['Immediate danger']])['priority']==='Urgent','immediate danger urgent safety rule');
+    check(ConcernInsights::priority(['concernType'=>'Light not working','keyPoints'=>['Completely dark','Near school']])['priority']==='High','disruption and context produce high priority');
+    $ids=[$id];
+    for ($i=2;$i<=5;$i++) {
+        $same=array_replace($report,['purok'=>'  PUROK  3 ','street'=>'mabini street']);
+        $ids[]=$store->submitGuest($same,'report-'.$i)['reference'];
+        check(ConcernInsights::recurrenceLevel(count($store->relatedConcerns($admin['id'],$id)))===([2=>'Repeated',3=>'Recurring',4=>'Recurring',5=>'High Recurrence'][$i]),'recurrence level '.$i);
+    }
+    check(count($notices($admin,'recurrence'))===2,'only recurring and high threshold alerts');
+    $total=$store->notifications($admin['id'])['unread'];
+    for($i=0;$i<3;$i++) { $store->relatedConcerns($admin['id'],$id); $store->recurrenceGroups($admin['id']); $store->notifications($admin['id']); }
+    check($store->notifications($admin['id'])['unread']===$total,'page reads do not duplicate alerts');
+    $store->submitGuest(array_replace($report,['street'=>'Different Street']),'different-street');
+    $store->submitGuest(array_replace($report,['purok'=>'Purok 4']),'different-area');
+    $store->submitGuest(array_replace($report,['concernType'=>'Damaged pole']),'different-type');
+    check(count($store->relatedConcerns($admin['id'],$id))===5,'different location/type kept separate');
+    $fixtures->ageConcern($ids[4],date(DATE_ATOM,time()-91*86400));
+    check(count($store->relatedConcerns($admin['id'],$id))===4,'rolling window excludes older reports');
+    $groups=$store->recurrenceGroups($admin['id']);
+    check(count($groups)===1 && (int)$groups[0]['total']===4,'reports use rolling grouping');
+    denied(fn()=>$store->recurrenceGroups($a['id']),'personnel cannot list recurring private locations');
+    denied(fn()=>$store->relatedConcerns($a['id'],$id),'personnel cannot enumerate related concerns');
+    denied(fn()=>$store->workloads($a['id']),'personnel cannot enumerate other personnel workloads');
+    $c=$mutate($admin,$id,'assess',['priority'=>'Urgent','recommendation'=>'Qualified inspection']);
+    check(!$c['priorityDecision']['overridden'],'official accepts recommended priority');
+    $edit=$report+['priority'=>'Low','description'=>'','recommendation'=>'Updated private instructions'];
+    $c=$mutate($admin,$id,'edit',$edit);
+    check($c['priority']==='Low' && $c['priorityDecision']['overridden'] && $c['priorityDecision']['recommended']==='Urgent','official override recorded separately');
+    $workloads=$store->workloads($admin['id']);
+    check(ConcernInsights::recommendPersonnel($workloads,$c)['id']===$a['id'],'active matching team lowest load deterministic tie');
+    // Manual choice of Beta is allowed even while Alpha is recommended.
+    $c=$mutate($admin,$id,'assign',['personnelId'=>$b['id'],'dueAt'=>date('Y-m-d\TH:i',time()+3600)]);
+    check($c['assignedUserId']===$b['id'],'official overrides personnel suggestion');
+    check(count($notices($b,'assignment'))===1,'personnel receives persistent assignment');
+    $fixtures->elapseDeadlineSweep(); $store->sweepDeadlines();
+    check(count($notices($b,'due_soon'))===1,'due soon notification');
+    $beforeUnread=$store->notifications($b['id'])['unread'];
+    $fixtures->elapseDeadlineSweep(); $store->sweepDeadlines();
+    check($store->notifications($b['id'])['unread']===$beforeUnread,'deadline retries deduplicated');
+    $loads=array_column($store->workloads($admin['id']),null,'id');
+    check((int)$loads[$b['id']]['active_work']===1 && (int)$loads[$a['id']]['active_work']===0,'active assignment exact owner counts');
+    check(ConcernInsights::recommendPersonnel(array_values($loads),$c)['id']===$a['id'],'less busy matching team recommended');
+    foreach ([0=>'Available',2=>'Available',3=>'Moderate',5=>'Moderate',6=>'High Workload'] as $n=>$label) check(ConcernInsights::workloadLabel($n)===$label,'workload threshold '.$n);
+    $c=$mutate($admin,$id,'edit',array_replace($edit,['priority'=>'High','recommendation'=>'New instructions']));
+    check(count($notices($b,'priority'))===1 && count($notices($b,'instructions'))===1,'priority and instructions changed notifications');
+    $foreign=$notices($b,'assignment')[0]['id'];
+    denied(fn()=>$store->readNotifications($a['id'],(int)$foreign),'notification ownership protects read action');
+    denied(fn()=>$store->notifications('unknown'),'unknown user inbox rejected');
+    $store->readNotifications($b['id'],(int)$foreign);
+    check((int)$notices($b,'assignment')[0]['is_read']===1 && $notices($b,'assignment')[0]['read_at']!==null,'single read persisted with timestamp');
+    $store->readNotifications($b['id'],null);
+    check($store->notifications($b['id'])['unread']===0 && $store->notifications($admin['id'])['unread']>0,'mark all affects owner only');
+    $c=$mutate($admin,$id,'assign',['personnelId'=>$a['id'],'dueAt'=>date('Y-m-d\TH:i',time()-3600)]);
+    check(count($notices($b,'reassignment'))===1 && $notices($b,'assignment')[0]['target_url']==='concerns.php','old assignment links safe after reassignment');
+    $fixtures->elapseDeadlineSweep(); $store->sweepDeadlines();
+    check(count($notices($a,'overdue'))===1 && count($notices($admin,'overdue'))===1,'overdue official and assignee notifications');
+    $work=['workStatus'=>'Inspection completed','actions'=>['Inspection'],'photo'=>$png];
+    denied(fn()=>$mutate($b,$id,'start',$work),'old assignee cannot work');
+    denied(fn()=>$mutate($a,$id,'start',array_replace($work,['photo'=>'data:image/png;base64,'.base64_encode('<?php echo 1; ?>')])),'invalid executable image rejected');
+    $c=$mutate($a,$id,'start',$work);
+    check(end($c['timeline'])['evidenceType']==='Inspection Evidence' && count($notices($admin,'start'))===1,'inspection and start notice');
+    $c=$mutate($a,$id,'note',array_replace($work,['workStatus'=>'Waiting for materials']));
+    check(end($c['timeline'])['evidenceType']==='Progress Evidence' && $notices($admin,'note')[0]['title']==='Work needs additional action','materials request and progress evidence');
+    $resolved=array_replace($work,['workStatus'=>'Fully repaired','actions'=>['Repair']]);
+    denied(fn()=>$mutate($a,$id,'resolve',array_replace($resolved,['photo'=>''])),'completion photo required');
+    $c=$mutate($a,$id,'resolve',$resolved);
+    check(end($c['timeline'])['evidenceType']==='Completion Evidence' && count($notices($admin,'resolve'))===1,'completion persisted and notified');
+    check(array_column(ConcernInsights::evidence($c),'evidenceType')===['Initial Evidence','Inspection Evidence','Progress Evidence','Completion Evidence'],'full four stage evidence');
+    $loads=array_column($store->workloads($admin['id']),null,'id');
+    check((int)$loads[$a['id']]['active_work']===0 && (int)$loads[$a['id']]['completed']===1,'resolved excluded active included completed');
+    $mutate($admin,$id,'verify',[]);
+    $loads=array_column($store->workloads($admin['id']),null,'id');
+    check((int)$loads[$a['id']]['active_work']===0 && (int)$loads[$a['id']]['completed']===1,'closed excluded active');
+    $c=$mutate($admin,$id,'reopen',['feedback'=>'Additional repair needed']);
+    check(count($notices($admin,'reopen'))===1 && count($notices($a,'reopen'))===1,'reopened work notifies officials and previous assignee');
+    check(!ComplaintWorkflow::canSee($c,$a),'reopened work needs explicit fresh assignment');
+    $mutate($admin,$id,'assess',['priority'=>'Urgent','recommendation'=>'Reinspect']);
+    $mutate($admin,$id,'assign',['personnelId'=>$a['id']]);
+    $mutate($a,$id,'start',$work);
+    $c=$mutate($a,$id,'resolve',$resolved);
+    check(count(array_filter(ConcernInsights::evidence($c),fn($e)=>$e['evidenceType']==='Completion Evidence'))===2,'multiple completion attempts retained');
+    $store->updateUser($admin['id'],$a['id'],['role'=>'personnel','team'=>'Maintenance crew','active'=>'0']);
+    check(ConcernInsights::recommendPersonnel($store->workloads($admin['id']),$c)['id']===$b['id'],'inactive personnel excluded from recommendation');
+    denied(fn()=>$store->notifications($a['id']),'inactive user inbox denied');
+    check(!str_contains(json_encode($store->track($id,$first['trackingCode'],'track')),'priorityRecommendation'),'guest tracking excludes staff insights');
+    $persisted=new ComplaintStore($test->connect());
+    check($persisted->notifications($b['id'])['unread']===$store->notifications($b['id'])['unread'],'notifications survive new session/store');
+    DatabaseMaintenance::initialize($test->connect());
+    check(count(ConcernInsights::evidence($find($id)))===6,'rerunnable migration preserves image history');
+    echo "PASS: $checks notifications, workload, recurrence, priority, evidence and authorization checks.\n";
+} finally { $test->drop(); }
