@@ -9,4 +9,7 @@ DirectoryIndex index.php
 
 RewriteEngine On
 RewriteRule "(^|/)\." "-" [F,L,NC]
-RewriteRule "(^|/)(?:includes|config|tools|tests|database|vendor|logs|backups|uploads)(?:/|$)" "-" [F,L,NC]
+# Browser dependencies in assets/vendor are public; only the root PHP vendor
+# directory is private. Blocking every vendor segment breaks form submission.
+RewriteRule "^vendor(?:/|$)" "-" [F,L,NC]
+RewriteRule "(^|/)(?:includes|config|tools|tests|database|logs|backups|uploads)(?:/|$)" "-" [F,L,NC]

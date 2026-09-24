@@ -8,6 +8,9 @@ if ($actor['role'] === 'official') {
     $records[] = ['reports', 'reports.php', 'Reports & insights', 'chart', null];
     $records[] = ['solutions', 'solutions.php', 'Solution library', 'book', null];
     $records[] = ['users', 'users.php', 'User management', 'users', null];
+    $records[] = ['blocked', 'blocked.php', 'Blocked work', 'tool', null];
+    $records[] = ['settings', 'settings.php', 'Workspace settings', 'building', null];
+    $records[] = ['audit', 'audit.php', 'Audit history', 'shield', null];
 }
 ?>
 <aside class="sidebar" id="workspace-sidebar" aria-label="Main navigation">

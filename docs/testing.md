@@ -1,6 +1,12 @@
 # Testing MaintainPro
 
-## Current anonymous workflow verification
+## Latest system verification
+
+September 25, 2026: **907 functional checks passed**, plus 81 PHP syntax checks and SQL-boundary validation across 79 PHP files. This includes 406 HTTP checks, 79 complete browser checks, and the separate account/session regressions. The [repair and verification report](verification-20260925.md) lists the failures fixed, suite totals, migration, screenshots, backup restore validation, and external SMTP limitation.
+
+Tests isolate their databases, evidence files, application logs, sessions, and loopback SMTP delivery. No test records are written to the live database. A forced post-upload database failure verifies rollback and file cleanup. HTTP/browser runs also inspect the isolated application log for hidden PHP errors.
+
+## Earlier anonymous workflow verification
 
 The current suites cover guest reporting and code-based tracking, official administration and individually assigned personnel. They replace the retired resident-signup/self-verification expectations while preserving staff, OTP and authorization regression checks. See [Anonymous upgrade](anonymous-upgrade.md) for the feature and configuration checklist.
 
@@ -8,7 +14,7 @@ On September 21, 2026, PHP syntax, workflow, store/account, OTP and HTTP/page ch
 
 On September 24, 2026, the resident-guidance update passed 68 PHP syntax checks, the SQL boundary check, 161 workflow checks, 51 store checks, 56 staff-insight checks, 42 OTP checks, 325 HTTP/page checks and 57 headless browser checks. Coverage includes removal of solution selection, server-generated resident guidance, preserved snapshots and legacy data, receipt/tracking access, official-plan separation and mobile layout. The browser run required permission outside the Windows sandbox for Chrome's test connection.
 
-| Current suite | Passing checks |
+| Earlier baseline suite | Passing checks |
 | --- | ---: |
 | PHP syntax | 57 files |
 | Workflow and evidence | 57 |
@@ -17,7 +23,7 @@ On September 24, 2026, the resident-guidance update passed 68 PHP syntax checks,
 | HTTP, pages, privacy and local SMTP | 279 |
 | Desktop/mobile browser workflows | 39 |
 
-There are 460 functional checks in addition to syntax and SQL-boundary validation. XAMPP Apache returned 200 for the landing/report/track/login pages, 401 for unauthenticated staff API access, and 403 for private configuration, migration and backup files. The live database retained its four original accounts and one original concern.
+That earlier baseline had 460 functional checks in addition to syntax and SQL-boundary validation. XAMPP Apache returned 200 for the landing/report/track/login pages, 401 for unauthenticated staff API access, and 403 for private configuration, migration and backup files. At that time, the live database retained its four original accounts and one original concern.
 
 ## Run verification
 
@@ -33,11 +39,13 @@ The runner lints first-party PHP files and runs these suites, stopping on a fail
 C:\xampp\php\php.exe tests\sql-boundary.php
 C:\xampp\php\php.exe tests\workflow.php
 C:\xampp\php\php.exe tests\store.php
+C:\xampp\php\php.exe tests\features.php
+C:\xampp\php\php.exe tests\workflow-storage.php
 C:\xampp\php\php.exe tests\password-reset.php
 C:\xampp\php\php.exe tests\http.php
 ```
 
-`tests/http.php` also includes `tests/pages.php`. `tests/support/database.php` creates randomly named `maintainpro_test_*` databases and removes only those databases. Test credentials need permission to create and drop test databases. The local XAMPP root account supports this. Tests do not insert records into `maintainpro`.
+`tests/http.php` also includes `tests/pages.php` and `tests/extended-http.php`. Its `--accounts-only` mode runs `tests/account-pages.php` for the original account creation and stale-session regressions; the browser runner supports the same option. `tests/support/database.php` creates randomly named `maintainpro_test_*` databases and removes only those databases. Test credentials need permission to create and drop test databases. The local XAMPP root account supports this. Tests do not insert records into `maintainpro`.
 
 `tests/sql-boundary.php` scans first-party PHP string literals and embedded markup for SQL outside `database/database.php`. The explicit exception is importable SQL under `database/migrations`. Database fixtures use guarded methods in the central file. Private local configuration, generated files and bundled dependencies are excluded from the scan.
 

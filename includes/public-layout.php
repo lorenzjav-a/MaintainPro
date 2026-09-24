@@ -17,7 +17,21 @@ function br_concern_choices(array $values = [], bool $keyPoints = true): void { 
 <?php if ($keyPoints): ?><fieldset class="mb-4"><legend class="form-label">3. Key points <span class="text-muted">(select any that apply)</span></legend><div class="choice-grid" data-key-points></div></fieldset><?php endif ?>
 </div>
 <?php }
-function br_location_fields(array $values = []): void { ?>
+function br_location_fields(array $values = []): void {
+    $locations = br_store()->locations();
+    $hasRegistry = br_store()->hasLocations();
+    $currentId = (string)($values['purokId'] ?? '');
+    $knownCurrent = in_array($currentId, array_map(fn($row) => (string)$row['id'], $locations), true);
+?>
 <fieldset class="mb-4"><legend class="form-label">4. Private location</legend><p class="form-text">Only barangay officials and assigned personnel can see this address. Do not include your name or contact information.</p><div class="row g-3">
-<?php foreach (['purok' => 'Barangay / Purok / Sitio', 'street' => 'Street / road / path', 'exactArea' => 'Exact area or nearest identifiable place', 'landmark' => 'Landmark (optional)'] as $key => $label): ?><div class="col-md-6"><label class="form-label"><?= h($label) ?><input class="form-control" name="<?= $key ?>" maxlength="120" value="<?= h($values[$key] ?? '') ?>" <?= $key !== 'landmark' ? 'required' : '' ?>></label></div><?php endforeach ?></div></fieldset>
+<div class="col-md-6"><label class="form-label">Barangay / Purok / Sitio
+<?php if ($hasRegistry): ?>
+<select class="form-select" name="locationId" <?= empty($values['purok']) ? 'required' : '' ?>>
+<?php if (!empty($values['purok']) && !$knownCurrent): ?><option value="<?= h($currentId) ?>" selected><?= h($values['purok']) ?> (recorded location)</option>
+<?php else: ?><option value="">Select Purok / Sitio</option><?php endif ?>
+<?php foreach ($locations as $location): ?><option value="<?= (int)$location['id'] ?>"<?= $currentId === (string)$location['id'] ? ' selected' : '' ?>><?= h($location['name']) ?></option><?php endforeach ?>
+</select><?php if (!empty($values['purok'])): ?><input type="hidden" name="purok" value="<?= h($values['purok']) ?>"><?php endif ?>
+<?php else: ?><input class="form-control" name="purok" maxlength="120" value="<?= h($values['purok'] ?? '') ?>" required><?php endif ?>
+</label><?php if ($hasRegistry && !$locations): ?><p class="form-text">No locations are currently available. Please contact the barangay office.</p><?php endif ?></div>
+<?php foreach (['street' => 'Street / road / path', 'exactArea' => 'Exact area or nearest identifiable place', 'landmark' => 'Landmark (optional)'] as $key => $label): ?><div class="col-md-6"><label class="form-label"><?= h($label) ?><input class="form-control" name="<?= $key ?>" maxlength="120" value="<?= h($values[$key] ?? '') ?>" <?= $key !== 'landmark' ? 'required' : '' ?>></label></div><?php endforeach ?></div></fieldset>
 <?php }

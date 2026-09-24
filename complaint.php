@@ -4,6 +4,7 @@ require __DIR__ . '/includes/page.php';
 $context = br_page('complaint');
 $c = br_find_case($context, br_query('id'));
 extract($context);
+if ($actor['role'] === 'official') $c = array_replace($c, br_store()->concernLinks($actor['id'], $c['id']));
 $pageTitle = $c['id'] . ' · ' . $c['title'];
 require __DIR__ . '/includes/layout/header.php';
 br_heading($c['title'], 'Concern ' . $c['id'] . ' · ' . $c['category'], '<a class="btn btn-light" href="concerns.php">Back to concerns</a>');
@@ -48,7 +49,7 @@ $stepIndex = $c['status'] === 'Reopened' ? 1 : array_search($c['status'], array_
     <?php if (!empty($event['priorityDecision'])): ?><p class="form-text">System priority: <?= h($event['priorityDecision']['recommended']) ?> · Official priority: <?= h($event['priorityDecision']['priority']) ?> (<?= $event['priorityDecision']['overridden'] ? 'overridden' : 'accepted' ?>)</p><?php endif ?>
     <?php if (!empty($event['dueAt'])): ?><p class="form-text">Target completion: <?= h(date('M j, Y · g:i A',(int)$event['dueAt'])) ?></p><?php endif ?>
     <?php if (!empty($event['changes'])): ?><details><summary>Changed information</summary><dl class="mt-2 small"><?php foreach ($event['changes']['before'] as $field => $previousValue): $currentValue = $event['changes']['after'][$field] ?? ''; if ($previousValue === $currentValue) continue; ?><dt><?= h(ucfirst(preg_replace('/([a-z])([A-Z])/', '$1 $2', $field))) ?></dt><dd>Before: <?= h(is_array($previousValue) ? implode(', ', $previousValue) : $previousValue) ?><br>After: <?= h(is_array($currentValue) ? implode(', ', $currentValue) : $currentValue) ?></dd><?php endforeach ?></dl></details><?php endif ?>
-    <?php if (!empty($event['photo'])): ?><span class="photo-label"><?= h(ConcernInsights::evidenceStage($event)) ?></span><img class="case-photo" src="<?= h(!empty($event['evidenceId']) ? br_url('evidence.php', ['id' => $event['evidenceId']]) : $event['photo']) ?>" loading="lazy" alt="<?= h(ConcernInsights::evidenceStage($event)) ?>"><?php endif ?></div><?php endforeach ?>
+    <?php if (!empty($event['photo']) || !empty($event['evidenceId'])): ?><span class="photo-label"><?= h(ConcernInsights::evidenceStage($event)) ?></span><img class="case-photo" src="<?= h(!empty($event['evidenceId']) ? br_url('evidence.php', ['id' => $event['evidenceId']]) : $event['photo']) ?>" loading="lazy" alt="<?= h(ConcernInsights::evidenceStage($event)) ?>"><?php endif ?></div><?php endforeach ?>
   </aside></div>
 </article>
 <?php require __DIR__ . '/includes/layout/footer.php'; ?>

@@ -21,14 +21,16 @@ function br_page(string $page, array $roles = []): array
         'history' => 'Resolution history', 'reports' => 'Reports & insights', 'solutions' => 'Solution library',
         'users' => 'User management', 'profile' => 'My profile', 'complaint' => 'Concern details',
         'notifications' => 'Notifications',
+        'settings' => 'Workspace settings', 'audit' => 'Audit history', 'blocked' => 'Blocked work',
         'new-complaint' => 'Report a community concern', 'user-create' => 'Create a workspace account', 'user-edit' => 'Manage account',
     ];
     $context = ['actor' => $actor, 'page' => $page, 'pageTitle' => $titles[$page], 'titles' => $titles];
     if ($roles && !in_array($actor['role'], $roles, true)) br_page_error($context, 403, 'Access denied', 'Your account does not have access to this page.');
-    // Use the same visibility rules as the API, including resident ownership and team assignment.
-    $context['cases'] = $page === 'notifications' ? [] : ComplaintWorkflow::visible(br_state(), $actor);
+    // Apply the same individual-assignment rules as the API.
+    $lightweight = in_array($page, ['notifications', 'settings', 'audit', 'blocked'], true);
+    $context['cases'] = $lightweight ? [] : ComplaintWorkflow::visible(br_state(), $actor);
     $context['metrics'] = br_metrics($context['cases']);
-    if ($page === 'notifications') $context['metrics'] = array_replace($context['metrics'],br_store()->navigationCounts($actor['id']));
+    if ($lightweight) $context['metrics'] = array_replace($context['metrics'],br_store()->navigationCounts($actor['id']));
     return $context;
 }
 

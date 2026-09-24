@@ -103,12 +103,12 @@
       link.href = url; link.download = 'MaintainPro-tracking.txt'; link.click(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     });
   }
-  var followup = document.getElementById('public-followup');
+  var followup = document.getElementById('public-followup'), followupPanel = document.getElementById('followup-panel');
   function renderTracking(result) {
-    var panel = document.getElementById('tracking-result'), followupPanel = document.getElementById('followup-panel');
+    var panel = document.getElementById('tracking-result');
     panel.replaceChildren();
     panel.append(node('h2', result.reference, 'section-title'), node('p', result.category + ' / ' + result.concernType), node('p', 'Status: ' + result.status, 'fw-bold'), node('p', 'Reported: ' + new Date(result.reportedAt).toLocaleString()), node('p', 'Last updated: ' + new Date(result.updatedAt).toLocaleString()));
-    if (result.primaryReference) panel.append(node('p', 'This report is linked to primary concern ' + result.primaryReference + '. Progress shown here follows the primary concern.', 'tracking-link-note'));
+    if (result.linked) panel.append(node('p', 'This report describes an issue already being handled. Progress shown here follows the combined work.', 'tracking-link-note'));
     (result.progress || []).forEach(function (entry) { panel.append(node('p', new Date(entry.date).toLocaleString() + ' — ' + entry.status)); });
     var request = result.informationRequest;
     if (request) {
@@ -138,6 +138,7 @@
     event.preventDefault(); if (busy) return; busy = true;
     var errorBox = document.getElementById('public-error'), panel = document.getElementById('tracking-result'), button = track.querySelector('button');
     errorBox.hidden = true; panel.hidden = true; panel.replaceChildren(); button.disabled = true;
+    if (followupPanel) followupPanel.hidden = true;
     try {
       var result = (await send('track', values(track))).concern;
       renderTracking(result);

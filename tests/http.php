@@ -80,6 +80,10 @@ try {
     httpCheck(auth($adminJar, 'setup', $adminData, '')['status'] === 403, 'setup CSRF');
     httpCheck(auth($adminJar, 'setup', $adminData, $adminCsrf)['status'] === 200, 'first official setup');
     $adminCsrf = token($adminJar);
+    if (in_array('--accounts-only', array_slice($argv, 1), true)) {
+        require __DIR__ . '/account-pages.php';
+        return; // The finally block still removes the disposable database/server.
+    }
     $guestCsrf = token($guestJar, 'report-concern.php');
     httpCheck(auth($guestJar, 'register', $adminData, $guestCsrf)['status'] === 422, 'registration retired');
     httpCheck(req($guestJar, 'api.php')['status'] === 401, 'anonymous private API denied');
@@ -106,7 +110,7 @@ try {
     $created = post($adminJar, 'create_user', ['name' => 'HTTP Staff', 'email' => 'staff@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew'], $adminCsrf);
     httpCheck($created['status'] === 200, 'staff created');
     $account = $created['json']['created_account']; $staffId = $account['id'];
-    httpCheck(!str_contains(json_encode($created['json']['state']), $account['temporary_password']), 'credential returned once outside state');
+    httpCheck(!str_contains(req($adminJar, 'api.php')['body'], $account['temporary_password']), 'credential returned once outside state');
     httpCheck(auth($staffJar, 'login', ['email' => $account['email'], 'password' => $account['temporary_password']], token($staffJar, 'login.php'))['status'] === 200, 'temporary login');
     httpCheck(req($staffJar, 'api.php')['status'] === 403, 'onboarding gates data');
     httpCheck(str_contains(req($staffJar, 'complaint.php?id=' . $id)['body'], 'data-action="change_password"'), 'onboarding direct URL gate');
@@ -138,7 +142,7 @@ try {
     httpCheck(post($staffJar, 'resolve', array_replace($work, ['workStatus' => 'Fully repaired', 'photo' => '']), $staffCsrf, $id, 5)['status'] === 422, 'completion requires evidence');
     $resolved = post($staffJar, 'resolve', array_replace($work, ['workStatus' => 'Fully repaired', 'actions' => ['Repair']]), $staffCsrf, $id, 5);
     httpCheck($resolved['status'] === 200, 'structured resolution');
-    $case = httpCase($resolved, $id); $evidenceId = end($case['timeline'])['evidenceId'];
+    $case = httpCase(req($staffJar, 'api.php'), $id); $evidenceId = end($case['timeline'])['evidenceId'];
     httpCheck(req($staffJar, 'evidence.php?id=' . $evidenceId)['status'] === 200, 'assigned evidence delivery');
     httpCheck(req($otherJar, 'evidence.php?id=' . $evidenceId)['status'] === 404 && req($guestJar, 'evidence.php?id=' . $evidenceId)['status'] === 403, 'evidence private');
     $tracked = $public('track', $receipt);
@@ -196,10 +200,12 @@ try {
     httpCheck(post($adminJar, 'assess', $assessment, $adminCsrf, $id, 8)['status'] === 200, 'reassessment');
     $mailServer->stop(); $mailServer = null;
     $failedMail = post($adminJar, 'assign', ['personnelId' => $otherCreated['id']], $adminCsrf, $id, 9);
-    httpCheck($failedMail['status'] === 200 && $failedMail['json']['notification_sent'] === false && httpCase($failedMail, $id)['assignedUserId'] === $otherCreated['id'], 'SMTP failure does not roll back assignment');
+    httpCheck($failedMail['status'] === 200 && $failedMail['json']['notification_sent'] === false && httpCase(req($adminJar, 'api.php'), $id)['assignedUserId'] === $otherCreated['id'], 'SMTP failure does not roll back assignment');
     httpCheck(str_contains(req($adminJar, 'complaint.php?id=' . $id)['body'], 'email could not be sent'), 'assignment failure notice');
     httpCheck(req($resetJar, 'complaint.php?id=' . $id)['status'] === 404 && req($resetJar, 'evidence.php?id=' . $evidenceId)['status'] === 404, 'reassignment revokes previous staff access');
+    require __DIR__ . '/extended-http.php';
     foreach (['.data/before-anonymous-20260921.sql', 'includes/store.php', 'config/mail.local.php', 'database/migrations/20260921_anonymous_concerns.sql', 'vendor/phpmailer/src/PHPMailer.php', 'tests/store.php', 'tools/check-mail.php', '%63onfig/mail.local.php'] as $path) httpCheck(req($guestJar, $path)['status'] === 404, 'private path ' . $path);
+    $testDatabase->assertHealthyLog();
     httpCheck(!preg_match('/(?:Fatal error|Warning|Notice):/', file_get_contents($serverLog)), 'no PHP runtime diagnostics');
     echo "PASS: $checks HTTP, page, anonymous/privacy, staff, SMTP, OTP and permission checks.\n";
 } finally {

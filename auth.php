@@ -11,7 +11,8 @@ try {
     }
     if (!hash_equals($_SESSION['br_csrf'], $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '')) {
         http_response_code(403);
-        throw new DomainException('Your page has expired. Refresh it and try again.');
+        echo json_encode(['ok' => false, 'code' => 'csrf_expired', 'error' => 'Your session changed after this page was opened. Refresh the page before continuing.']);
+        exit;
     }
     $raw = file_get_contents('php://input', false, null, 0, 16001);
     if (strlen($raw) > 16000) throw new DomainException('The request is too large.');

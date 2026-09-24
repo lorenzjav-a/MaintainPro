@@ -2889,8 +2889,13 @@ button.stat-card:hover {
   max-width: 770px;
 }
 
-.profile-panel .panel-body {
+.panel-body {
   padding: 25px;
+}
+
+.panel-body .form-label {
+  display: block;
+  width: 100%;
 }
 
 .profile-panel .form-label {

@@ -5,6 +5,143 @@ require_once dirname(__DIR__) . '/config/database.php';
 // All SQL belongs in this file. Callers pass values to named operations.
 final class MaintainProDatabase
 {
+    public function insertEvidence(string $id, string $concern, ?string $user, string $type, string $path, string $original, string $mime, int $size, int $width, int $height, int $created): void
+    {
+        $this->run('INSERT INTO concern_evidence (id,complaint_id,uploaded_by,evidence_type,file_path,original_filename,mime_type,file_size,width,height,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)', [$id,$concern,$user,$type,$path,$original,$mime,$size,$width,$height,$created]);
+    }
+
+    public function evidenceForActor(string $id, array $actor): ?array
+    {
+        return $this->run("SELECT e.* FROM concern_evidence e JOIN complaints c ON c.id=e.complaint_id WHERE e.id=? AND (?='official' OR c.assigned_user_id=?)", [$id,$actor['role'],$actor['id']])->fetch() ?: null;
+    }
+
+    public function locations(bool $includeInactive = false): array
+    {
+        return $this->run('SELECT * FROM locations' . ($includeInactive ? '' : ' WHERE active=1') . ' ORDER BY sort_order,name,id')->fetchAll();
+    }
+
+    public function location(int $id): ?array
+    {
+        return $this->run('SELECT * FROM locations WHERE id=?',[$id])->fetch() ?: null;
+    }
+
+    public function insertLocation(string $name, int $sort, int $created): int
+    {
+        $this->run('INSERT INTO locations (name,sort_order,created_at,updated_at) VALUES (?,?,?,?)',[$name,$sort,$created,$created]);
+        return (int)$this->connection->lastInsertId();
+    }
+
+    public function updateLocation(int $id, string $name, int $sort, bool $active, int $updated): void
+    {
+        $this->run('UPDATE locations SET name=?,sort_order=?,active=?,updated_at=? WHERE id=?',[$name,$sort,(int)$active,$updated,$id]);
+    }
+
+    public function rootConcernId(string $id): string
+    {
+        $seen=[];
+        while ($id !== '' && !isset($seen[$id])) {
+            $seen[$id]=true;
+            $parent=$this->primaryConcernId($id);
+            if ($parent===null) return $id;
+            $id=$parent;
+        }
+        return ''; // Reject corrupt cycles, rather than walking forever.
+    }
+
+    public function linkedConcernCount(string $id): int
+    {
+        return (int)$this->run("SELECT COUNT(*) FROM complaints WHERE JSON_UNQUOTE(JSON_EXTRACT(payload,'$.linkedPrimaryId'))=?",[$id])->fetchColumn();
+    }
+
+    public function concernLinks(string $id): array
+    {
+        return ['primaryConcernId'=>$this->primaryConcernId($id), 'linkedConcerns'=>$this->run("SELECT id,status,created_at FROM complaints WHERE JSON_UNQUOTE(JSON_EXTRACT(payload,'$.linkedPrimaryId'))=? ORDER BY created_at DESC",[$id])->fetchAll()];
+    }
+
+    public function blockedConcerns(int $page, int $perPage): array
+    {
+        $where="JSON_EXTRACT(payload,'$.blocked.active')=true AND status IN ('Assigned','In Progress')";
+        $total=(int)$this->run('SELECT COUNT(*) FROM complaints WHERE '.$where)->fetchColumn();
+        $items=$this->run('SELECT id,status,payload,version FROM complaints WHERE '.$where.' ORDER BY updated_at DESC LIMIT '.(int)$perPage.' OFFSET '.(($page-1)*$perPage))->fetchAll();
+        return ['items'=>$items,'total'=>$total,'page'=>$page,'perPage'=>$perPage];
+    }
+
+    public function auditLogs(array $filters, int $page, int $perPage): array
+    {
+        $where=['1=1']; $values=[];
+        if ($filters['date']!=='') { $where[]='created_at LIKE ?'; $values[]=$filters['date'].'%'; }
+        if ($filters['action']!=='') { $where[]='action=?'; $values[]=$filters['action']; }
+        if ($filters['user']!=='') { $where[]='actor_id=?'; $values[]=$filters['user']; }
+        $condition=implode(' AND ',$where);
+        $total=(int)$this->run('SELECT COUNT(*) FROM audit_logs WHERE '.$condition,$values)->fetchColumn();
+        $items=$this->run('SELECT * FROM audit_logs WHERE '.$condition.' ORDER BY id DESC LIMIT '.(int)$perPage.' OFFSET '.(($page-1)*$perPage),$values)->fetchAll();
+        return ['items'=>$items,'total'=>$total,'page'=>$page,'perPage'=>$perPage];
+    }
+
+    public function pagedComplaints(array $actor, array $filters, int $page, int $perPage, bool $history): array
+    {
+        $where=["(?='official' OR assigned_user_id=?)"]; $values=[$actor['role'],$actor['id']];
+        if ($history) $where[]="(status IN ('Resolved','Verified','Rejected','Referred to Another Office') OR JSON_TYPE(JSON_EXTRACT(payload,'$.resolution'))='OBJECT')";
+        $tab=$filters['tab'] ?? '';
+        if ($tab==='assessment') $where[]="status IN ('Submitted','Under Review','Reopened')";
+        if (in_array($tab,['active','work'],true)) $where[]="status IN ('Assigned','In Progress')";
+        if (in_array($tab,['pending','urgent'],true)) $where[]="status NOT IN ('Verified','Rejected','Referred to Another Office','Linked to Primary')";
+        if ($tab==='urgent') $where[]="JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority'))='Urgent'";
+        if ($tab==='reopened') $where[]="JSON_EXTRACT(payload,'$.reopenCount')>0";
+        $statuses=['progress'=>'In Progress','assigned'=>'Assigned','submitted'=>'Submitted','reopened_now'=>'Reopened'];
+        if (isset($statuses[$tab])) { $where[]='status=?'; $values[]=$statuses[$tab]; }
+        if ($tab==='resolved') $where[]="status='Resolved'";
+        if ($tab==='verified') $where[]="status='Verified'";
+        foreach (['priority','category'] as $field) if (($filters[$field] ?? '')!=='') { $where[]="JSON_UNQUOTE(JSON_EXTRACT(payload,'$.".$field."'))=?"; $values[]=$filters[$field]; }
+        if (($filters['status'] ?? '')!=='') { $where[]='status=?'; $values[]=$filters['status']; }
+        if (($filters['search'] ?? '')!=='') {
+            $where[]="(LOCATE(?,id)>0 OR LOCATE(?,JSON_UNQUOTE(JSON_EXTRACT(payload,'$.title')))>0 OR LOCATE(?,JSON_UNQUOTE(JSON_EXTRACT(payload,'$.location')))>0)";
+            array_push($values,$filters['search'],$filters['search'],$filters['search']);
+        }
+        $condition=implode(' AND ',$where);
+        $total=(int)$this->run('SELECT COUNT(*) FROM complaints WHERE '.$condition,$values)->fetchColumn();
+        $items=$this->run('SELECT payload,version FROM complaints WHERE '.$condition.' ORDER BY created_at DESC,id DESC LIMIT '.(int)$perPage.' OFFSET '.(($page-1)*$perPage),$values)->fetchAll();
+        return ['items'=>$items,'total'=>$total,'page'=>$page,'perPage'=>$perPage];
+    }
+
+    public function complaintMetrics(array $actor): array
+    {
+        // Reuse the existing metric definitions without fetching any image payloads.
+        $rows=$this->run("SELECT id,status,team,JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority')) AS priority,
+          JSON_UNQUOTE(JSON_EXTRACT(payload,'$.createdAt')) AS createdAt,
+          JSON_UNQUOTE(JSON_EXTRACT(payload,'$.resolution.date')) AS resolvedAt,JSON_EXTRACT(payload,'$.reopenCount') AS reopenCount
+          FROM complaints WHERE ?='official' OR assigned_user_id=?",[$actor['role'],$actor['id']])->fetchAll();
+        foreach($rows as &$row) $row['resolution']=!empty($row['resolvedAt']) && $row['resolvedAt']!=='null' ? ['date'=>$row['resolvedAt']] : null;
+        unset($row);
+        require_once dirname(__DIR__).'/includes/view.php';
+        return br_metrics($rows);
+    }
+
+    public function sqlBackup(): string
+    {
+        $sql="-- MaintainPro database backup. Restore only into an empty database.\nSET FOREIGN_KEY_CHECKS=0;\n";
+        foreach ($this->run('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $table) {
+            $quoted='`'.str_replace('`','``',$table).'`';
+            $schema=$this->run('SHOW CREATE TABLE '.$quoted)->fetch(PDO::FETCH_NUM)[1];
+            $sql.=$schema.";\n";
+            $columns=$this->run('SHOW FULL COLUMNS FROM '.$quoted)->fetchAll();
+            $columns=array_column(array_filter($columns,fn($c)=>!str_contains($c['Extra'],'GENERATED')),'Field');
+            $names=implode(',',array_map(fn($name)=>'`'.str_replace('`','``',$name).'`',$columns));
+            foreach($this->run('SELECT '.$names.' FROM '.$quoted)->fetchAll(PDO::FETCH_NUM) as $row) {
+                $values=array_map(fn($v)=>$v===null?'NULL':$this->connection->quote((string)$v),$row);
+                $sql.='INSERT INTO '.$quoted.' ('.$names.') VALUES ('.implode(',',$values).");\n";
+            }
+        }
+        return $sql."SET FOREIGN_KEY_CHECKS=1;\n";
+    }
+    public function recordAudit(array $actor, string $action, string $entityType, ?string $entityId, string $label, array $changes): void
+    {
+        $this->run('INSERT INTO audit_logs (actor_id,actor_name,action,entity_type,entity_id,entity_label,changes,created_at) VALUES (?,?,?,?,?,?,?,?)', [
+            $actor['id'], $actor['name'], $action, $entityType, $entityId, $label,
+            json_encode($changes, JSON_THROW_ON_ERROR), date(DATE_ATOM),
+        ]);
+    }
+
     public function workloads(): array
     {
         return $this->run("SELECT u.id,u.name,u.team,u.active,
@@ -103,9 +240,9 @@ final class MaintainProDatabase
         $this->run('INSERT INTO concern_tracking (complaint_id,token_hash) VALUES (?,?)', [$id, $hash]);
     }
 
-    public function trackedConcern(string $id, string $hash): ?array
+    public function trackedConcern(string $id, string $hash, bool $forUpdate = false): ?array
     {
-        return $this->run('SELECT c.payload FROM complaints c JOIN concern_tracking t ON t.complaint_id=c.id WHERE c.id=? AND t.token_hash=?', [$id, $hash])->fetch() ?: null;
+        return $this->run('SELECT c.payload,c.version FROM complaints c JOIN concern_tracking t ON t.complaint_id=c.id WHERE c.id=? AND t.token_hash=?' . ($forUpdate ? ' FOR UPDATE' : ''), [$id, $hash])->fetch() ?: null;
     }
 
     public function solutionRules(): array
@@ -283,6 +420,18 @@ final class MaintainProDatabase
     }
 
     // Complaint persistence
+    public function complaint(string $id, bool $forUpdate = false): ?array
+    {
+        return $this->run('SELECT payload,version FROM complaints WHERE id=?' . ($forUpdate ? ' FOR UPDATE' : ''), [$id])->fetch() ?: null;
+    }
+
+    public function primaryConcernId(string $id): ?string
+    {
+        // The workflow already records this relationship in the concern JSON.
+        $value = $this->run("SELECT JSON_UNQUOTE(JSON_EXTRACT(payload,'$.linkedPrimaryId')) FROM complaints WHERE id=?", [$id])->fetchColumn();
+        return is_string($value) && $value !== '' && $value !== 'null' ? $value : null;
+    }
+
     public function complaints(): array
     {
         return $this->run('SELECT payload,version FROM complaints ORDER BY created_at DESC,id DESC')->fetchAll();
@@ -306,12 +455,15 @@ final class MaintainProDatabase
         ]);
     }
 
-    public function updateComplaint(array $complaint): void
+    public function updateComplaint(array $complaint, ?int $expectedVersion = null): void
     {
-        $this->run('UPDATE complaints SET team=?,status=?,version=?,updated_at=?,payload=? WHERE id=?', [
+        $values = [
             $complaint['team'], $complaint['status'], $complaint['version'], $complaint['updatedAt'],
             json_encode($complaint, JSON_THROW_ON_ERROR), $complaint['id'],
-        ]);
+        ];
+        if ($expectedVersion !== null) $values[] = $expectedVersion;
+        $statement = $this->run('UPDATE complaints SET team=?,status=?,version=?,updated_at=?,payload=? WHERE id=?' . ($expectedVersion !== null ? ' AND version=?' : ''), $values);
+        if ($expectedVersion !== null && $statement->rowCount() !== 1) throw new ConflictException('Another user updated this concern. Refresh before saving.');
     }
 }
 
@@ -521,6 +673,18 @@ SQL;
 // Test fixtures use this same SQL boundary and cannot target the workspace database.
 final class DatabaseTestFixtures
 {
+    public function failNotifications(bool $enabled): void
+    {
+        $this->connection->exec('DROP TRIGGER IF EXISTS test_fail_notification');
+        if ($enabled) $this->connection->exec("CREATE TRIGGER test_fail_notification BEFORE INSERT ON notifications FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='Isolated transaction failure'");
+    }
+
+    public function restoreBackup(string $sql): void
+    {
+        if ($this->connection->query('SHOW TABLES')->fetchColumn() !== false) throw new RuntimeException('Restore test requires an empty test database.');
+        $this->connection->exec($sql);
+    }
+
     public function ageConcern(string $id, string $date): void
     {
         $statement = $this->connection->prepare("UPDATE complaints SET created_at=?,payload=JSON_SET(payload,'$.createdAt',?) WHERE id=?");

@@ -48,7 +48,7 @@ final class EvidenceStorage
 
         return [
             'id' => $id,
-            'file_path' => self::PATH_PREFIX . $filename,
+            'file_path' => self::prefix() . $filename,
             'original_filename' => self::safeOriginalFilename($originalFilename, $extension),
             'mime_type' => $mime,
             'file_size' => strlen($bytes),
@@ -127,7 +127,7 @@ final class EvidenceStorage
 
     private static function resolvedPath(string $filePath, ?array &$pathMatch = null): ?string
     {
-        if (!preg_match('~\Auploads/evidence/[a-f0-9]{32}\.(jpg|png|webp)\z~D', $filePath, $match)) return null;
+        if (!preg_match('~\A'.preg_quote(self::prefix(),'~').'[a-f0-9]{32}\.(jpg|png|webp)\z~D', $filePath, $match)) return null;
         $directory = self::directory();
         $root = realpath($directory);
         if ($root === false || !is_dir($root)) return null;
@@ -150,6 +150,13 @@ final class EvidenceStorage
 
     private static function directory(): string
     {
-        return dirname(__DIR__) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'evidence';
+        return dirname(__DIR__) . DIRECTORY_SEPARATOR . str_replace('/',DIRECTORY_SEPARATOR,rtrim(self::prefix(),'/'));
+    }
+
+    private static function prefix(): string
+    {
+        $test=getenv('BR_EVIDENCE_TEST_DATABASE');
+        if ($test!==false && preg_match('/\Amaintainpro_test_[a-f0-9]{16}\z/',$test)) return self::PATH_PREFIX.$test.'/';
+        return self::PATH_PREFIX;
     }
 }

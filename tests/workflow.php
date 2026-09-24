@@ -42,9 +42,9 @@ ComplaintWorkflow::apply($state, $official, $id, 'verify', []);
 check($state['cases'][0]['status'] === 'Verified', 'official closes');
 ComplaintWorkflow::apply($state, $official, $id, 'reopen', ['feedback' => 'Issue returned']);
 check($state['cases'][0]['reopenCount'] === 1 && !ComplaintWorkflow::canSee($state['cases'][0], $staff), 'reopen needs fresh assessment and assignment');
-ComplaintWorkflow::apply($state, $official, $id, 'exception', ['status' => 'Returned for Information', 'notes' => 'Inspect exact area']);
-ComplaintWorkflow::apply($state, $official, $id, 'information', ['notes' => 'Area checked']);
-check($state['cases'][0]['status'] === 'Submitted', 'staff follow-up preserved');
+ComplaintWorkflow::apply($state, $official, $id, 'request_information', ['notes' => 'Please clarify the exact area']);
+ComplaintWorkflow::reporterFollowup($state['cases'][0], ['description' => 'Beside the covered court']);
+check($state['cases'][0]['status'] === 'Submitted', 'reporter follow-up returns to assessment');
 foreach (ConcernCatalog::TYPES as $category => $types) foreach ($types as $type) {
     foreach ([[], ConcernCatalog::POINTS[$category]] as $points) {
         $steps = ConcernCatalog::suggestions($category, $type, $points);

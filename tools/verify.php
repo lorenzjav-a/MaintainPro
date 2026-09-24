@@ -36,7 +36,7 @@ try {
         $count++;
     }
     echo "PASS: $count first-party PHP syntax checks.\n";
-    foreach (['sql-boundary.php', 'workflow.php', 'store.php', 'features.php', 'password-reset.php', 'http.php'] as $suite) runVerification(['tests/' . $suite], $root);
+    foreach (['sql-boundary.php', 'workflow.php', 'store.php', 'features.php', 'workflow-storage.php', 'password-reset.php', 'http.php'] as $suite) runVerification(['tests/' . $suite], $root);
     if ($withBrowser) runVerification(['tests/browser.php'], $root);
     echo "All requested verification suites passed.\n";
 } catch (Throwable $error) {

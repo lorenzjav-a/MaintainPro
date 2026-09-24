@@ -16,6 +16,15 @@ function br_url(string $page, array $query = []): string
     return $page . ($query ? '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986) : '');
 }
 
+function br_pagination(string $page, array $result, array $filters = []): void
+{
+    $number = (int)$result['page'];
+    $pages = max(1, (int)ceil($result['total'] / $result['perPage']));
+    ?><nav class="d-flex flex-wrap align-items-center gap-3 mt-3" aria-label="Result pages"><span><?= (int)$result['total'] ?> records · Page <?= $number ?> of <?= $pages ?></span>
+    <?php if ($number > 1): ?><a class="btn btn-light btn-sm" href="<?= h(br_url($page, $filters + ['p' => $number - 1])) ?>">Previous</a><?php endif ?>
+    <?php if ($number < $pages): ?><a class="btn btn-light btn-sm" href="<?= h(br_url($page, $filters + ['p' => $number + 1])) ?>">Next</a><?php endif ?></nav><?php
+}
+
 function br_role(string $role): string
 {
     return ['official' => 'Barangay official', 'resident' => 'Resident', 'personnel' => 'Barangay personnel'][$role] ?? $role;
@@ -88,7 +97,7 @@ function br_options(array $values, string $selected = '', string $placeholder = 
 
 function br_active(array $case): bool
 {
-    return !in_array($case['status'], ['Verified', 'Rejected', 'Referred to Another Office'], true);
+    return !in_array($case['status'], ['Verified', 'Rejected', 'Referred to Another Office', 'Linked to Primary'], true);
 }
 
 function br_review(array $case): bool

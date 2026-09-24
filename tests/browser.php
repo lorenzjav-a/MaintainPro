@@ -27,11 +27,13 @@ try {
     $environment = getenv();
     $environment['BR_TEST_URL'] = 'http://' . $address;
     $environment['ELECTRON_RUN_AS_NODE'] = '1';
+    $environment['BR_TEST_ACCOUNTS_ONLY'] = in_array('--accounts-only', array_slice($argv, 1), true) ? '1' : '0';
     $runner = proc_open([$runtime, __DIR__ . '/browser.cjs'], [0 => ['pipe', 'r'], 1 => STDOUT, 2 => STDERR], $runnerPipes, dirname(__DIR__), $environment, ['bypass_shell' => true, 'create_no_window' => true]);
     if (!is_resource($runner)) throw new RuntimeException('Cannot start browser checks.');
     fclose($runnerPipes[0]);
     $status = proc_close($runner);
     if ($status !== 0) throw new RuntimeException('Browser checks failed.');
+    $testDatabase->assertHealthyLog();
     if (preg_match('/(?:Fatal error|Warning|Notice):/', file_get_contents($serverLog))) throw new RuntimeException('PHP diagnostics occurred during browser checks.');
 } finally {
     if (is_resource($server)) { proc_terminate($server); proc_close($server); }

@@ -13,11 +13,11 @@
       body: JSON.stringify({action: action, data: data, id: id || '', version: version})
     }).then(function (response) {
       return response.json().then(function (body) {
-        if (response.status === 401) window.location.assign('login.php');
-        if (response.status === 403 && body.redirect === 'login.php?view=change-password') window.location.assign(body.redirect);
         if (!response.ok) {
           var error = new Error(body.error || 'The request could not be completed.');
           error.status = response.status;
+          error.code = body.code;
+          error.redirect = body.redirect;
           throw error;
         }
         return body;
@@ -26,6 +26,36 @@
   }
 
   function showError(error) {
+    if (error.code === 'csrf_expired') {
+      return Swal.fire({icon: 'warning', title: 'Your session changed', text: 'Signing in or switching accounts in another tab changes the shared session. Your entries are still here; this action was not saved.', showCancelButton: true, confirmButtonText: 'Refresh security token', cancelButtonText: 'Keep my draft'})
+        .then(function (answer) {
+          if (!answer.isConfirmed) return;
+          return fetch('api.php?view=session', {credentials: 'same-origin', cache: 'no-store'}).then(function (response) {
+            return response.json().then(function (session) {
+              if (!response.ok) {
+                var sessionError = new Error(session.error || 'Sign in again to continue.');
+                sessionError.status = response.status; sessionError.redirect = session.redirect;
+                throw sessionError;
+              }
+              var pageUser = document.querySelector('meta[name="account-id"]');
+              var pageVersion = document.querySelector('meta[name="account-version"]');
+              if (!pageUser || !pageVersion || session.userId !== pageUser.content || String(session.authVersion) !== pageVersion.content) {
+                return Swal.fire({icon: 'warning', title: 'Account or access changed', text: 'This tab belongs to an earlier sign-in. Copy any notes you need, then reload and check the current account. The old action will not be resubmitted.', showCancelButton: true, confirmButtonText: 'Reload current account', cancelButtonText: 'Keep my draft'}).then(function (choice) { if (choice.isConfirmed) window.location.reload(); });
+              }
+              if (!/^[a-f0-9]{64}$/.test(session.csrf)) throw new Error('Unable to refresh the security token.');
+              csrf = session.csrf;
+              document.querySelector('meta[name="csrf-token"]').content = csrf;
+              // Keep the original concern version: a later stale-write check must still apply.
+              return Swal.fire({icon: 'success', title: 'Ready to try again', text: 'Your entries have been kept. Review them and press Save again. Nothing was automatically submitted.', confirmButtonText: 'Return to form'});
+            });
+          }).catch(showError);
+        });
+    }
+    if (error.status === 401 || error.redirect === 'login.php?view=change-password') {
+      return Swal.fire({icon: 'warning', title: 'Sign in again', text: 'Your session ended or needs a password change. Copy any unsaved notes before continuing.', showCancelButton: true, confirmButtonText: 'Go to sign in', cancelButtonText: 'Keep my draft'}).then(function (answer) {
+        if (answer.isConfirmed) window.location.assign(error.redirect === 'login.php?view=change-password' ? error.redirect : 'login.php');
+      });
+    }
     if (error.status === 409) {
       // Keep the submitted draft and its original version until the user reloads.
       // Never retry an old draft with a fresh version automatically.

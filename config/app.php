@@ -20,5 +20,10 @@ function br_app_config(): array
         'log_directory' => $root . DIRECTORY_SEPARATOR . '.data' . DIRECTORY_SEPARATOR . 'logs',
         'log_file' => $root . DIRECTORY_SEPARATOR . '.data' . DIRECTORY_SEPARATOR . 'logs' . DIRECTORY_SEPARATOR . 'maintainpro.log',
     ];
+    // Disposable HTTP/browser tests keep expected mail failures out of the live log.
+    $testDatabase = getenv('BR_DB_NAME');
+    if (is_string($testDatabase) && preg_match('/\Amaintainpro_test_[a-f0-9]{16}\z/', $testDatabase)) {
+        $config['log_file'] = $config['log_directory'] . DIRECTORY_SEPARATOR . $testDatabase . '.log';
+    }
     return $config;
 }

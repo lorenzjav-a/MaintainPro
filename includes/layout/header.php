@@ -6,14 +6,16 @@
   <meta name="theme-color" content="#102b32">
   <meta name="description" content="MaintainPro: report, assess, recommend, assign, resolve, and officially close community concerns.">
   <meta name="csrf-token" content="<?= h($_SESSION['br_csrf']) ?>">
+  <meta name="account-id" content="<?= h($actor['id']) ?>">
+  <meta name="account-version" content="<?= (int)$actor['auth_version'] ?>">
   <title><?= h($pageTitle) ?> · MaintainPro</title>
   <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/vendor/bootstrap.min.css">
   <link rel="stylesheet" href="assets/css/app.css?v=<?= filemtime(__DIR__ . '/../../assets/css/app.css') ?>">
   <script src="assets/vendor/sweetalert2.all.min.js" defer></script>
-  <script src="assets/js/app.js" defer></script>
+  <script src="assets/js/app.js?v=<?= filemtime(__DIR__ . '/../../assets/js/app.js') ?>" defer></script>
   <script src="assets/js/public.js?v=<?= filemtime(__DIR__ . '/../../assets/js/public.js') ?>" defer></script>
-  <script src="assets/js/notifications.js" defer></script>
+  <script src="assets/js/notifications.js?v=<?= filemtime(__DIR__ . '/../../assets/js/notifications.js') ?>" defer></script>
 </head>
 <body data-page="<?= h($page) ?>">
 <a class="visually-hidden-focusable skip-link" href="#main-content">Skip to main content</a>
@@ -24,6 +26,7 @@
     <noscript><p class="info-callout">You can browse records and use search without JavaScript. Enable JavaScript to submit forms and account actions.</p></noscript>
     <?php
     $notices = ['edit' => 'Concern information updated.', 'save_rule' => 'Resident guidance saved.', 'reset_rule' => 'Built-in resident guidance restored.', 'submit' => 'Concern submitted.', 'assess' => 'Assessment and official recommendation saved.', 'assign' => 'Concern assigned to the selected personnel account.', 'start' => 'Work started. You can now record progress.', 'note' => 'Progress update added to the timeline.', 'resolve' => 'Resolution recorded. Awaiting official review.', 'verify' => 'Concern closed after official review.', 'reopen' => 'Concern reopened for barangay reassessment.', 'information' => 'Additional information sent for review.', 'exception' => 'Assessment outcome recorded.', 'update_user' => 'Account access updated.', 'profile' => 'Your profile was saved.'];
+    $notices += ['request_information' => 'Information request saved for the reporter.', 'link_concern' => 'Report linked to the primary concern.', 'block' => 'Delay recorded and officials notified.', 'manage_block' => 'Blocked-work decision saved.', 'create_location' => 'Location added.', 'update_location' => 'Location updated.', 'toggle_location' => 'Location availability updated.'];
     $notice = $notices[br_query('saved')] ?? '';
     ?>
     <?php if ($notice): ?><div class="alert alert-success" role="status"><?= h($notice) ?></div><?php endif ?>

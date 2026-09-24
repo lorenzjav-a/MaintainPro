@@ -2,6 +2,8 @@
 
 The September 2026 anonymous-reporting update is described in [Anonymous upgrade](anonymous-upgrade.md). Public visitors use `landing.php`, `report-concern.php`, `track.php` and `public-api.php`; authenticated staff retain the dedicated workspace pages. `includes/concern-catalog.php` supplies validated choices and public-safe rules. `evidence.php` authorizes private timeline image delivery. Importable SQL migrations are the only SQL sources outside `database/database.php` and remain under `database/migrations`.
 
+The [September 25 repairs](verification-20260925.md) complete file-backed evidence storage and add dedicated entry points for existing management operations: `settings.php`, `audit.php`, `blocked.php`, and the POST-only `backup.php`. Each is official-only. New evidence is stored under protected `uploads/evidence` with metadata in `concern_evidence`; existing inline evidence remains supported. Files written during a failed concern transaction are deleted. Timeline IDs connect each image to its work update. Linking and blocked-work state use the existing concern JSON; they do not duplicate that state in additional tables. Location choices use `locations`, with free-text compatibility before a registry is configured.
+
 MaintainPro is a multi-page PHP application. Root PHP files are public page and API entry points so bookmarks and existing URLs continue to work. Shared code, assets, configuration, dependencies and development tools each have a dedicated directory.
 
 ```text

@@ -1,6 +1,5 @@
 (function () {
   'use strict';
-  var csrf = document.querySelector('meta[name="csrf-token"]').content;
   function update(inbox) {
     document.querySelectorAll('[data-unread-count]').forEach(function (badge) {
       badge.textContent = inbox.unread; badge.hidden = !inbox.unread;
@@ -18,7 +17,7 @@
     if (!inbox.items.length) { var empty = document.createElement('p'); empty.className = 'p-3 mb-0 text-muted'; empty.textContent = 'No notifications yet.'; list.append(empty); }
   }
   function read(id) {
-    return fetch('api.php', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+    return fetch('api.php', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content},
       body: JSON.stringify({action: id ? 'read_notification' : 'read_all_notifications', id: id || ''})
     }).then(function (response) { return response.json().then(function (body) { if (!response.ok) throw new Error(body.error || 'Unable to update notification.'); return body; }); })
       .then(function (body) {

@@ -108,6 +108,60 @@ async function tab() {
     await personnel.ready('/login.php', '#temporary-password');
     check(await personnel.evaluate('document.querySelector("#auth-form").dataset.action === "change_password"'), 'temporary password gate');
     await personnel.auth('change_password', {current_password: temporary, password, confirm_password: password}); await personnel.ready('/index.php');
+    if (process.env.BR_TEST_ACCOUNTS_ONLY === '1') {
+      check(await official.evaluate('location.pathname === "/user-create.php" && !document.getElementById("created-account").hidden'), 'account result stays inside MaintainPro');
+      await official.screenshot('account-created-desktop');
+      for (const width of [1440,390]) {
+        for (const client of [official,guest,personnel]) await client.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width===390});
+        await official.go('user-create.php');
+        check(await official.evaluate('typeof Swal === "function" && getComputedStyle(document.querySelector(".form-label")).fontFamily.includes("Segoe UI") && document.documentElement.scrollWidth<=innerWidth'), 'account form dependencies and shared typography at '+width);
+        await official.screenshot('account-form-'+width);
+        await guest.go('login.php'); await guest.screenshot('account-login-'+width);
+        await guest.go('landing.php'); await guest.screenshot('account-landing-'+width);
+        await personnel.go('index.php');
+        check(await personnel.evaluate('document.querySelector("h1").textContent === "Personnel dashboard" && document.documentElement.scrollWidth<=innerWidth'), 'personnel dashboard after onboarding at '+width);
+      }
+      await official.fill('#user-name','Duplicate Account'); await official.fill('#user-email','personnel@example.test'); await official.fill('#user-team','Maintenance crew');
+      await official.click('form[data-action=create_user] button[type=submit]');
+      await until(()=>official.evaluate('document.querySelector(".swal2-title")?.textContent === "Unable to complete action"'),'duplicate account error dialog');
+      check(await official.evaluate('location.pathname === "/user-create.php" && document.getElementById("user-name").value === "Duplicate Account"'),'errors stay on form and preserve draft');
+      await official.click('.swal2-confirm');
+      const switchSession = async email => official.evaluate(`(async()=>{
+        const current=await (await fetch('api.php?view=session')).json();
+        const response=await fetch('auth.php',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':current.csrf},body:JSON.stringify({action:'login',data:{email:${JSON.stringify(email)},password:${JSON.stringify(password)}}})});
+        return response.status;
+      })()`);
+      const oldToken=await official.evaluate('document.querySelector("meta[name=csrf-token]").content');
+      check(await switchSession('official@example.test')===200,'reauthenticate while older form remains open');
+      await official.click('form[data-action=create_user] button[type=submit]');
+      await until(()=>official.evaluate('document.querySelector(".swal2-title")?.textContent === "Your session changed"'),'stale token recovery dialog');
+      await official.screenshot('session-recovery-mobile');
+      await official.click('.swal2-confirm');
+      await until(()=>official.evaluate('document.querySelector(".swal2-title")?.textContent === "Ready to try again"'),'same account token refreshed');
+      check(await official.evaluate('document.querySelector("meta[name=csrf-token]").content !== '+JSON.stringify(oldToken)+' && document.getElementById("user-name").value === "Duplicate Account" && location.pathname === "/user-create.php"'),'refresh preserves draft without navigation or automatic submission');
+      await official.click('.swal2-confirm');
+      await official.click('form[data-action=create_user] button[type=submit]');
+      await until(()=>official.evaluate('document.querySelector(".swal2-html-container")?.textContent.includes("already registered")'),'explicit retry passes CSRF to normal validation');
+      check(true,'save can be retried after token recovery');
+      await official.click('.swal2-confirm');
+      const restoredToken=await official.evaluate('document.querySelector("meta[name=csrf-token]").content');
+      check(await switchSession('personnel@example.test')===200,'switch account with older official form open');
+      await official.click('form[data-action=create_user] button[type=submit]');
+      await until(()=>official.evaluate('document.querySelector(".swal2-title")?.textContent === "Your session changed"'),'switched account stale token');
+      await official.click('.swal2-confirm');
+      await until(()=>official.evaluate('document.querySelector(".swal2-title")?.textContent === "Account or access changed"'),'different identity blocked from token recovery');
+      check(await official.evaluate('document.querySelector("meta[name=csrf-token]").content === '+JSON.stringify(restoredToken)+' && document.getElementById("user-name").value === "Duplicate Account"'),'different account never adopts token or replays old draft');
+      await official.screenshot('session-account-changed-mobile');
+      await official.click('.swal2-cancel');
+      await official.evaluate(`(async()=>{const s=await (await fetch('api.php?view=session')).json();await fetch('auth.php',{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':s.csrf},body:JSON.stringify({action:'logout',data:{}})});})()`);
+      await official.click('form[data-action=create_user] button[type=submit]');
+      await until(()=>official.evaluate('document.querySelector(".swal2-title")?.textContent === "Sign in again"'),'ended session offers draft-preserving sign-in');
+      await official.click('.swal2-cancel');
+      check(await official.evaluate('location.pathname === "/user-create.php" && document.getElementById("user-name").value === "Duplicate Account"'),'expired session does not discard draft');
+      check(errors.length===0,'no uncaught account JavaScript errors');
+      console.log('PASS: '+checks+' isolated account browser checks, including creation, temporary login, errors and desktop/mobile typography.');
+      return;
+    }
     const staffId = await personnel.evaluate('(async()=>{const r=await fetch("api.php"); return (await r.json()).actor.id;})()');
     check(await personnel.evaluate('document.querySelector("h1").textContent === "Personnel dashboard"'), 'personnel dashboard');
     await guest.go('landing.php');
@@ -164,21 +218,33 @@ async function tab() {
     await personnel.submit('start', {workStatus:'Arrived at location'});
     await setPhoto(personnel, '#note-photo'); await personnel.click('form[data-action=note] [name=actions][value=Inspection]');
     await personnel.submit('note', {workStatus:'Inspection completed'});
+    await personnel.submit('block', {blockReason:'Waiting for Materials', recommendedAction:'Supply replacement fixture', expectedAt:'2026-12-30'}, true);
+    check(await personnel.evaluate('document.body.textContent.includes("Work blocked / delayed") && !document.querySelector("form[data-action=manage_block]")'), 'personnel records block without official controls');
+    await official.go('blocked.php');
+    check(await official.evaluate('document.body.textContent.includes("Supply replacement fixture")'), 'official blocked queue shows requested action');
+    await official.go(detail);
+    await official.submit('manage_block', {decision:'approve', instructions:'Replacement approved; coordinate collection'});
+    await personnel.go(detail);
+    check(await personnel.evaluate('document.querySelector(".case-main").textContent.includes("Replacement approved; coordinate collection")'), 'personnel sees official blocked-work instructions');
+    await personnel.screenshot('blocked-personnel-desktop');
     await setPhoto(personnel, '#note-photo');
     await personnel.click('form[data-action=note] [name=actions][value=Repair]');
     await personnel.submit('note', {workStatus:'Repair started'});
+    check(await personnel.evaluate('!!document.querySelector("form[data-action=block]")'), 'work update clears block and restores delay form');
     check(await personnel.evaluate('document.querySelectorAll(".case-timeline img[src^=\\"evidence.php\\"]").length >= 2'), 'timeline evidence served privately');
     await setPhoto(personnel, '#resolve-photo'); await personnel.click('form[data-action=resolve] [name=actions][value=Repair]');
     await personnel.submit('resolve', {}, true);
     await official.go(detail); await official.submit('verification', {}, true, 'verify');
     check(await official.evaluate('document.querySelectorAll(".evidence-comparison img").length===2 && document.querySelector(".evidence-gallery").textContent.includes("Inspection Evidence") && document.querySelector(".evidence-gallery").textContent.includes("Progress Evidence") && document.querySelector(".evidence-gallery").textContent.includes("Completion Evidence")'), 'before after and four evidence stages');
+    await until(() => official.evaluate('Array.from(document.querySelectorAll(".evidence-comparison img")).every(img => img.complete && img.naturalWidth > 0)'), 'protected evidence images load');
+    check(true, 'image endpoints return real rendered images');
     await official.evaluate('document.getElementById("evidence").scrollIntoView({block:"start"})');
     await official.screenshot('evidence-desktop');
     await official.fill('form[data-action=edit] [name=concernType]', 'Damaged pole');
     check(await official.evaluate('document.querySelector("form[data-action=edit] [data-accept-priority]").disabled'),'changed selections prevent accepting stale priority advice');
     check(await official.evaluate('document.querySelector(".case-summary").textContent.includes("Closed")'), 'official reviews and closes');
     await official.screenshot('concern-desktop');
-    for (const page of ['history.php','reports.php','solutions.php','users.php','profile.php','notifications.php']) { await official.go(page); check(await official.evaluate('!!document.querySelector("h1")'), page + ' renders'); }
+    for (const page of ['history.php','reports.php','solutions.php','users.php','profile.php','settings.php','audit.php','blocked.php','notifications.php']) { await official.go(page); check(await official.evaluate('!!document.querySelector("h1")'), page + ' renders'); }
     await official.click('[data-notification-row] [data-notification-read]');
     await until(() => official.evaluate('document.querySelector("[data-notification-row] [data-read-label]").textContent==="Read"'), 'single notification read');
     check(true,'mark one notification through UI');
@@ -209,6 +275,39 @@ async function tab() {
     nav = await official.send('Page.getNavigationHistory'); await official.send('Page.navigateToHistoryEntry', {entryId:nav.entries[nav.currentIndex+1].id}); await official.ready('/complaint.php');
     check(true, 'Forward restores concern');
     await official.send('Page.reload'); await official.ready('/complaint.php'); check(true, 'refresh retains detail');
+    await official.go('settings.php');
+    await official.fill('form[data-action=create_location] [name=name]', 'PRIVATE-PUROK');
+    await official.click('form[data-action=create_location] button');
+    await until(() => official.evaluate('location.search.includes("saved=create_location") && document.readyState==="complete"'), 'location created');
+    check(await official.evaluate('!!document.querySelector("form[data-action=update_location]")'), 'location management form saves');
+    await official.screenshot('settings-desktop');
+    await guest.go('report-concern.php');
+    check(await guest.evaluate('!!document.querySelector("select[name=locationId][required]") && !document.querySelector("input[name=purok]")'), 'resident chooses configured location');
+    await guest.fill('[name=category]', 'Street Lighting'); await guest.fill('[name=concernType]', 'Light not working');
+    const locationId = await guest.evaluate('document.querySelector("[name=locationId] option:nth-child(2)").value');
+    await guest.fill('[name=locationId]', locationId); await guest.fill('[name=street]', 'PRIVATE-STREET'); await guest.fill('[name=exactArea]', 'PRIVATE-GATE');
+    await guest.click('#public-report button[type=submit]');
+    await until(() => guest.evaluate('!document.getElementById("receipt").hidden'), 'managed location receipt');
+    const followRef = await guest.evaluate('document.getElementById("receipt-reference").value');
+    const followCode = await guest.evaluate('document.getElementById("receipt-code").value');
+    const followDetail = 'complaint.php?id=' + followRef;
+    await official.go(followDetail);
+    await official.submit('request_information', {notes:'Which side of the crossing?'}, true);
+    await guest.go('track.php'); await guest.fill('[name=reference]', followRef); await guest.fill('[name=trackingCode]', followCode); await guest.click('#public-track button');
+    await until(() => guest.evaluate('document.querySelector("#public-followup")?.getClientRects().length > 0'), 'reporter followup form');
+    check(await guest.evaluate('document.getElementById("tracking-result").textContent.includes("Which side of the crossing?")'), 'official information request visible on tracking');
+    await guest.fill('#public-followup [name=description]', 'The east side'); await setPhoto(guest, '#followup-photo');
+    await guest.click('#public-followup button[type=submit]');
+    await until(() => guest.evaluate('!document.getElementById("followup-success").hidden && document.getElementById("tracking-result").textContent.includes("The east side")'), 'reporter followup saved');
+    await guest.screenshot('followup-tracking-desktop');
+    await official.go(followDetail);
+    check(await official.evaluate('document.querySelector(".resident-response-section").textContent.includes("The east side") && document.querySelector(".case-summary").textContent.includes("Submitted")'), 'staff sees reporter response and return to assessment');
+    await official.submit('link_concern', {primaryConcernId:reference}, true);
+    check(await official.evaluate('document.getElementById("linked-reports").textContent.includes('+JSON.stringify(reference)+') && !document.querySelector("form[data-action=edit]")'), 'linked report displays primary and prevents duplicate actions');
+    await guest.click('#public-track button');
+    await until(() => guest.evaluate('document.getElementById("tracking-result").textContent.includes("Closed")'), 'linked tracking follows closed primary');
+    check(await guest.evaluate('!document.getElementById("tracking-result").textContent.includes('+JSON.stringify(reference)+')'), 'linked tracking keeps primary reference private');
+    for (const page of ['settings.php','audit.php','blocked.php']) { await personnel.go(page); check(await personnel.evaluate('document.querySelector("h1").textContent==="Access denied"'), 'restricted management page '+page); }
     for (const client of [guest, official, personnel]) await client.send('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:true});
     for (const page of ['landing.php','report-concern.php','track.php','login.php','login.php?view=forgot']) {
       await guest.go(page); check(await guest.evaluate('document.documentElement.scrollWidth <= innerWidth'), page + ' fits mobile');
@@ -236,6 +335,7 @@ async function tab() {
     check(await official.evaluate('document.querySelector(".notification-dropdown").getBoundingClientRect().left>=0 && document.querySelector(".notification-dropdown").getBoundingClientRect().right<=innerWidth'),'mobile notification dropdown fits');
     await official.screenshot('notifications-mobile');
     await personnel.go('complaints.php'); check(await personnel.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'mobile work queue fits');
+    for (const page of ['settings.php','audit.php','blocked.php']) { await official.go(page); check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth'), page+' fits mobile'); await official.screenshot(page.replace('.php','')+'-mobile'); }
     check(await guest.evaluate('(async()=>{const r=await fetch("api.php");return r.status;})()') === 401, 'guest remains anonymous');
     check(await official.evaluate('(async()=>{const r=await fetch("api.php");return (await r.json()).actor.role;})()') === 'official', 'isolated official session');
     check(await personnel.evaluate('(async()=>{const r=await fetch("api.php");return (await r.json()).actor.role;})()') === 'personnel', 'isolated personnel session');

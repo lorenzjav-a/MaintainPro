@@ -1,6 +1,6 @@
 <?php
 $residentFollowUps = array_values(array_filter($c['timeline'] ?? [], static function (array $event): bool {
-    return ($event['eventType'] ?? '') === 'resident_followup'
+    return !empty($event['publicReporterFollowup']) || ($event['eventType'] ?? '') === 'resident_followup'
         || in_array($event['title'] ?? '', ['Reporter submitted information', 'Resident follow-up submitted'], true);
 }));
 ?>
@@ -13,7 +13,7 @@ $residentFollowUps = array_values(array_filter($c['timeline'] ?? [], static func
     <article class="resident-response-card">
       <div class="resident-response-meta"><strong>Additional information</strong><span><?= h(br_date($response['date'], true)) ?></span></div>
       <p><?= h($response['note'] ?? '') ?></p>
-      <?php if (!empty($response['photo'])): ?><span class="status status-submitted">Additional evidence attached</span><?php endif ?>
+      <?php if (!empty($response['photo']) || !empty($response['evidenceId'])): ?><span class="status status-submitted">Additional evidence attached</span><?php endif ?>
     </article>
     <?php endforeach ?>
   </div>

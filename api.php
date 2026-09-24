@@ -27,6 +27,11 @@ try {
         exit;
     }
     if ($method === 'GET') {
+        if (($_GET['view'] ?? '') === 'session') {
+            // Same-origin, no-store response; never send this through JSONP/CORS.
+            echo json_encode(['userId' => $actor['id'], 'authVersion' => (int)$actor['auth_version'], 'csrf' => $_SESSION['br_csrf']], JSON_THROW_ON_ERROR);
+            exit;
+        }
         if (($_GET['view'] ?? '') === 'notifications') {
             echo json_encode(br_store()->notifications($actor['id']), JSON_THROW_ON_ERROR);
             exit;
@@ -58,7 +63,8 @@ try {
     }
     if (!hash_equals($_SESSION['br_csrf'], $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '')) {
         http_response_code(403);
-        throw new DomainException('Your page has expired. Refresh it and try again.');
+        echo json_encode(['ok' => false, 'code' => 'csrf_expired', 'error' => 'Your session changed after this page was opened. Refresh the security token before saving.']);
+        exit;
     }
     $raw = file_get_contents('php://input', false, null, 0, 1600001);
     if (strlen($raw) > 1600000) throw new DomainException('This request is too large. Use a photo smaller than 1 MB.');

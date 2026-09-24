@@ -2,7 +2,7 @@
 
 PHP community concern management with anonymous reporting, authenticated staff and persistent MySQL/MariaDB storage. Pages use normal PHP URLs, shared layouts and the existing MaintainPro design.
 
-Staff features now include persistent in-app notifications, workload-aware assignment recommendations, 90-day recurring-issue detection, explainable priority recommendations and a staged Before & After evidence viewer. See the [implementation and setup report](docs/staff-insights-upgrade.md).
+Staff features now include persistent in-app notifications, workload-aware assignment recommendations, 90-day recurring-issue detection, explainable priority recommendations and a staged Before & After evidence viewer. See the [implementation and setup report](docs/staff-insights-upgrade.md) and the [September 25 system repairs and verification](docs/verification-20260925.md).
 
 ## Run with XAMPP
 
@@ -25,7 +25,9 @@ C:\xampp\php\php.exe -S 127.0.0.1:8080 router.php
 - **Barangay officials** assess, edit, prioritize, recommend, assign/reassign individual personnel, manage the Solution Library and accounts, and review/close/reopen completed work.
 - **Personnel** see only individually assigned concerns, choose structured work updates and attach required image evidence. Accounts require a name, valid email and team.
 
-The normal journey is **Submitted → Under Review → Assigned → In Progress → Resolved → Closed / reviewed**. The final state retains the internal `Verified` value for compatibility. Follow-up information is now collected by staff; rejection, referral, reopening, history, reports and CSV export remain available.
+The normal journey is **Submitted → Under Review → Assigned → In Progress → Resolved → Closed / reviewed**. The final state retains the internal `Verified` value for compatibility. Officials can request more information; the reporter responds using the original reference and tracking code. Rejection, referral, reopening, history, reports and CSV export remain available.
+
+Personnel can report blocked work and receive official instructions. Officials can link reports describing the same issue, manage Purok/Sitio choices in **Workspace settings**, review **Audit history**, and download a database backup. Linked reports retain their original tracking codes and follow the primary concern's progress.
 
 Resident registration and sign-in are retired; old account rows and concerns are preserved. Generated staff temporary passwords appear once on `user-create.php` and must be replaced at first sign-in. Share those credentials privately. Assignment notifications and password-reset OTPs use PHPMailer; staff invitations are not emailed.
 
@@ -43,6 +45,7 @@ Account permissions, CSRF tokens, password hashing, login throttling, transactio
 | `database/migrations` | Importable SQL migrations, applied by the central database layer |
 | `database/setup.php` | CLI setup; `--schema` prints the schema for manual import |
 | `includes` | Sessions, page guards, account and workflow rules, mail integration and shared views |
+| `uploads/evidence` | Protected evidence files; ignored by Git and served only through the authorized evidence endpoint |
 | `vendor/phpmailer` | PHP mail dependency and upstream license |
 | `tools` | Verification runner and SMTP diagnostic command |
 | `tests`, `tests/support` | Regression suites and isolated test infrastructure |

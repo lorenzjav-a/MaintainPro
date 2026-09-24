@@ -10,6 +10,7 @@ final class ConflictException extends DomainException {}
 final class ComplaintStore
 {
     private MaintainProDatabase $db;
+    private array $pendingEvidence = [];
 
     public function __construct(?PDO $db = null)
     {
@@ -18,7 +19,16 @@ final class ComplaintStore
 
     private function transaction(callable $work): mixed
     {
-        return $this->db->transaction($work);
+        $this->pendingEvidence = [];
+        try {
+            $result = $this->db->transaction($work);
+            $this->pendingEvidence = [];
+            return $result;
+        } catch (Throwable $error) {
+            foreach ($this->pendingEvidence as $path) EvidenceStorage::delete($path);
+            $this->pendingEvidence = [];
+            throw $error;
+        }
     }
 
     private static function decodeConcern(array $row): array
@@ -34,13 +44,20 @@ final class ComplaintStore
         return $row ? self::decodeConcern($row) : null;
     }
 
-    private function managedLocation(array $data, bool $allowInactive = false): array
+    private function managedLocation(array $data, bool $allowInactive = false): ?array
     {
         $id = $data['locationId'] ?? $data['purokId'] ?? null;
         if ((is_int($id) && $id > 0) || (is_string($id) && preg_match('/\A[1-9][0-9]{0,9}\z/', $id))) {
             $location = $this->db->location((int)$id);
             if ($location && ($allowInactive || (bool)$location['active'])) return $location;
+            throw new DomainException('Choose an available Purok / Sitio.');
         }
+        if ($id !== null && $id !== '') throw new DomainException('Choose an available Purok / Sitio.');
+        $locations=$this->db->locations($allowInactive);
+        $name=ComplaintWorkflow::text($data['purok'] ?? '', 'Purok / Sitio',120);
+        foreach ($locations as $location) if (mb_strtolower($location['name'])===mb_strtolower($name)) return $location;
+        // Existing installations retain free-text reporting until an official configures locations.
+        if (!$this->db->locations(true)) return null;
         throw new DomainException('Choose an available Purok / Sitio.');
     }
 
@@ -50,6 +67,7 @@ final class ComplaintStore
         if ($last === null || empty($c['timeline'][$last]['photo'])) return;
         $event = &$c['timeline'][$last];
         $metadata = EvidenceStorage::storeDataUri($event['photo'], $originalFilename);
+        $this->pendingEvidence[] = $metadata['file_path'];
         $type = match ($event['evidenceType'] ?? '') {
             'Initial Evidence' => 'resident_report',
             'Resident Follow-up' => 'resident_followup',
@@ -122,6 +140,11 @@ final class ComplaintStore
         return $this->db->locations($officialId !== null);
     }
 
+    public function hasLocations(): bool
+    {
+        return (bool)$this->db->locations(true);
+    }
+
     public function createLocation(string $officialId, array $data): void
     {
         $this->transaction(function () use ($officialId, $data) {
@@ -181,8 +204,7 @@ final class ComplaintStore
 
     public function concernLinks(string $userId, string $id): array
     {
-        $actor = $this->actor($userId);
-        if (!$actor || $actor['must_change_password']) throw new DomainException('Sign in with a completed staff account.');
+        $actor = $this->authorizeOfficial($userId);
         $c = $this->concern($id);
         if (!$c || !ComplaintWorkflow::canSee($c, $actor)) throw new DomainException('Concern not found or unavailable to your account.');
         return $this->db->concernLinks($id);
@@ -276,7 +298,7 @@ final class ComplaintStore
     {
         return $this->transaction(function () use ($data, $client) {
             if (!$this->needsSetup()) throw new DomainException('The workspace is already set up. Sign in with your staff account.');
-            $local = in_array($client, ['127.0.0.1', '::1', 'localhost'], true);
+            $local = PHP_SAPI === 'cli' || in_array($client, ['127.0.0.1', '::1', 'localhost'], true);
             $setupKey = getenv('APP_SETUP_KEY');
             $provided = is_string($data['setup_key'] ?? null) ? $data['setup_key'] : '';
             if (!$local && (!is_string($setupKey) || $setupKey === '' || !hash_equals($setupKey, $provided))) {
@@ -541,7 +563,12 @@ final class ComplaintStore
                 if (!$assigned || !$assigned['active'] || $assigned['role'] !== 'personnel' || !filter_var($assigned['email'], FILTER_VALIDATE_EMAIL)) throw new DomainException('Choose active personnel with a valid email address.');
                 $data['_assignee'] = $assigned;
             }
-            if ($action === 'edit' && !empty($before['concernType'])) $data['_location'] = $this->managedLocation($data, true);
+            if ($action === 'edit' && !empty($before['concernType'])) {
+                // An older free-text location may be retained after locations are configured.
+                $retainingLegacy = empty($before['locationDetails']['purokId']) && empty($data['locationId']) && empty($data['purokId'])
+                    && ($data['purok'] ?? '') === ($before['locationDetails']['purok'] ?? '');
+                $data['_location'] = $retainingLegacy ? null : $this->managedLocation($data, true);
+            }
             if ($action === 'link_concern') {
                 if ($actor['role'] !== 'official') throw new DomainException('Only a barangay official can link reports.');
                 $primaryId = is_string($data['primaryConcernId'] ?? null) ? $data['primaryConcernId'] : '';
@@ -554,22 +581,12 @@ final class ComplaintStore
             $state = ['nextId' => $this->db->nextComplaintId(), 'cases' => [$before]];
             ComplaintWorkflow::apply($state, $actor, $id, $action, $data);
             $c = $state['cases'][0];
-            if (in_array($action, ['start', 'note', 'resolve'], true) && !empty($before['blocked']['active'])) $c['blocked'] = null;
+            if (in_array($action, ['start', 'note', 'resolve', 'assign', 'reopen'], true) && !empty($before['blocked']['active'])) $c['blocked'] = null;
             $c['version']++;
             $this->persistLatestEvidence($c, $actor['id'], is_string($data['photoName'] ?? null) ? $data['photoName'] : '');
 
-            if ($action === 'link_concern') {
-                $this->db->linkConcern($id, $data['_primary']['id'], $actor['id'], ComplaintWorkflow::text($data['notes'] ?? '', 'Link note', 1000, false), time());
-                $this->db->resolveOpenBlock($id, $actor['id'], 'Concern linked to a primary report.', time());
-            } elseif ($action === 'block') {
-                $block = $c['blocked'];
-                $this->db->createBlock($id, $actor['id'], $block['reason'], $block['notes'], $block['recommendedAction'], $block['expectedAt'], strtotime($block['blockedAt']));
-            } elseif ($action === 'manage_block') {
-                $this->db->manageBlock($id, $actor['id'], $data['decision'], $data['instructions'] ?? '', time());
-            } elseif (in_array($action, ['start', 'note', 'resolve'], true)) {
-                $this->db->resolveOpenBlock($id, $actor['id'], 'Work continued.', time());
-            }
-
+            // Link and blocked-work metadata already live in this concern and its audit timeline.
+            // Save them atomically instead of maintaining a second, inconsistent copy.
             $this->db->updateComplaint($c, $before['version']);
             (new ConcernNotifications($this->db))->changed($c, $before, $action);
             $audit = match ($action) {
