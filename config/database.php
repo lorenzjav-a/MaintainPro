@@ -21,9 +21,14 @@ function br_database(?string $name = null, bool $serverOnly = false): PDO
     }
     $dsn = 'mysql:host=' . $config['host'] . ';port=' . $config['port']
         . ($serverOnly ? '' : ';dbname=' . $name) . ';charset=utf8mb4';
-    return new PDO($dsn, $config['user'], $config['password'], [
+    $connection = new PDO($dsn, $config['user'], $config['password'], [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES => false,
+        PDO::MYSQL_ATTR_INIT_COMMAND => 'SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci',
     ]);
+    // Keep server-only connections consistent too; the selected database still
+    // controls table defaults when a database is later created or selected.
+    $connection->exec('SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci');
+    return $connection;
 }

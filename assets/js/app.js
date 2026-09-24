@@ -54,7 +54,10 @@
       resolve: ['Record this resolution?', 'An official will review the evidence before closing the concern.', 'Mark as resolved'],
       reopen: ['Reopen this concern?', 'Your feedback will return the concern to the barangay for reassessment.', 'Reopen concern'],
       verify: ['Confirm the concern is resolved?', 'This records official review and closes the concern.', 'Confirm resolution'],
-      exception: ['Record this assessment outcome?', 'The selected outcome and your reason will be added to the concern timeline.', 'Record outcome']
+      exception: ['Record this assessment outcome?', 'The selected outcome and your reason will be added to the concern timeline.', 'Record outcome'],
+      request_information: ['Request more information?', 'The request will appear on the reporter\'s private tracking page and remain in the concern timeline.', 'Send request'],
+      link_concern: ['Link these reports?', 'The original report stays recorded, but work progress and assignment will follow the primary concern.', 'Link reports'],
+      block: ['Mark this work as blocked?', 'Officials will be notified and the reason will be recorded in the concern timeline.', 'Mark as blocked']
     };
     var copy = messages[action];
     if (action === 'update_user' && data.active === '0') copy = ['Deactivate this account?', 'This account will no longer be able to sign in. Concern histories will be retained.', 'Deactivate account'];
@@ -101,14 +104,18 @@
     buttons.forEach(function (button) { button.disabled = true; });
     form.setAttribute('aria-busy', 'true');
     readPhoto(file && file.files[0]).then(function (photo) {
-      if (file) data.photo = photo;
+      if (file) { data.photo = photo; data.photoName = file.files[0] ? file.files[0].name : ''; }
       return confirmation(action, data);
     }).then(function (confirmed) {
       if (!confirmed) return;
       document.body.classList.add('app-busy');
       return request('api.php', action, data, id).then(function (result) {
         if (action === 'create_user') { showCreatedAccount(result.created_account); form.reset(); return; }
-        var destination = action === 'profile' ? 'profile.php' : action === 'update_user' ? 'users.php' : ['save_rule', 'reset_rule'].includes(action) ? 'solutions.php' : 'complaint.php';
+        var destination = action === 'profile' ? 'profile.php'
+          : action === 'update_user' ? 'users.php'
+          : ['save_rule', 'reset_rule'].includes(action) ? 'solutions.php'
+          : ['create_location', 'update_location', 'toggle_location'].includes(action) ? 'settings.php'
+          : 'complaint.php';
         var query = new URLSearchParams({saved: action});
         if (destination === 'complaint.php') query.set('id', result.id || id);
         navigating = true;

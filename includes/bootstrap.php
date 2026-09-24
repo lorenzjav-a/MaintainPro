@@ -1,5 +1,6 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__ . '/error-handler.php';
 date_default_timezone_set('Asia/Manila');
 $sessionDirectory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'maintainpro-sessions';
 if (!is_dir($sessionDirectory) && !mkdir($sessionDirectory, 0700, true) && !is_dir($sessionDirectory)) {

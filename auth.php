@@ -60,7 +60,7 @@ try {
             br_enter_account(br_store()->register($data));
             break;
         case 'setup':
-            br_enter_account(br_store()->setup($data));
+            br_enter_account(br_store()->setup($data, $_SERVER['REMOTE_ADDR'] ?? ''));
             break;
         case 'logout':
             unset($_SESSION['br_user_id']);

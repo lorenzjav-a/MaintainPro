@@ -2,9 +2,10 @@
 declare(strict_types=1);
 // Pass this router to PHP's development server to protect private project files.
 $path = rawurldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/');
-if (preg_match('~(?:^|/)(?:\.[^/]*|includes|config|tools|tests|database)(?:/|$)~i', $path)
-    || preg_match('~^/vendor(?:/|$)~i', $path)
-    || str_contains($path, '\\')) {
+if (preg_match('~(?:^|/)\.[^/]*(?:/|$)~', $path)
+    || preg_match('~(?:^|/)(?:includes|config|tools|tests|database|vendor|logs|backups|uploads)(?:/|$)~i', $path)
+    || preg_match('~\.(?:log|sql|sqlite|db|bak|backup|dump|zip)(?:\.(?:gz|zip))?$~i', $path)
+    || str_contains($path, '\\') || str_contains($path, "\0")) {
     http_response_code(404);
     echo 'Not found';
     return true;

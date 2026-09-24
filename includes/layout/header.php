@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#102b32">
-  <meta name="description" content="MaintainPro: report, assess, recommend, assign, resolve, and verify community concerns.">
+  <meta name="description" content="MaintainPro: report, assess, recommend, assign, resolve, and officially close community concerns.">
   <meta name="csrf-token" content="<?= h($_SESSION['br_csrf']) ?>">
   <title><?= h($pageTitle) ?> · MaintainPro</title>
   <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">

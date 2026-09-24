@@ -7,7 +7,7 @@ function payload(): array
     if (!$actor) throw new DomainException('Sign in to continue.');
     return [
         'mode' => 'account', 'actor' => $actor,
-        'cases' => ComplaintWorkflow::visible(br_state(), $actor),
+        'cases' => br_store()->recentConcerns($actor['id'], 50),
         'users' => $actor['role'] === 'official' ? br_store()->users($actor['id']) : [],
         'categories' => array_values(array_unique(array_merge(array_keys(ConcernCatalog::TYPES), ComplaintWorkflow::CATEGORIES))), 'teams' => ComplaintWorkflow::TEAMS,
         'statuses' => ComplaintWorkflow::STATUSES, 'priorities' => ComplaintWorkflow::PRIORITIES,
@@ -88,25 +88,30 @@ try {
         }
     } elseif (in_array($action, ['save_rule', 'reset_rule'], true)) {
         br_store()->saveRule($actor['id'], $data, $action === 'reset_rule');
+    } elseif (in_array($action, ['create_location', 'update_location', 'toggle_location'], true)) {
+        if ($action === 'create_location') br_store()->createLocation($actor['id'], $data);
+        else {
+            if (!preg_match('/\A[1-9][0-9]{0,9}\z/', $id)) throw new DomainException('Invalid location.');
+            br_store()->updateLocation($actor['id'], (int)$id, $data, $action === 'toggle_location');
+        }
     } else {
         $id = br_store()->mutate($actor['id'], $action, $id, $data, $input['version'] ?? null);
     }
     if ($action === 'assign') {
         // Assignment is already committed; SMTP failure must not roll it back.
         require_once __DIR__ . '/includes/mail.php';
-        $assignedCase = null;
-        foreach (br_state()['cases'] as $case) if ($case['id'] === $id) $assignedCase = $case;
+        $assignedCase = br_store()->concernForActor($actor['id'], $id);
         $personnel = $assignedCase ? br_store()->user($assignedCase['assignedUserId']) : null;
         $sent = $personnel && br_send_assignment($personnel, $assignedCase);
         $_SESSION['assignment_notice'] = $sent ? 'Assignment saved. Personnel email sent.' : 'Assignment saved, but the personnel email could not be sent. Check the mail configuration and notify the assigned person.';
     }
-    $response = ['ok' => true, 'id' => $id, 'state' => payload()];
+    $response = ['ok' => true, 'id' => $id];
     if ($createdAccount !== null) $response['created_account'] = $createdAccount;
     if ($action === 'assign') $response['notification_sent'] = (bool)$sent;
     echo json_encode($response, JSON_THROW_ON_ERROR);
 } catch (ConflictException $e) {
     http_response_code(409);
-    echo json_encode(['ok' => false, 'error' => $e->getMessage(), 'state' => payload()], JSON_THROW_ON_ERROR);
+    echo json_encode(['ok' => false, 'error' => $e->getMessage()], JSON_THROW_ON_ERROR);
 } catch (DomainException | JsonException $e) {
     if (http_response_code() < 400) http_response_code(422);
     echo json_encode(['ok' => false, 'error' => $e->getMessage()]);

@@ -103,7 +103,7 @@ final class ConcernInsights
     public static function evidence(array $c): array
     {
         $entries = [];
-        foreach ($c['timeline'] as $event) if (!empty($event['photo'])) {
+        foreach ($c['timeline'] as $event) if (!empty($event['photo']) || !empty($event['evidenceId'])) {
             $event['evidenceType'] = self::evidenceStage($event);
             $entries[] = $event;
         }

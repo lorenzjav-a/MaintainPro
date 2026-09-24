@@ -57,9 +57,9 @@ unset($_SESSION['br_password_reset_done']);
       <div class="auth-story-content">
         <span class="auth-kicker">A CONNECTED BARANGAY</span>
         <h1>A clear path from concern to resolution.</h1>
-        <p>One place for residents, barangay officials, and personnel to work together.</p>
+        <p>Residents report anonymously while barangay officials and personnel coordinate the response.</p>
         <ol class="auth-journey">
-          <li><span>01</span><div><strong>Report & suggest</strong><p>Choose the concern and key points. Suggested actions are provided.</p></div></li>
+          <li><span>01</span><div><strong>Report & receive guidance</strong><p>Choose the concern and key points. Temporary safety guidance is provided.</p></div></li>
           <li><span>02</span><div><strong>Review & take action</strong><p>The barangay recommends the next step and assigns the right team.</p></div></li>
           <li><span>03</span><div><strong>Resolve & review</strong><p>Personnel record evidence; officials review and close the concern.</p></div></li>
         </ol>

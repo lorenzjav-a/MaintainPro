@@ -7,7 +7,7 @@ br_heading($pageTitle, 'Use concern history to understand recurring concerns and
 $locations = br_group($cases, fn($c) => $c['locationDetails']['purok'] ?? (preg_match('/Purok \d+/i', $c['location'], $match) ? $match[0] : $c['location']));
 ?>
 <div class="stats-grid">
-  <?php br_stat('Resident-verified', $metrics['verified'], 'Confirmed outcomes', 'checkCircle', 'green', 'verified');
+  <?php br_stat('Official-closed', $metrics['verified'], 'Outcomes closed after review', 'checkCircle', 'green', 'verified');
   br_stat('Awaiting official review', $metrics['resolved'], 'Work marked resolved by personnel', 'clock', 'blue', 'resolved');
   br_stat('Ever reopened', $metrics['reopened'], 'Reports needing another attempt', 'refresh', 'rose', 'reopened'); ?>
   <div class="stat-card"><div class="stat-top"><span>Average resolution time</span><span class="stat-icon"><?= br_icon('clock') ?></span></div><div class="number"><?= h($metrics['average']) ?><small class="stat-unit"> days</small></div><div class="stat-caption">Submitted → latest resolution*</div></div>
@@ -29,7 +29,7 @@ $structuredReports = [
   <section class="panel"><div class="panel-header"><h2 class="panel-title">Concern status breakdown</h2></div><div class="report-body"><?php foreach (br_group($cases, 'status') as $row): ?><div class="insight-row"><?= br_status(['status' => $row['label']]) ?><strong><?= $row['count'] ?></strong></div><?php endforeach ?></div></section>
   <section class="panel"><div class="panel-header"><h2 class="panel-title">Concerns reported more than once</h2></div><div class="report-body"><?php foreach (br_group($cases, 'category') as $row): if ($row['count'] <= 1) continue; ?><div class="insight-row"><span><?= h($row['label']) ?></span><strong><?= $row['count'] ?> reports</strong></div><?php endforeach ?><p class="form-text mt-3">Repeated categories are a planning signal, not proof that the same problem recurred.</p></div></section>
 </div>
-<p class="form-text mt-3">All statistics use the saved concern records. *Average includes currently Resolved and Verified concerns; reopened, referred, and rejected cases are excluded.</p>
+<p class="form-text mt-3">All statistics use the saved concern records. *Average includes currently Resolved and official-closed concerns; reopened, referred, and rejected cases are excluded.</p>
 <?php require __DIR__ . '/includes/components/recurring-issues.php'; require __DIR__ . '/includes/components/workload-table.php'; ?>
 <?php
 $decisions = array_values(array_filter($cases, fn($case) => !empty($case['priorityDecision'])));

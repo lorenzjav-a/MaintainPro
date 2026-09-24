@@ -26,6 +26,18 @@
     steps.forEach(function (text) { list.append(node('li', text)); });
     container.append(list);
   }
+  function readPublicPhoto(file) {
+    if (!file) return Promise.resolve({data: '', name: ''});
+    if (['image/jpeg', 'image/png', 'image/webp'].indexOf(file.type) < 0 || file.size > 1048576) {
+      return Promise.reject(new Error('Use a JPG, PNG or WebP photo no larger than 1 MB.'));
+    }
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve({data: reader.result, name: file.name}); };
+      reader.onerror = function () { reject(new Error('Unable to read photo.')); };
+      reader.readAsDataURL(file);
+    });
+  }
   document.querySelectorAll('[data-concern-choices]').forEach(function (wrapper) {
     var catalog = JSON.parse(wrapper.querySelector('.concern-catalog').textContent);
     var category = wrapper.querySelector('[name=category]'), type = wrapper.querySelector('[name=concernType]'), points = wrapper.querySelector('[data-key-points]');
@@ -72,10 +84,7 @@
       var errorBox = document.getElementById('public-error'); errorBox.hidden = true;
       try {
         var data = values(report), file = report.querySelector('input[type=file]').files[0];
-        if (file) {
-          if (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size > 1048576) throw new Error('Use a JPG, PNG or WebP photo no larger than 1 MB.');
-          data.photo = await new Promise(function (resolve, reject) { var reader = new FileReader(); reader.onload = function () { resolve(reader.result); }; reader.onerror = function () { reject(new Error('Unable to read photo.')); }; reader.readAsDataURL(file); });
-        }
+        if (file) { var upload = await readPublicPhoto(file); data.photo = upload.data; data.photoName = upload.name; }
         var response = await send('submit', data);
         document.getElementById('receipt-reference').value = response.receipt.reference;
         document.getElementById('receipt-code').value = response.receipt.trackingCode;
@@ -94,20 +103,61 @@
       link.href = url; link.download = 'MaintainPro-tracking.txt'; link.click(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
     });
   }
+  var followup = document.getElementById('public-followup');
+  function renderTracking(result) {
+    var panel = document.getElementById('tracking-result'), followupPanel = document.getElementById('followup-panel');
+    panel.replaceChildren();
+    panel.append(node('h2', result.reference, 'section-title'), node('p', result.category + ' / ' + result.concernType), node('p', 'Status: ' + result.status, 'fw-bold'), node('p', 'Reported: ' + new Date(result.reportedAt).toLocaleString()), node('p', 'Last updated: ' + new Date(result.updatedAt).toLocaleString()));
+    if (result.primaryReference) panel.append(node('p', 'This report is linked to primary concern ' + result.primaryReference + '. Progress shown here follows the primary concern.', 'tracking-link-note'));
+    (result.progress || []).forEach(function (entry) { panel.append(node('p', new Date(entry.date).toLocaleString() + ' — ' + entry.status)); });
+    var request = result.informationRequest;
+    if (request) {
+      var requestBox = node('section', '', 'tracking-request');
+      requestBox.append(node('h3', 'Information requested by the barangay', 'section-title'), node('p', typeof request === 'string' ? request : (request.message || request.note || 'Please provide additional information.')));
+      if (typeof request === 'object' && (request.requestedAt || request.date)) requestBox.append(node('p', 'Requested: ' + new Date(request.requestedAt || request.date).toLocaleString(), 'form-text'));
+      panel.append(requestBox);
+    }
+    if (Array.isArray(result.followUps) && result.followUps.length) {
+      var history = node('section', '', 'tracking-followup-history'), heading = node('h3', 'Information you submitted', 'section-title'); history.append(heading);
+      result.followUps.forEach(function (entry) { var card = node('article', '', 'tracking-followup-entry'); card.append(node('p', entry.description || entry.message || ''), node('p', new Date(entry.submittedAt || entry.date).toLocaleString(), 'form-text')); history.append(card); });
+      panel.append(history);
+    }
+    if (result.residentGuidance && result.residentGuidance.length === 3) {
+      var guidance = node('section', '', 'resident-guidance mt-4');
+      showGuidance(guidance, result.residentGuidance, 'Temporary guidance from your report');
+      panel.append(guidance);
+    }
+    panel.hidden = false;
+    if (followupPanel) {
+      var needsInformation = result.canFollowUp === true || ['Needs More Information', 'Returned for Information'].indexOf(result.status) >= 0;
+      followupPanel.hidden = !needsInformation;
+      if (needsInformation) document.getElementById('followup-success').hidden = true;
+    }
+  }
   if (track) track.addEventListener('submit', async function (event) {
     event.preventDefault(); if (busy) return; busy = true;
     var errorBox = document.getElementById('public-error'), panel = document.getElementById('tracking-result'), button = track.querySelector('button');
     errorBox.hidden = true; panel.hidden = true; panel.replaceChildren(); button.disabled = true;
     try {
       var result = (await send('track', values(track))).concern;
-      panel.append(node('h2', result.reference, 'section-title'), node('p', result.category + ' / ' + result.concernType), node('p', 'Status: ' + result.status, 'fw-bold'), node('p', 'Reported: ' + new Date(result.reportedAt).toLocaleString()), node('p', 'Last updated: ' + new Date(result.updatedAt).toLocaleString()));
-      result.progress.forEach(function (entry) { panel.append(node('p', new Date(entry.date).toLocaleString() + ' — ' + entry.status)); });
-      if (result.residentGuidance && result.residentGuidance.length === 3) {
-        var guidance = node('section', '', 'resident-guidance mt-4');
-        showGuidance(guidance, result.residentGuidance, 'Temporary guidance from your report');
-        panel.append(guidance);
-      }
-      panel.hidden = false;
+      renderTracking(result);
+    } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
+    finally { busy = false; button.disabled = false; }
+  });
+  if (followup) followup.addEventListener('submit', async function (event) {
+    event.preventDefault(); if (busy || !track) return; busy = true;
+    var button = followup.querySelector('button[type=submit]'), errorBox = document.getElementById('followup-error'), successBox = document.getElementById('followup-success');
+    button.disabled = true; errorBox.hidden = true; successBox.hidden = true;
+    try {
+      var data = Object.assign({}, values(track), values(followup));
+      var file = followup.querySelector('input[type=file]').files[0];
+      if (file) { var upload = await readPublicPhoto(file); data.photo = upload.data; data.photoName = upload.name; }
+      var response = await send('followup', data);
+      followup.reset(); successBox.hidden = false;
+      if (response.concern) renderTracking(response.concern);
+      else renderTracking((await send('track', values(track))).concern);
+      successBox.hidden = false;
+      document.getElementById('tracking-result').scrollIntoView({block: 'start'});
     } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
     finally { busy = false; button.disabled = false; }
   });

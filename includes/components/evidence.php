@@ -5,7 +5,7 @@ foreach ($evidenceEntries as $evidenceEntry) {
     if ($evidenceEntry['evidenceType'] === 'Initial Evidence' && $initialEvidence === null) $initialEvidence = $evidenceEntry;
     if ($evidenceEntry['evidenceType'] === 'Completion Evidence') $completionEvidence = $evidenceEntry;
 }
-$evidenceUrl = fn($entry) => !empty($entry['evidenceId']) ? br_url('evidence.php',['id' => $entry['evidenceId']]) : $entry['photo'];
+$evidenceUrl = fn($entry) => !empty($entry['evidenceId']) ? br_url('evidence.php',['id' => $entry['evidenceId']]) : ($entry['photo'] ?? '');
 ?>
 <section class="case-section" id="evidence"><h3>Before &amp; After</h3>
 <div class="evidence-comparison">

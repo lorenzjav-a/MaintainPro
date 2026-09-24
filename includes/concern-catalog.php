@@ -31,6 +31,7 @@ final class ConcernCatalog
     ];
     public const WORK_STATUSES = ['Arrived at location', 'Inspection completed', 'Materials required', 'Repair started', 'Work ongoing', 'Waiting for materials', 'Temporarily repaired', 'Fully repaired', 'Unable to complete', 'Requires another team'];
     public const ACTIONS = ['Inspection', 'Cleaning', 'Removal', 'Repair', 'Replacement', 'Temporary repair', 'Permanent repair', 'Referral', 'Other'];
+    public const BLOCK_REASONS = ['Waiting for Materials', 'Requires Another Team', 'Weather Delay', 'Equipment Unavailable', 'Requires Official Approval', 'Other'];
 
     public static function selections(array $data): array
     {

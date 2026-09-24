@@ -28,12 +28,22 @@ final class ConcernNotifications
             if ($previous && $previous !== $assigned) $this->db->createNotification($previous,'reassignment','Assignment changed',$id . ' has been reassigned. Your other tasks remain in the work queue.',$id,$key,true);
             $this->officials($c,'assignment','Assignment updated',$id . ' has an updated personnel assignment.',$key);
         }
-        if (in_array($action,['start','note','resolve','reopen'],true)) {
-            $title = match ($action) {'start' => 'Work started', 'note' => 'Work progress recorded', 'resolve' => 'Completed work ready for review', default => 'Concern reopened'};
+        if (in_array($action,['start','note','resolve','reopen','block'],true)) {
+            $title = match ($action) {'start' => 'Work started', 'note' => 'Work progress recorded', 'resolve' => 'Completed work ready for review', 'block' => 'Work blocked / delayed', default => 'Concern reopened'};
             $last = $c['timeline'][array_key_last($c['timeline'])];
             if (in_array($last['workStatus'] ?? '', ['Materials required','Waiting for materials','Unable to complete','Requires another team'],true)) $title = 'Work needs additional action';
             $this->officials($c,$action,$title,$id . ': ' . $title . '.',$key);
             if ($action === 'reopen' && $previous) $this->db->createNotification($previous,'reopen','Completed work reopened',$id . ' was returned for further assessment. Wait for a new assignment.',$id,$key,true);
+        }
+        if ($action === 'followup') {
+            $this->officials($c,'followup','Reporter information received',$id . ' has new information and is ready for reassessment.',$key);
+        }
+        if ($action === 'manage_block' && $assigned) {
+            $this->db->createNotification($assigned,'instructions','Blocked-work update',$id . ' has new official instructions or approval. Open the concern before continuing.',$id,$key);
+        }
+        if ($action === 'link_concern') {
+            if ($previous) $this->db->createNotification($previous,'reassignment','Report linked to a primary concern',$id . ' no longer needs a separate work assignment.',$id,$key,true);
+            $this->officials($c,'link','Same-issue reports linked',$id . ' now follows its primary concern.',$key);
         }
         if ($before && $assigned && in_array($action,['assess','edit'],true)) {
             if ($before['priority'] !== $c['priority']) $this->db->createNotification($assigned,'priority','Priority changed',$id . ' priority is now ' . $c['priority'] . '.',$id,$key . ':priority');

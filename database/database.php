@@ -334,24 +334,95 @@ final class DatabaseMaintenance
     public static function initialize(PDO $connection): void
     {
         self::requireCli();
-        $connection->exec(self::schema());
-        $columns = $connection->query('SHOW COLUMNS FROM users')->fetchAll(PDO::FETCH_COLUMN);
-        if (!in_array('must_change_password', $columns, true)) {
-            $connection->exec('ALTER TABLE users ADD COLUMN must_change_password TINYINT NOT NULL DEFAULT 0');
+        $database = (string)$connection->query('SELECT DATABASE()')->fetchColumn();
+        if (!preg_match('/\A[a-zA-Z0-9_]{1,64}\z/', $database)) {
+            throw new RuntimeException('Select a valid MaintainPro database before running migrations.');
         }
-        $connection->exec(self::anonymousMigration());
-        $connection->exec(self::insightsMigration());
+        $lockName = 'maintainpro:migrate:' . substr(hash('sha256', $database), 0, 40);
+        $lock = $connection->prepare('SELECT GET_LOCK(?,30)');
+        $lock->execute([$lockName]);
+        if ((int)$lock->fetchColumn() !== 1) {
+            throw new RuntimeException('Another database migration is already running. Try again shortly.');
+        }
+
+        try {
+            $connection->exec(self::schema());
+            $columns = $connection->query('SHOW COLUMNS FROM users')->fetchAll(PDO::FETCH_COLUMN);
+            if (!in_array('must_change_password', $columns, true)) {
+                $connection->exec('ALTER TABLE users ADD COLUMN must_change_password TINYINT NOT NULL DEFAULT 0');
+            }
+            self::applyMigrations($connection);
+        } finally {
+            try {
+                $release = $connection->prepare('SELECT RELEASE_LOCK(?)');
+                $release->execute([$lockName]);
+            } catch (Throwable) {
+                // Closing the CLI connection also releases the advisory lock.
+            }
+        }
+    }
+
+    /** @return array<string,string> version => absolute file path */
+    public static function migrationFiles(): array
+    {
+        $files = glob(__DIR__ . '/migrations/*.sql');
+        if ($files === false) throw new RuntimeException('Unable to read database migrations.');
+        sort($files, SORT_STRING);
+        $migrations = [];
+        foreach ($files as $file) {
+            $version = pathinfo($file, PATHINFO_FILENAME);
+            if (!preg_match('/\A[0-9]{8}_[a-z0-9_]+\z/', $version)) {
+                throw new RuntimeException('Invalid migration filename: ' . basename($file));
+            }
+            if (isset($migrations[$version])) throw new RuntimeException('Duplicate migration version: ' . $version);
+            $migrations[$version] = $file;
+        }
+        return $migrations;
+    }
+
+    public static function migrationsSql(): string
+    {
+        $sections = [];
+        foreach (self::migrationFiles() as $version => $file) {
+            $sql = file_get_contents($file);
+            if ($sql === false) throw new RuntimeException('Unable to read migration: ' . $version);
+            $sections[] = '-- Migration ' . $version . "\n" . rtrim($sql);
+        }
+        return implode("\n\n", $sections);
+    }
+
+    private static function applyMigrations(PDO $connection): void
+    {
+        $applied = $connection->query('SELECT version,checksum FROM schema_migrations')->fetchAll(PDO::FETCH_KEY_PAIR);
+        $record = $connection->prepare('INSERT INTO schema_migrations(version,checksum,applied_at) VALUES(?,?,?)');
+        foreach (self::migrationFiles() as $version => $file) {
+            $sql = file_get_contents($file);
+            if ($sql === false) throw new RuntimeException('Unable to read migration: ' . $version);
+            $checksum = hash('sha256', $sql);
+            if (isset($applied[$version])) {
+                if (!hash_equals((string)$applied[$version], $checksum)) {
+                    throw new RuntimeException('Applied migration checksum changed: ' . $version . '. Restore the original file and add a new migration.');
+                }
+                continue;
+            }
+            $connection->exec($sql);
+            $record->execute([$version, $checksum, time()]);
+        }
     }
 
     public static function insightsMigration(): string
     {
-        return file_get_contents(__DIR__ . '/migrations/20260921_staff_insights.sql');
+        $sql = file_get_contents(__DIR__ . '/migrations/20260921_staff_insights.sql');
+        if ($sql === false) throw new RuntimeException('Unable to read the staff insights migration.');
+        return $sql;
     }
 
     public static function anonymousMigration(): string
     {
         // This is also supplied as an importable SQL migration for existing installs.
-        return file_get_contents(__DIR__ . '/migrations/20260921_anonymous_concerns.sql');
+        $sql = file_get_contents(__DIR__ . '/migrations/20260921_anonymous_concerns.sql');
+        if ($sql === false) throw new RuntimeException('Unable to read the anonymous concern migration.');
+        return $sql;
     }
 
     public static function requireTestDatabase(string $name): void
@@ -385,6 +456,12 @@ CREATE TABLE IF NOT EXISTS users (
     created_at VARCHAR(35) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version VARCHAR(100) NOT NULL PRIMARY KEY,
+    checksum CHAR(64) NOT NULL,
+    applied_at BIGINT UNSIGNED NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS password_resets (
     id CHAR(64) NOT NULL PRIMARY KEY,
     user_id VARCHAR(64) NOT NULL UNIQUE,
@@ -408,7 +485,7 @@ CREATE TABLE IF NOT EXISTS password_reset_requests (
 
 CREATE TABLE IF NOT EXISTS complaints (
     id VARCHAR(64) NOT NULL PRIMARY KEY,
-    resident_id VARCHAR(64) NOT NULL,
+    resident_id VARCHAR(64) NULL,
     team VARCHAR(100) NOT NULL,
     status VARCHAR(64) NOT NULL,
     version INT NOT NULL,

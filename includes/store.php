@@ -3,6 +3,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/domain.php';
 require_once dirname(__DIR__) . '/database/database.php';
 require_once __DIR__ . '/notifications.php';
+require_once __DIR__ . '/evidence-storage.php';
 
 final class ConflictException extends DomainException {}
 
@@ -18,6 +19,62 @@ final class ComplaintStore
     private function transaction(callable $work): mixed
     {
         return $this->db->transaction($work);
+    }
+
+    private static function decodeConcern(array $row): array
+    {
+        $c = json_decode($row['payload'], true, 64, JSON_THROW_ON_ERROR);
+        $c['version'] = (int)$row['version'];
+        return $c;
+    }
+
+    private function concern(string $id, bool $forUpdate = false): ?array
+    {
+        $row = $this->db->complaint($id, $forUpdate);
+        return $row ? self::decodeConcern($row) : null;
+    }
+
+    private function managedLocation(array $data, bool $allowInactive = false): array
+    {
+        $id = $data['locationId'] ?? $data['purokId'] ?? null;
+        if ((is_int($id) && $id > 0) || (is_string($id) && preg_match('/\A[1-9][0-9]{0,9}\z/', $id))) {
+            $location = $this->db->location((int)$id);
+            if ($location && ($allowInactive || (bool)$location['active'])) return $location;
+        }
+        throw new DomainException('Choose an available Purok / Sitio.');
+    }
+
+    private function persistLatestEvidence(array &$c, ?string $uploadedBy, string $originalFilename = ''): void
+    {
+        $last = array_key_last($c['timeline']);
+        if ($last === null || empty($c['timeline'][$last]['photo'])) return;
+        $event = &$c['timeline'][$last];
+        $metadata = EvidenceStorage::storeDataUri($event['photo'], $originalFilename);
+        $type = match ($event['evidenceType'] ?? '') {
+            'Initial Evidence' => 'resident_report',
+            'Resident Follow-up' => 'resident_followup',
+            'Completion Evidence' => 'after',
+            'Inspection Evidence' => 'before',
+            default => 'during',
+        };
+        try {
+            $this->db->insertEvidence($metadata['id'], $c['id'], $uploadedBy, $type, $metadata['file_path'],
+                $metadata['original_filename'], $metadata['mime_type'], $metadata['file_size'], $metadata['width'], $metadata['height'], time());
+        } catch (Throwable $error) {
+            EvidenceStorage::delete($metadata['file_path']);
+            throw $error;
+        }
+        $event['evidenceId'] = $metadata['id'];
+        $event['photo'] = '';
+        if (($c['photo'] ?? '') !== '' && ($event['evidenceType'] ?? '') === 'Initial Evidence') {
+            $c['photo'] = '';
+            $c['initialEvidenceId'] = $metadata['id'];
+        }
+        if (!empty($c['resolution']['photo']) && ($event['evidenceType'] ?? '') === 'Completion Evidence') {
+            $c['resolution']['photo'] = '';
+            $c['resolution']['evidenceId'] = $metadata['id'];
+        }
+        unset($event);
     }
 
     public function needsSetup(): bool
@@ -57,6 +114,85 @@ final class ComplaintStore
     {
         $this->authorizeOfficial($officialId);
         return $this->db->workloads();
+    }
+
+    public function locations(?string $officialId = null): array
+    {
+        if ($officialId !== null) $this->authorizeOfficial($officialId);
+        return $this->db->locations($officialId !== null);
+    }
+
+    public function createLocation(string $officialId, array $data): void
+    {
+        $this->transaction(function () use ($officialId, $data) {
+            $actor = $this->authorizeOfficial($officialId);
+            $name = ComplaintWorkflow::text($data['name'] ?? '', 'Purok / Sitio name', 120);
+            $sort = filter_var($data['sortOrder'] ?? 0, FILTER_VALIDATE_INT);
+            if ($sort === false || $sort < 0 || $sort > 10000) throw new DomainException('Use a valid display order.');
+            try {
+                $id = $this->db->insertLocation($name, (int)$sort, time());
+            } catch (PDOException $error) {
+                if ((int)($error->errorInfo[1] ?? 0) === 1062) throw new DomainException('That Purok / Sitio already exists.');
+                throw $error;
+            }
+            $this->db->recordAudit($actor, 'location_created', 'location', (string)$id, $name, ['sortOrder' => (int)$sort]);
+        });
+    }
+
+    public function updateLocation(string $officialId, int $id, array $data, bool $toggle = false): void
+    {
+        $this->transaction(function () use ($officialId, $id, $data, $toggle) {
+            $actor = $this->authorizeOfficial($officialId);
+            $current = $this->db->location($id);
+            if (!$current) throw new DomainException('Location not found.');
+            $name = $toggle ? $current['name'] : ComplaintWorkflow::text($data['name'] ?? '', 'Purok / Sitio name', 120);
+            $sort = $toggle ? (int)$current['sort_order'] : filter_var($data['sortOrder'] ?? $current['sort_order'], FILTER_VALIDATE_INT);
+            if ($sort === false || $sort < 0 || $sort > 10000) throw new DomainException('Use a valid display order.');
+            $active = $toggle ? !(bool)$current['active'] : (bool)$current['active'];
+            try {
+                $this->db->updateLocation($id, $name, (int)$sort, $active, time());
+            } catch (PDOException $error) {
+                if ((int)($error->errorInfo[1] ?? 0) === 1062) throw new DomainException('That Purok / Sitio already exists.');
+                throw $error;
+            }
+            $action = $toggle ? ($active ? 'location_activated' : 'location_deactivated') : 'location_updated';
+            $this->db->recordAudit($actor, $action, 'location', (string)$id, $name,
+                ['previousName' => $current['name'], 'sortOrder' => (int)$sort]);
+        });
+    }
+
+    public function blockedConcerns(string $officialId, int $page = 1, int $perPage = 20): array
+    {
+        $this->authorizeOfficial($officialId);
+        return $this->db->blockedConcerns(max(1, $page), min(50, max(1, $perPage)));
+    }
+
+    public function auditLogs(string $officialId, array $filters = [], int $page = 1, int $perPage = 20): array
+    {
+        $this->authorizeOfficial($officialId);
+        $allowed = ['date' => '', 'action' => '', 'user' => ''];
+        foreach ($allowed as $key => $default) {
+            $value = $filters[$key] ?? $default;
+            $allowed[$key] = is_string($value) ? mb_substr(trim($value), 0, 120) : '';
+        }
+        if ($allowed['date'] !== '' && !preg_match('/\A\d{4}-\d{2}-\d{2}\z/', $allowed['date'])) throw new DomainException('Choose a valid audit date.');
+        return $this->db->auditLogs($allowed, max(1, $page), min(50, max(1, $perPage)));
+    }
+
+    public function concernLinks(string $userId, string $id): array
+    {
+        $actor = $this->actor($userId);
+        if (!$actor || $actor['must_change_password']) throw new DomainException('Sign in with a completed staff account.');
+        $c = $this->concern($id);
+        if (!$c || !ComplaintWorkflow::canSee($c, $actor)) throw new DomainException('Concern not found or unavailable to your account.');
+        return $this->db->concernLinks($id);
+    }
+
+    public function evidenceRecord(string $userId, string $evidenceId): ?array
+    {
+        $actor = $this->actor($userId);
+        if (!$actor || $actor['must_change_password']) return null;
+        return $this->db->evidenceForActor($evidenceId, $actor);
     }
 
     public function navigationCounts(string $userId): array
@@ -136,11 +272,19 @@ final class ComplaintStore
         return $this->user($id);
     }
 
-    public function setup(array $data): array
+    public function setup(array $data, string $client = ''): array
     {
-        return $this->transaction(function () use ($data) {
+        return $this->transaction(function () use ($data, $client) {
             if (!$this->needsSetup()) throw new DomainException('The workspace is already set up. Sign in with your staff account.');
-            return $this->insertUser($data, 'official');
+            $local = in_array($client, ['127.0.0.1', '::1', 'localhost'], true);
+            $setupKey = getenv('APP_SETUP_KEY');
+            $provided = is_string($data['setup_key'] ?? null) ? $data['setup_key'] : '';
+            if (!$local && (!is_string($setupKey) || $setupKey === '' || !hash_equals($setupKey, $provided))) {
+                throw new DomainException('Initial setup is available only on the server unless APP_SETUP_KEY is configured.');
+            }
+            $user = $this->insertUser($data, 'official');
+            $this->db->recordAudit($user, 'official_account_created', 'user', $user['id'], $user['name'], ['initialSetup' => true]);
+            return $user;
         });
     }
 
@@ -152,11 +296,12 @@ final class ComplaintStore
     public function createUser(string $officialId, array $data): array
     {
         return $this->transaction(function () use ($officialId, $data) {
-            $this->authorizeOfficial($officialId);
+            $actor = $this->authorizeOfficial($officialId);
             if (!in_array($data['role'] ?? '', ['official', 'personnel'], true)) throw new DomainException('Create an official or personnel account. Residents report anonymously.');
             $temporaryPassword = 'MP-' . bin2hex(random_bytes(10));
             $user = $this->insertUser(array_replace($data, ['password' => $temporaryPassword]), is_string($data['role'] ?? null) ? $data['role'] : '', is_string($data['team'] ?? null) ? $data['team'] : '');
             $this->db->requirePasswordChange($user['id']);
+            $this->db->recordAudit($actor, $user['role'] . '_account_created', 'user', $user['id'], $user['name'], ['role' => $user['role'], 'team' => $user['team']]);
             return $this->user($user['id']) + ['temporary_password' => $temporaryPassword];
         });
     }
@@ -181,7 +326,7 @@ final class ComplaintStore
     public function updateUser(string $officialId, string $id, array $data): void
     {
         $this->transaction(function () use ($officialId, $id, $data) {
-            $this->authorizeOfficial($officialId);
+            $actor = $this->authorizeOfficial($officialId);
             $user = $this->user($id);
             if (!$user) throw new DomainException('Account not found.');
             $role = $data['role'] ?? '';
@@ -203,6 +348,17 @@ final class ComplaintStore
             if ($email !== $user['email']) $this->db->deleteUserResets($id);
             if (!$active) {
                 $this->db->deleteUserResets($id);
+            }
+            $changes = [];
+            if ($role !== $user['role']) $changes['role'] = ['from' => $user['role'], 'to' => $role];
+            if ($team !== $user['team']) $changes['team'] = ['from' => $user['team'], 'to' => $team];
+            if ($active !== (bool)$user['active']) $changes['active'] = ['from' => (bool)$user['active'], 'to' => $active];
+            if ($name !== $user['name']) $changes['nameChanged'] = true;
+            if ($email !== $user['email']) $changes['emailChanged'] = true;
+            if ($changes) {
+                $action = isset($changes['active']) ? ($active ? 'account_activated' : 'account_deactivated')
+                    : (isset($changes['role']) ? 'role_changed' : (isset($changes['team']) ? 'team_changed' : 'account_updated'));
+                $this->db->recordAudit($actor, $action, 'user', $id, $name, $changes);
             }
         });
     }
@@ -326,12 +482,41 @@ final class ComplaintStore
     public function state(): array
     {
         $cases = [];
-        foreach ($this->db->complaints() as $row) {
-            $c = json_decode($row['payload'], true, 64, JSON_THROW_ON_ERROR);
-            $c['version'] = (int)$row['version'];
-            $cases[] = $c;
-        }
+        foreach ($this->db->complaints() as $row) $cases[] = self::decodeConcern($row);
         return ['nextId' => $this->db->nextComplaintId(), 'cases' => $cases];
+    }
+
+    public function concernForActor(string $userId, string $id): ?array
+    {
+        $actor = $this->actor($userId);
+        if (!$actor || $actor['must_change_password']) return null;
+        $c = $this->concern($id);
+        return $c && ComplaintWorkflow::canSee($c, $actor) ? $c : null;
+    }
+
+    public function pagedConcerns(string $userId, array $filters, int $page = 1, int $perPage = 20, bool $history = false): array
+    {
+        $actor = $this->actor($userId);
+        if (!$actor || $actor['must_change_password']) throw new DomainException('Sign in with a completed staff account.');
+        foreach (['tab', 'search', 'category', 'priority', 'status'] as $key) {
+            $filters[$key] = is_string($filters[$key] ?? null) ? mb_substr(trim($filters[$key]), 0, $key === 'search' ? 120 : 100) : '';
+        }
+        $result = $this->db->pagedComplaints($actor, $filters, max(1, $page), min(50, max(1, $perPage)), $history);
+        $result['items'] = array_map(fn(array $row) => self::decodeConcern($row), $result['items']);
+        return $result;
+    }
+
+    public function recentConcerns(string $userId, int $limit = 20): array
+    {
+        $page = $this->pagedConcerns($userId, ['tab' => 'all'], 1, min(50, max(1, $limit)));
+        return $page['items'];
+    }
+
+    public function metrics(string $userId): array
+    {
+        $actor = $this->actor($userId);
+        if (!$actor || $actor['must_change_password']) throw new DomainException('Sign in with a completed staff account.');
+        return $this->db->complaintMetrics($actor);
     }
 
     public function mutate(string $userId, string $action, string $id, array $data, mixed $expectedVersion): string
@@ -340,35 +525,66 @@ final class ComplaintStore
             $actor = $this->actor($userId);
             if (!$actor) throw new DomainException('Your account is inactive. Please sign in again.');
             if ($actor['must_change_password']) throw new DomainException('Change your temporary password before accessing concerns.');
-            $state = $this->state();
             if ($action === 'submit') {
                 throw new DomainException('Use the public Report a Concern page.');
-            } else {
-                $index = array_search($id, array_column($state['cases'], 'id'), true);
-                if ($index === false || !ComplaintWorkflow::canSee($state['cases'][$index], $actor)) throw new DomainException('Concern not found or unavailable to your account.');
-                if (!is_int($expectedVersion) || $expectedVersion !== $state['cases'][$index]['version']) throw new ConflictException('Another user updated this concern. Refresh the page to load the latest record before saving.');
-                // Never trust internal assignee/guidance fields supplied by the client.
-                unset($data['_assignee'], $data['_residentGuidance'], $data['_suggestions']);
-                if ($action === 'assign') {
-                    $assignedId = $data['personnelId'] ?? '';
-                    $assigned = is_string($assignedId) ? $this->user($assignedId) : null;
-                    if (!$assigned || !$assigned['active'] || $assigned['role'] !== 'personnel' || !filter_var($assigned['email'], FILTER_VALIDATE_EMAIL)) throw new DomainException('Choose active personnel with a valid email address.');
-                    $data['_assignee'] = $assigned;
-                }
-                $before = $state['cases'][$index];
-                ComplaintWorkflow::apply($state, $actor, $id, $action, $data);
-                $c = $state['cases'][$index];
-                $c['version']++;
-                $this->db->updateComplaint($c);
-                (new ConcernNotifications($this->db))->changed($c,$before,$action);
             }
+            $before = $this->concern($id, true);
+            if (!$before || !ComplaintWorkflow::canSee($before, $actor)) throw new DomainException('Concern not found or unavailable to your account.');
+            if (!is_int($expectedVersion) || $expectedVersion !== $before['version']) throw new ConflictException('Another user updated this concern. Refresh the page to load the latest record before saving.');
+            if ($action !== 'link_concern' && $this->db->primaryConcernId($id) !== null) throw new DomainException('This report follows its primary concern and cannot receive separate work actions.');
+
+            // Never trust internal assignee, location, primary, or guidance fields supplied by the client.
+            unset($data['_assignee'], $data['_location'], $data['_primary'], $data['_residentGuidance'], $data['_suggestions']);
+            if ($action === 'assign') {
+                $assignedId = $data['personnelId'] ?? '';
+                $assigned = is_string($assignedId) ? $this->user($assignedId) : null;
+                if (!$assigned || !$assigned['active'] || $assigned['role'] !== 'personnel' || !filter_var($assigned['email'], FILTER_VALIDATE_EMAIL)) throw new DomainException('Choose active personnel with a valid email address.');
+                $data['_assignee'] = $assigned;
+            }
+            if ($action === 'edit' && !empty($before['concernType'])) $data['_location'] = $this->managedLocation($data, true);
+            if ($action === 'link_concern') {
+                if ($actor['role'] !== 'official') throw new DomainException('Only a barangay official can link reports.');
+                $primaryId = is_string($data['primaryConcernId'] ?? null) ? $data['primaryConcernId'] : '';
+                $primaryId = $this->db->rootConcernId($primaryId);
+                $primary = $primaryId !== '' ? $this->concern($primaryId, true) : null;
+                if (!$primary || $primaryId === $id || $this->db->linkedConcernCount($id) > 0) throw new DomainException('Choose an independent primary concern. A primary with linked reports cannot become a linked report.');
+                $data['_primary'] = $primary;
+            }
+
+            $state = ['nextId' => $this->db->nextComplaintId(), 'cases' => [$before]];
+            ComplaintWorkflow::apply($state, $actor, $id, $action, $data);
+            $c = $state['cases'][0];
+            if (in_array($action, ['start', 'note', 'resolve'], true) && !empty($before['blocked']['active'])) $c['blocked'] = null;
+            $c['version']++;
+            $this->persistLatestEvidence($c, $actor['id'], is_string($data['photoName'] ?? null) ? $data['photoName'] : '');
+
+            if ($action === 'link_concern') {
+                $this->db->linkConcern($id, $data['_primary']['id'], $actor['id'], ComplaintWorkflow::text($data['notes'] ?? '', 'Link note', 1000, false), time());
+                $this->db->resolveOpenBlock($id, $actor['id'], 'Concern linked to a primary report.', time());
+            } elseif ($action === 'block') {
+                $block = $c['blocked'];
+                $this->db->createBlock($id, $actor['id'], $block['reason'], $block['notes'], $block['recommendedAction'], $block['expectedAt'], strtotime($block['blockedAt']));
+            } elseif ($action === 'manage_block') {
+                $this->db->manageBlock($id, $actor['id'], $data['decision'], $data['instructions'] ?? '', time());
+            } elseif (in_array($action, ['start', 'note', 'resolve'], true)) {
+                $this->db->resolveOpenBlock($id, $actor['id'], 'Work continued.', time());
+            }
+
+            $this->db->updateComplaint($c, $before['version']);
+            (new ConcernNotifications($this->db))->changed($c, $before, $action);
+            $audit = match ($action) {
+                'assign' => 'assignment_changed', 'verify' => 'concern_manually_closed', 'reopen' => 'concern_reopened',
+                'link_concern' => 'concern_linked', 'manage_block' => 'blocked_work_managed', default => null,
+            };
+            if ($audit !== null) $this->db->recordAudit($actor, $audit, 'concern', $id, $id, ['status' => $c['status']]);
             return $id;
         });
     }
 
     public function publicLimit(string $purpose, string $client): void
     {
-        $allowed = $this->transaction(fn() => $this->db->recordPublicAttempt(hash('sha256', $purpose . '|' . $client), $purpose === 'report' ? 5 : 40, $purpose === 'report' ? 3600 : 900));
+        $reporting = in_array($purpose, ['report', 'followup'], true);
+        $allowed = $this->transaction(fn() => $this->db->recordPublicAttempt(hash('sha256', $purpose . '|' . $client), $reporting ? 5 : 40, $reporting ? 3600 : 900));
         if (!$allowed) throw new DomainException('Too many requests. Please try again later.');
     }
 
@@ -385,17 +601,54 @@ final class ComplaintStore
         return $this->transaction(function () use ($data) {
             if ($this->needsSetup()) throw new DomainException('This workspace is not ready to receive concerns yet.');
             $data['_residentGuidance'] = $this->suggestions($data);
-            $state = $this->state();
+            $data['_location'] = $this->managedLocation($data);
+            $state = ['nextId' => $this->db->nextComplaintId(), 'cases' => []];
             $id = ComplaintWorkflow::submit($state, ['id' => null, 'role' => 'guest', 'name' => 'Anonymous resident'], $data);
             $case = $state['cases'][0];
             $case['version'] = 1;
             $this->db->setNextComplaintId($state['nextId']);
             $this->db->insertComplaint($case);
+            $this->persistLatestEvidence($case, null, is_string($data['photoName'] ?? null) ? $data['photoName'] : '');
+            if (!empty($case['initialEvidenceId'])) $this->db->updateComplaint($case, 1);
             (new ConcernNotifications($this->db))->changed($case,null,'submit');
             $token = bin2hex(random_bytes(24));
             $this->db->insertTracking($id, hash('sha256', $token));
             return ['reference' => $id, 'trackingCode' => $token, 'residentGuidance' => $case['residentGuidance']];
         });
+    }
+
+    private function publicConcern(array $c): array
+    {
+        $source = $c;
+        $primaryId = $this->db->primaryConcernId($c['id']);
+        if ($primaryId !== null) {
+            $primary = $this->concern($primaryId);
+            if ($primary) $source = $primary;
+        }
+        $progress = [];
+        foreach ($source['timeline'] as $event) {
+            if (isset($event['workStatus']) && in_array($event['workStatus'], ConcernCatalog::WORK_STATUSES, true)) {
+                $progress[] = ['date' => $event['date'], 'status' => $event['workStatus']];
+            }
+        }
+        $request = null;
+        $followups = [];
+        foreach ($c['timeline'] as $event) {
+            if (!empty($event['publicInformationRequest']) || ($event['title'] ?? '') === 'Returned for Information') {
+                $request = ['message' => (string)($event['note'] ?? ''), 'requestedAt' => (string)($event['date'] ?? '')];
+            }
+            if (!empty($event['publicReporterFollowup'])) {
+                $followups[] = ['description' => (string)($event['note'] ?? ''), 'submittedAt' => (string)($event['date'] ?? '')];
+            }
+        }
+        $guidance = ConcernCatalog::validGuidance($c['residentGuidance'] ?? null) ? $c['residentGuidance'] : [];
+        $status = $source['status'] === 'Verified' ? 'Closed' : ($c['status'] === 'Returned for Information' ? 'Needs More Information' : $source['status']);
+        return [
+            'reference' => $c['id'], 'category' => $c['category'], 'concernType' => $c['concernType'], 'status' => $status,
+            'reportedAt' => $c['createdAt'], 'updatedAt' => $source['updatedAt'], 'progress' => $progress,
+            'residentGuidance' => $guidance, 'informationRequest' => $c['status'] === 'Returned for Information' ? $request : null,
+            'followUps' => $followups, 'canFollowUp' => $c['status'] === 'Returned for Information', 'linked' => $primaryId !== null,
+        ];
     }
 
     public function track(mixed $reference, mixed $token, string $client): array
@@ -404,27 +657,58 @@ final class ComplaintStore
         if (!is_string($reference) || strlen($reference) > 64 || !is_string($token) || !preg_match('/\ACON-[0-9]{4}-[0-9]{6,}\z/', $reference) || !preg_match('/\A[a-f0-9]{48}\z/', $token)) throw new DomainException('Reference or tracking code not found.');
         $row = $this->db->trackedConcern($reference, hash('sha256', $token));
         if (!$row) throw new DomainException('Reference or tracking code not found.');
-        $c = json_decode($row['payload'], true, 64, JSON_THROW_ON_ERROR);
-        // Explicit allowlist: only public guidance, never private notes, addresses, images or staff identities.
-        $progress = [];
-        foreach ($c['timeline'] as $event) {
-            if (isset($event['workStatus']) && in_array($event['workStatus'], ConcernCatalog::WORK_STATUSES, true)) $progress[] = ['date' => $event['date'], 'status' => $event['workStatus']];
+        return $this->publicConcern(self::decodeConcern($row));
+    }
+
+    public function submitFollowup(array $data, string $client): array
+    {
+        $this->publicLimit('followup', $client);
+        $reference = $data['reference'] ?? null;
+        $token = $data['trackingCode'] ?? null;
+        if (!is_string($reference) || !preg_match('/\ACON-[0-9]{4}-[0-9]{6,}\z/', $reference)
+            || !is_string($token) || !preg_match('/\A[a-f0-9]{48}\z/', $token)) {
+            throw new DomainException('Reference or tracking code not found.');
         }
-        $guidance = ConcernCatalog::validGuidance($c['residentGuidance'] ?? null) ? $c['residentGuidance'] : [];
-        return ['reference' => $c['id'], 'category' => $c['category'], 'concernType' => $c['concernType'], 'status' => $c['status'] === 'Verified' ? 'Closed' : $c['status'], 'reportedAt' => $c['createdAt'], 'updatedAt' => $c['updatedAt'], 'progress' => $progress, 'residentGuidance' => $guidance];
+        return $this->transaction(function () use ($data, $reference, $token) {
+            $row = $this->db->trackedConcern($reference, hash('sha256', $token), true);
+            if (!$row) throw new DomainException('Reference or tracking code not found.');
+            $before = self::decodeConcern($row);
+            $c = $before;
+            ComplaintWorkflow::reporterFollowup($c, $data);
+            $c['version']++;
+            $this->persistLatestEvidence($c, null, is_string($data['photoName'] ?? null) ? $data['photoName'] : '');
+            $this->db->updateComplaint($c, $before['version']);
+            (new ConcernNotifications($this->db))->changed($c, $before, 'followup');
+            return $this->publicConcern($c);
+        });
     }
 
     public function saveRule(string $officialId, array $data, bool $reset = false): void
     {
         $this->transaction(function () use ($officialId, $data, $reset) {
-            $this->authorizeOfficial($officialId);
+            $actor = $this->authorizeOfficial($officialId);
             [$category, $type] = ConcernCatalog::selections($data);
-            if ($reset) { $this->db->deleteSolutionRule($category, $type); return; }
+            if ($reset) {
+                $this->db->deleteSolutionRule($category, $type);
+                $this->db->recordAudit($actor, 'resident_guidance_reset', 'guidance', $category . '|' . $type, $category . ' / ' . $type, []);
+                return;
+            }
             if (($data['purpose'] ?? '') !== ConcernCatalog::GUIDANCE_PURPOSE) throw new DomainException('Reload the Solution Library to write temporary guidance for residents.');
             $actions = [];
             foreach (['action1', 'action2', 'action3'] as $key) $actions[] = ComplaintWorkflow::text($data[$key] ?? '', 'Resident guidance step', 700);
             if (count(array_unique($actions)) !== 3) throw new DomainException('Provide three different temporary steps for residents.');
             $this->db->saveSolutionRule($category, $type, ['purpose' => ConcernCatalog::GUIDANCE_PURPOSE, 'steps' => $actions]);
+            $this->db->recordAudit($actor, 'resident_guidance_changed', 'guidance', $category . '|' . $type, $category . ' / ' . $type, []);
+        });
+    }
+
+    public function generateBackup(string $officialId): array
+    {
+        return $this->transaction(function () use ($officialId) {
+            $actor = $this->authorizeOfficial($officialId);
+            $content = $this->db->sqlBackup();
+            $this->db->recordAudit($actor, 'database_backup_generated', 'system', null, 'MaintainPro database', ['bytes' => strlen($content)]);
+            return ['filename' => 'maintainpro-' . date('Ymd-His') . '.sql', 'content' => $content];
         });
     }
 }

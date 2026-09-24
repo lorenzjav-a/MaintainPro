@@ -21,6 +21,15 @@ function br_role(string $role): string
     return ['official' => 'Barangay official', 'resident' => 'Resident', 'personnel' => 'Barangay personnel'][$role] ?? $role;
 }
 
+function br_status_label(string $status): string
+{
+    return match ($status) {
+        'Verified' => 'Closed / reviewed',
+        'Returned for Information' => 'Needs More Information',
+        default => $status,
+    };
+}
+
 function br_date(string $value, bool $full = false): string
 {
     return date($full ? 'M j, Y · g:i A' : 'M j, Y', strtotime($value));
@@ -63,7 +72,7 @@ function br_icon(string $name): string
 
 function br_status(array $case): string
 {
-    return '<span class="status status-' . h(strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $case['status']))) . '">' . h($case['status'] === 'Verified' ? 'Closed / reviewed' : $case['status']) . '</span>';
+    return '<span class="status status-' . h(strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $case['status']))) . '">' . h(br_status_label($case['status'])) . '</span>';
 }
 
 function br_priority(array $case): string
@@ -74,7 +83,7 @@ function br_priority(array $case): string
 function br_options(array $values, string $selected = '', string $placeholder = ''): void
 {
     if ($placeholder !== '') echo '<option value="">', h($placeholder), '</option>';
-    foreach ($values as $value) echo '<option value="', h($value), '"', $selected === $value ? ' selected' : '', '>', h($value === 'Verified' ? 'Closed / reviewed' : str_replace('complaints', 'concerns', $value)), '</option>';
+    foreach ($values as $value) echo '<option value="', h($value), '"', $selected === $value ? ' selected' : '', '>', h(str_replace('complaints', 'concerns', br_status_label($value))), '</option>';
 }
 
 function br_active(array $case): bool
@@ -117,8 +126,7 @@ function br_group(array $cases, string|callable $key): array
 function br_next_step(array $c, string $role): string
 {
     $copy = [
-        'resident' => ['Submitted' => 'Waiting for barangay review', 'Under Review' => 'Barangay is preparing the action', 'Assigned' => 'A response team is assigned', 'In Progress' => 'Work is underway', 'Resolved' => 'Review and verify the result', 'Verified' => 'Closed after your confirmation', 'Reopened' => 'Returned for another assessment', 'Returned for Information' => 'Add the requested information', 'Rejected' => 'Read the recorded reason', 'Referred to Another Office' => 'Follow the referral details'],
-        'official' => ['Submitted' => 'Review and recommend an action', 'Under Review' => 'Assign the responsible team', 'Assigned' => 'Waiting for the team to accept', 'In Progress' => 'Monitor the team’s work', 'Resolved' => 'Waiting for official review', 'Verified' => 'Complete and recorded', 'Reopened' => 'Reassess and assign another action', 'Returned for Information' => 'Staff follow-up inspection needed', 'Rejected' => 'No further action', 'Referred to Another Office' => 'Monitor the referral separately'],
+        'official' => ['Submitted' => 'Review and recommend an action', 'Under Review' => 'Assign the responsible team', 'Assigned' => 'Waiting for the team to accept', 'In Progress' => 'Monitor the team’s work', 'Resolved' => 'Waiting for official review', 'Verified' => 'Complete and recorded', 'Reopened' => 'Reassess and assign another action', 'Returned for Information' => 'Waiting for the reporter’s response', 'Rejected' => 'No further action', 'Referred to Another Office' => 'Monitor the referral separately'],
         'personnel' => ['Assigned' => 'Accept this assignment', 'In Progress' => 'Add an update or record resolution', 'Resolved' => 'Waiting for official review', 'Verified' => 'Complete and recorded', 'Reopened' => 'Waiting for reassignment'],
     ];
     return $copy[$role][$c['status']] ?? 'Open for details';
@@ -137,7 +145,6 @@ function br_export(): string
 function br_primary(array $actor): string
 {
     [$url, $icon, $label] = match ($actor['role']) {
-        'resident' => ['new-complaint.php', 'plus', 'Report a concern'],
         'official' => ['complaints.php?tab=assessment', 'clipboard', 'Review concerns'],
         default => ['complaints.php?tab=work', 'clipboard', 'View assignments'],
     };

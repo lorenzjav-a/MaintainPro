@@ -17,6 +17,7 @@ try {
         'suggestions' => ['suggestions' => br_store()->suggestions($data)],
         'submit' => ['receipt' => br_store()->submitGuest($data, $client)],
         'track' => ['concern' => br_store()->track($data['reference'] ?? '', $data['trackingCode'] ?? '', $client)],
+        'followup' => ['concern' => br_store()->submitFollowup($data, $client)],
         default => throw new DomainException('Unknown public action.'),
     };
     echo json_encode(['ok' => true] + $result, JSON_THROW_ON_ERROR);

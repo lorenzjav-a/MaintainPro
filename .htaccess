@@ -3,3 +3,10 @@ DirectoryIndex index.php
 <FilesMatch "^\.">
     Require all denied
 </FilesMatch>
+<FilesMatch "(?i)\.(?:log|sql|sqlite|db|bak|backup|dump|zip)(?:\.(?:gz|zip))?$">
+    Require all denied
+</FilesMatch>
+
+RewriteEngine On
+RewriteRule "(^|/)\." "-" [F,L,NC]
+RewriteRule "(^|/)(?:includes|config|tools|tests|database|vendor|logs|backups|uploads)(?:/|$)" "-" [F,L,NC]

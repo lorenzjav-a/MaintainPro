@@ -32,9 +32,9 @@ if (!in_array($tab, $shownTabs, true)) $shownTabs[] = $tab;
 <?php if (!$cases): ?>
 <section class="panel workspace-empty">
   <?= br_icon($actor['role'] === 'personnel' ? 'tool' : 'inbox') ?>
-  <h3><?= match ($actor['role']) {'resident' => 'Your first report starts here', 'personnel' => 'No work assigned yet', default => 'Your concern register is ready'} ?></h3>
-  <p><?= h(match ($actor['role']) {'resident' => 'Report a community concern, suggest a solution, and follow the barangay’s response.', 'personnel' => 'Concerns assigned to ' . $actor['team'] . ' will appear here.', default => 'Residents can now submit anonymous concerns from the public landing page. Create personnel accounts so your teams can receive assignments.'}) ?></p>
-  <?php if ($actor['role'] === 'resident'): ?><?= br_primary($actor) ?><?php elseif ($actor['role'] === 'official'): ?><a class="btn btn-primary" href="users.php"><?= br_icon('users') ?>Manage personnel accounts</a><?php endif ?>
+  <h3><?= $actor['role'] === 'personnel' ? 'No work assigned yet' : 'Your concern register is ready' ?></h3>
+  <p><?= h($actor['role'] === 'personnel' ? 'Concerns assigned directly to you will appear here.' : 'Residents can submit anonymous concerns from the public landing page. Create personnel accounts so your teams can receive assignments.') ?></p>
+  <?php if ($actor['role'] === 'official'): ?><a class="btn btn-primary" href="users.php"><?= br_icon('users') ?>Manage personnel accounts</a><?php endif ?>
 </section>
 <?php else: ?>
 <section class="panel">
