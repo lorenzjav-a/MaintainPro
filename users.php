@@ -4,9 +4,9 @@ require __DIR__ . '/includes/page.php';
 extract(br_page('users', ['official']));
 $users = br_store()->users($actor['id']);
 require __DIR__ . '/includes/layout/header.php';
-br_heading('MaintainPro user management', 'Create official and personnel accounts, assign teams, and manage staff access.', '<a class="btn btn-primary" href="user-create.php">' . br_icon('plus') . 'Create account</a>');
+br_heading('MaintainPro user management', 'Create and manage resident, barangay official, and personnel accounts.', '<a class="btn btn-primary" href="user-create.php">' . br_icon('plus') . 'Create account</a>');
 ?>
-<div class="account-access-note account-guide"><strong>How accounts are created</strong><p>Residents report anonymously without an account. Legacy resident records are retained but cannot sign in. Authorized officials create barangay official and personnel accounts here. Personnel must have an assigned team.</p><p>New accounts receive a temporary password and must change it before accessing the workspace.</p></div>
+<div class="account-access-note account-guide"><strong>How accounts are created</strong><p>Residents may register from the sign-in page, report as a guest, or receive an account created by an authorized official. Officials can create resident, barangay official, and personnel accounts here. Personnel must have an assigned team.</p><p>Accounts created here receive a temporary password and must change it before accessing the workspace.</p></div>
 <section class="panel user-register"><div class="panel-header"><div><h2 class="panel-title">Workspace accounts <span class="count-pill"><?= count($users) ?></span></h2><p class="panel-subtitle">Deactivated accounts cannot sign in. Concern histories are retained.</p></div></div>
   <div class="table-responsive"><table class="table mb-0"><caption class="visually-hidden">Saved workspace user accounts</caption><thead><tr><th scope="col">Account</th><th scope="col">Role / team</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead><tbody>
     <?php foreach ($users as $user): ?>

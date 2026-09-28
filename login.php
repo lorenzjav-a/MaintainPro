@@ -15,10 +15,10 @@ if ($recovery && (($view === 'verify' && (!isset($_SESSION['br_reset_challenge']
     header('Location: login.php?view=forgot');
     exit;
 }
-if ($view === 'register') { header('Location: report-concern.php'); exit; }
-$action = $setup ? 'setup' : 'login';
-$title = $setup ? 'Set up your barangay workspace' : 'Staff sign in to MaintainPro';
-$description = $setup ? 'Create the first official account to manage concerns and personnel.' : 'Barangay officials and personnel sign in here. Residents can report anonymously.';
+$registering = !$setup && !$changingPassword && $view === 'register';
+$action = $setup ? 'setup' : ($registering ? 'register' : 'login');
+$title = $setup ? 'Set up your barangay workspace' : ($registering ? 'Create your resident account' : 'Sign in to MaintainPro');
+$description = $setup ? 'Create the first official account to manage concerns and personnel.' : ($registering ? 'Report concerns and follow their progress from your own account.' : 'Residents, barangay officials and personnel use their own accounts.');
 if ($recovery) {
     [$action, $title, $description] = match ($view) {
         'forgot' => ['request_reset', 'Forgot your password?', 'Enter the email address you used for your account. We will email a code to verify it.'],
@@ -32,7 +32,7 @@ if ($changingPassword) {
     $description = 'You signed in with a temporary password. Choose a new password before opening your MaintainPro workspace.';
 }
 $showPassword = !$recovery || $view === 'reset';
-$confirmPassword = $setup || $changingPassword || ($recovery && $view === 'reset');
+$confirmPassword = $setup || $registering || $changingPassword || ($recovery && $view === 'reset');
 $resetDone = !$recovery && !empty($_SESSION['br_password_reset_done']);
 unset($_SESSION['br_password_reset_done']);
 ?>
@@ -57,7 +57,7 @@ unset($_SESSION['br_password_reset_done']);
       <div class="auth-story-content">
         <span class="auth-kicker">A CONNECTED BARANGAY</span>
         <h1>A clear path from concern to resolution.</h1>
-        <p>Residents report anonymously while barangay officials and personnel coordinate the response.</p>
+        <p>Everyone can report concerns while barangay officials and personnel coordinate the response.</p>
         <ol class="auth-journey">
           <li><span>01</span><div><strong>Report & receive guidance</strong><p>Choose the concern and key points. Temporary safety guidance is provided.</p></div></li>
           <li><span>02</span><div><strong>Review & take action</strong><p>The barangay recommends the next step and assigns the right team.</p></div></li>
@@ -74,11 +74,11 @@ unset($_SESSION['br_password_reset_done']);
         <?php if ($resetDone): ?><div class="alert alert-success" role="status">Your password was reset. Sign in with your new password.</div><?php endif ?>
         <?php if ($recovery): ?><p class="form-text">Step <?= ['forgot' => 1, 'verify' => 2, 'reset' => 3][$view] ?> of 3 · Email → Verify code → New password</p><?php endif ?>
         <?php if (!$setup && !$recovery && !$changingPassword): ?>
-        <nav class="auth-tabs" aria-label="Account access"><a class="active" href="login.php">Staff sign in</a><a href="report-concern.php">Report a Concern</a></nav>
+        <nav class="auth-tabs" aria-label="Account access"><a<?= !$registering ? ' class="active" aria-current="page"' : '' ?> href="login.php">Sign in</a><a<?= $registering ? ' class="active" aria-current="page"' : '' ?> href="login.php?view=register">Resident registration</a></nav>
         <?php endif ?>
-        <noscript><p class="info-callout">Enable JavaScript to sign in or recover your staff account.</p></noscript>
+        <noscript><p class="info-callout">Enable JavaScript to sign in or manage your account.</p></noscript>
         <form id="auth-form" method="post" action="auth.php" data-action="<?= $action ?>">
-          <?php if ($setup): ?>
+          <?php if ($setup || $registering): ?>
           <div class="mb-3"><label class="form-label" for="account-name">Full name</label><input id="account-name" name="name" class="form-control" autocomplete="name" required minlength="2" maxlength="100" placeholder="Your full name"></div>
           <?php endif ?>
           <?php if ((!$recovery || $view === 'forgot') && !$changingPassword): ?>
@@ -94,7 +94,7 @@ unset($_SESSION['br_password_reset_done']);
           <?php if ($confirmPassword): ?>
           <div class="mb-4"><label class="form-label" for="confirm-password">Confirm password</label><input id="confirm-password" type="password" name="confirm_password" class="form-control" autocomplete="new-password" required minlength="10" maxlength="72"></div>
           <?php endif ?>
-          <button class="btn btn-primary w-100 auth-submit" type="submit"><?= $changingPassword ? 'Save password and continue' : ($recovery ? ['forgot' => 'Send verification code', 'verify' => 'Verify code', 'reset' => 'Reset password'][$view] : ($setup ? 'Create official account' : 'Sign in to workspace')) ?><span aria-hidden="true">→</span></button>
+          <button class="btn btn-primary w-100 auth-submit" type="submit"><?= $changingPassword ? 'Save password and continue' : ($recovery ? ['forgot' => 'Send verification code', 'verify' => 'Verify code', 'reset' => 'Reset password'][$view] : ($setup ? 'Create official account' : ($registering ? 'Create resident account' : 'Sign in to workspace'))) ?><span aria-hidden="true">→</span></button>
         </form>
         <?php if ($changingPassword): ?><p class="mt-3 text-center"><button id="account-signout" type="button" class="btn btn-light">Sign out</button></p><?php endif ?>
         <?php if (!$setup && !$recovery && !$changingPassword): ?>

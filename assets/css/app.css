@@ -2893,6 +2893,24 @@ button.stat-card:hover {
   padding: 25px;
 }
 
+.submission-allowance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.weekly-concern {
+  padding: 20px 0;
+  border-top: 1px solid var(--surface-border);
+  overflow-wrap: anywhere;
+}
+
+.weekly-concern li + li {
+  margin-top: 6px;
+}
+
 .panel-body .form-label {
   display: block;
   width: 100%;
@@ -3319,7 +3337,7 @@ button.stat-card:hover {
 .public-footer { padding: 24px; text-align: center; font-size: var(--font-size-small); color: var(--muted); border-top: 1px solid #dce5e3;
   line-height: 1.7;
 }
-.public-main .form-label, .action-panel .form-label, form[data-action=save_rule] .form-label, form[data-action=reset_rule] .form-label { display: block; width: 100%; margin-bottom: 14px; }
+.public-main .form-label, .public-form-panel .form-label, .action-panel .form-label, form[data-action=save_rule] .form-label, form[data-action=reset_rule] .form-label { display: block; width: 100%; margin-bottom: 14px; }
 .public-main .form-label { font-family: inherit; font-size: var(--font-size-body); font-weight: var(--weight-label); line-height: 1.5; color: var(--text-secondary); }
 .public-main .form-label > .text-muted { font-weight: 400; }
 .public-main .form-control,

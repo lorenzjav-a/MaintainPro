@@ -11,6 +11,7 @@ function payload(): array
         'users' => $actor['role'] === 'official' ? br_store()->users($actor['id']) : [],
         'categories' => array_values(array_unique(array_merge(array_keys(ConcernCatalog::TYPES), ComplaintWorkflow::CATEGORIES))), 'teams' => ComplaintWorkflow::TEAMS,
         'statuses' => ComplaintWorkflow::STATUSES, 'priorities' => ComplaintWorkflow::PRIORITIES,
+        'submissionAllowance' => br_store()->submissionAllowance($actor['id']),
     ];
 }
 header('Content-Type: application/json; charset=utf-8');
@@ -36,6 +37,11 @@ try {
             echo json_encode(br_store()->notifications($actor['id']), JSON_THROW_ON_ERROR);
             exit;
         }
+        if (($_GET['view'] ?? '') === 'weekly') {
+            if ($actor['role'] !== 'official') { http_response_code(403); throw new DomainException('Only barangay officials can view weekly analytics.'); }
+            echo json_encode(br_store()->weeklyConcerns($actor['id']), JSON_THROW_ON_ERROR);
+            exit;
+        }
         if (($_GET['export'] ?? '') === 'csv') {
             if ($actor['role'] !== 'official') {
                 http_response_code(403);
@@ -45,9 +51,11 @@ try {
             header('Content-Disposition: attachment; filename="maintainpro-concerns.csv"');
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF");
-            fputcsv($out, ['Concern ID', 'Title', 'Category', 'Location', 'Status', 'Priority', 'Assigned team', 'Submitted', 'Resident suggestion (legacy)', 'Official recommendation', 'Resolution', 'Review feedback', 'Reopen count', 'Concern type', 'Key points', 'Assigned personnel', 'Purok / Sitio', 'Street', 'Exact area', 'Landmark', 'Temporary resident guidance']);
-            foreach (br_state()['cases'] as $c) {
+            fputcsv($out, ['Concern ID', 'Title', 'Category', 'Location', 'Status', 'Priority', 'Assigned team', 'Submitted', 'Resident suggestion (legacy)', 'Official recommendation', 'Resolution', 'Review feedback', 'Reopen count', 'Concern type', 'Key points', 'Assigned personnel', 'Purok / Sitio', 'Street', 'Exact area', 'Landmark', 'Temporary resident guidance', 'Submitted by', 'Submitter role']);
+            foreach (br_store()->visibleConcerns($actor['id']) as $c) {
                 $row = [$c['id'], $c['title'], $c['category'], $c['location'], $c['status'], $c['priority'], $c['team'], $c['createdAt'], $c['suggestion'] ?? '', $c['recommendation'], $c['resolution']['notes'] ?? '', $c['feedback'], (string)$c['reopenCount'], $c['concernType'] ?? '', implode('; ', $c['keyPoints'] ?? []), $c['assignedName'] ?? '', $c['locationDetails']['purok'] ?? '', $c['locationDetails']['street'] ?? '', $c['locationDetails']['exactArea'] ?? '', $c['locationDetails']['landmark'] ?? '', implode(' | ', $c['residentGuidance'] ?? [])];
+                $row[] = $c['resident'];
+                $row[] = $c['submitterRole'] ?? '';
                 fputcsv($out, array_map(fn($v) => preg_match('/^[\s]*[=+\-@\t\r\n]/u', $v) ? "'" . $v : $v, $row));
             }
             fclose($out);

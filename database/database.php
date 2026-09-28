@@ -12,7 +12,7 @@ final class MaintainProDatabase
 
     public function evidenceForActor(string $id, array $actor): ?array
     {
-        return $this->run("SELECT e.* FROM concern_evidence e JOIN complaints c ON c.id=e.complaint_id WHERE e.id=? AND (?='official' OR c.assigned_user_id=?)", [$id,$actor['role'],$actor['id']])->fetch() ?: null;
+        return $this->run("SELECT e.* FROM concern_evidence e JOIN complaints c ON c.id=e.complaint_id WHERE e.id=? AND (?='official' OR (?='personnel' AND c.assigned_user_id=?) OR c.resident_id=?)", [$id,$actor['role'],$actor['role'],$actor['id'],$actor['id']])->fetch() ?: null;
     }
 
     public function locations(bool $includeInactive = false): array
@@ -80,7 +80,9 @@ final class MaintainProDatabase
 
     public function pagedComplaints(array $actor, array $filters, int $page, int $perPage, bool $history): array
     {
-        $where=["(?='official' OR assigned_user_id=?)"]; $values=[$actor['role'],$actor['id']];
+        $own = ($filters['scope'] ?? '') === 'mine' || $actor['role'] === 'resident';
+        $where = [$own ? 'resident_id=?' : "(?='official' OR (?='personnel' AND assigned_user_id=?))"];
+        $values = $own ? [$actor['id']] : [$actor['role'], $actor['role'], $actor['id']];
         if ($history) $where[]="(status IN ('Resolved','Verified','Rejected','Referred to Another Office') OR JSON_TYPE(JSON_EXTRACT(payload,'$.resolution'))='OBJECT')";
         $tab=$filters['tab'] ?? '';
         if ($tab==='assessment') $where[]="status IN ('Submitted','Under Review','Reopened')";
@@ -110,7 +112,7 @@ final class MaintainProDatabase
         $rows=$this->run("SELECT id,status,team,JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority')) AS priority,
           JSON_UNQUOTE(JSON_EXTRACT(payload,'$.createdAt')) AS createdAt,
           JSON_UNQUOTE(JSON_EXTRACT(payload,'$.resolution.date')) AS resolvedAt,JSON_EXTRACT(payload,'$.reopenCount') AS reopenCount
-          FROM complaints WHERE ?='official' OR assigned_user_id=?",[$actor['role'],$actor['id']])->fetchAll();
+          FROM complaints WHERE ?='official' OR (?='personnel' AND assigned_user_id=?) OR (?='resident' AND resident_id=?)",[$actor['role'],$actor['role'],$actor['id'],$actor['role'],$actor['id']])->fetchAll();
         foreach($rows as &$row) $row['resolution']=!empty($row['resolvedAt']) && $row['resolvedAt']!=='null' ? ['date'=>$row['resolvedAt']] : null;
         unset($row);
         require_once dirname(__DIR__).'/includes/view.php';
@@ -154,7 +156,7 @@ final class MaintainProDatabase
     public function navigationCounts(array $actor): array
     {
         return $this->run("SELECT COUNT(*) AS total,COALESCE(SUM(status IN ('Submitted','Under Review','Reopened')),0) AS assessment
-            FROM complaints WHERE ?='official' OR assigned_user_id=?", [$actor['role'],$actor['id']])->fetch();
+            FROM complaints WHERE ?='official' OR (?='personnel' AND assigned_user_id=?) OR (?='resident' AND resident_id=?)", [$actor['role'],$actor['role'],$actor['id'],$actor['role'],$actor['id']])->fetch();
     }
 
     public function recurrenceGroups(string $since, int $minimum = 2): array
@@ -385,7 +387,7 @@ final class MaintainProDatabase
 
     public function resetUser(string $email): array|false
     {
-        return $this->run("SELECT id,email,auth_version FROM users WHERE email=? AND active=1 AND role IN ('official','personnel')", [$email])->fetch();
+        return $this->run("SELECT id,email,auth_version FROM users WHERE email=? AND active=1 AND role IN ('resident','official','personnel')", [$email])->fetch();
     }
 
     public function deleteUserResets(string $userId): void
@@ -445,6 +447,16 @@ final class MaintainProDatabase
     public function setNextComplaintId(int $nextId): void
     {
         $this->run('UPDATE settings SET value=? WHERE name=?', [(string)$nextId, 'next_id']);
+    }
+
+    public function submissionCount(string $userId, string $start, string $end): int
+    {
+        return (int)$this->run('SELECT COUNT(*) FROM complaints WHERE resident_id=? AND created_at>=? AND created_at<?', [$userId, $start, $end])->fetchColumn();
+    }
+
+    public function weeklyComplaints(string $start, string $end): array
+    {
+        return $this->run('SELECT payload,version FROM complaints WHERE created_at>=? AND created_at<? ORDER BY created_at DESC,id DESC', [$start, $end])->fetchAll();
     }
 
     public function insertComplaint(array $complaint): void

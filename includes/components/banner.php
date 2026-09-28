@@ -3,6 +3,10 @@ if ($actor['role'] === 'official') {
     $bannerTitle = $metrics['assessment'] . ' concern' . ($metrics['assessment'] === 1 ? ' needs' : 's need') . ' your assessment';
     $bannerText = ($metrics['urgent'] ? $metrics['urgent'] . ' urgent concern(s) awaiting action. ' : '') . 'Review the details and recommend the next step.';
     $bannerUrl = 'complaints.php?tab=assessment'; $bannerAction = 'Review queue'; $bannerIcon = 'clipboard';
+} elseif ($actor['role'] === 'resident') {
+    $bannerTitle = 'Follow your reported concerns';
+    $bannerText = 'Review progress and respond when the barangay requests more information.';
+    $bannerUrl = 'complaints.php?scope=mine'; $bannerAction = 'My reports'; $bannerIcon = 'inbox';
 } else {
     $bannerTitle = $actor['team'] . ' · ' . $metrics['assigned'] . ' new assignment(s)';
     $bannerText = 'Follow the official recommended action and record the work performed.';

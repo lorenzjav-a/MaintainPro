@@ -1,6 +1,8 @@
 # MaintainPro
 
-PHP community concern management with anonymous reporting, authenticated staff and persistent MySQL/MariaDB storage. Pages use normal PHP URLs, shared layouts and the existing MaintainPro design.
+PHP community concern management with reporting for residents, officials and personnel, optional anonymity, guest reporting and persistent MySQL/MariaDB storage. Pages use normal PHP URLs, shared layouts and the existing MaintainPro design.
+
+All account roles can report up to three concerns per Asia/Manila calendar day. Officials see weekly top concerns, common keypoints, exactly three category-aware suggested solutions, and the related reports. See the [account reporting and weekly concerns upgrade](docs/account-reporting-upgrade.md).
 
 Staff features now include persistent in-app notifications, workload-aware assignment recommendations, 90-day recurring-issue detection, explainable priority recommendations and a staged Before & After evidence viewer. See the [implementation and setup report](docs/staff-insights-upgrade.md) and the [September 25 system repairs and verification](docs/verification-20260925.md).
 
@@ -8,8 +10,8 @@ Staff features now include persistent in-app notifications, workload-aware assig
 
 1. Start **Apache** and **MySQL** in the XAMPP Control Panel.
 2. On a new installation, run `C:\xampp\php\php.exe database\setup.php` from the project folder. The database on this PC is already configured.
-3. Open **http://localhost/MaintainPro/** for the public landing page. On an empty installation, use **Staff login** to create the first official account.
-4. Residents use **Report a Concern** without registering. Officials create personnel and additional official accounts under **User management → Create account**.
+3. Open **http://localhost/MaintainPro/** for the public landing page. On an empty installation, use **Sign in** to create the first official account.
+4. Residents can register through **Sign in → Resident registration**, or use guest reporting. Officials create accounts under **User management → Create account**. All signed-in roles use **Report Concern** from their dashboard.
 
 PHP 8.1+ requires `pdo_mysql`, `mbstring`, `openssl`, sessions and image metadata support. The test suites also use `curl` and `dom`. XAMPP supplies these. Bootstrap CSS, SweetAlert and PHPMailer are bundled locally; no build step or CDN connection is required.
 
@@ -22,14 +24,14 @@ C:\xampp\php\php.exe -S 127.0.0.1:8080 router.php
 ## Accounts and workflow
 
 - **Guests** select category, type and key points; enter a private location; optionally attach details/photo; read three temporary steps to follow while waiting for staff; save the generated reference, tracking code and guidance. No solution selection is required.
-- **Barangay officials** assess, edit, prioritize, recommend, assign/reassign individual personnel, manage the Solution Library and accounts, and review/close/reopen completed work.
+- **Barangay officials** can open **Administration** to access every system area. They assess, edit, prioritize, recommend, assign/reassign individual personnel, manage the Solution Library and accounts, configure the workspace, review reports and audit history, create backups, and review/close/reopen completed work.
 - **Personnel** see only individually assigned concerns, choose structured work updates and attach required image evidence. Accounts require a name, valid email and team.
 
 The normal journey is **Submitted → Under Review → Assigned → In Progress → Resolved → Closed / reviewed**. The final state retains the internal `Verified` value for compatibility. Officials can request more information; the reporter responds using the original reference and tracking code. Rejection, referral, reopening, history, reports and CSV export remain available.
 
 Personnel can report blocked work and receive official instructions. Officials can link reports describing the same issue, manage Purok/Sitio choices in **Workspace settings**, review **Audit history**, and download a database backup. Linked reports retain their original tracking codes and follow the primary concern's progress.
 
-Resident registration and sign-in are retired; old account rows and concerns are preserved. Generated staff temporary passwords appear once on `user-create.php` and must be replaced at first sign-in. Share those credentials privately. Assignment notifications and password-reset OTPs use PHPMailer; staff invitations are not emailed.
+Resident registration and sign-in are available, including existing active resident accounts. Generated temporary passwords appear once on `user-create.php` and must be replaced at first sign-in. Share those credentials privately. Assignment notifications and password-reset OTPs use PHPMailer; staff invitations are not emailed.
 
 Account permissions, CSRF tokens, password hashing, login throttling, transaction integrity and stale-edit protection are enforced by the server. Independent accounts can be tested simultaneously using separate browser profiles, as described in the testing guide.
 

@@ -1,6 +1,8 @@
 # Project structure
 
-The September 2026 anonymous-reporting update is described in [Anonymous upgrade](anonymous-upgrade.md). Public visitors use `landing.php`, `report-concern.php`, `track.php` and `public-api.php`; authenticated staff retain the dedicated workspace pages. `includes/concern-catalog.php` supplies validated choices and public-safe rules. `evidence.php` authorizes private timeline image delivery. Importable SQL migrations are the only SQL sources outside `database/database.php` and remain under `database/migrations`.
+The [account reporting upgrade](account-reporting-upgrade.md) restores resident access and extends the shared report form to every account role, with a daily allowance and optional anonymity. Officials also receive weekly category/type rankings. The existing `resident_id` and JSON payload are reused without a schema migration. Own reports remain separate from personnel work assignments.
+
+The September 2026 anonymous-reporting update is described in [Anonymous upgrade](anonymous-upgrade.md). Public visitors use `landing.php`, `report-concern.php`, `track.php` and `public-api.php`; authenticated staff retain the dedicated workspace pages. `includes/concern-catalog.php` supplies validated choices, public-safe resident guidance, and the centralized category/keypoint solution catalog used for official weekly decision support. `evidence.php` authorizes private timeline image delivery. Importable SQL migrations are the only SQL sources outside `database/database.php` and remain under `database/migrations`.
 
 The [September 25 repairs](verification-20260925.md) complete file-backed evidence storage and add dedicated entry points for existing management operations: `settings.php`, `audit.php`, `blocked.php`, and the POST-only `backup.php`. Each is official-only. New evidence is stored under protected `uploads/evidence` with metadata in `concern_evidence`; existing inline evidence remains supported. Files written during a failed concern transaction are deleted. Timeline IDs connect each image to its work update. Linking and blocked-work state use the existing concern JSON; they do not duplicate that state in additional tables. Location choices use `locations`, with free-text compatibility before a registry is configured.
 
@@ -39,10 +41,10 @@ MaintainPro/
 
 | Page | Purpose | Access |
 | --- | --- | --- |
-| `index.php` | Staff dashboard; redirects guests to landing | Completed staff accounts |
-| `complaints.php`, `concerns.php` | All Concerns / Work Queue | Official or individually assigned personnel |
+| `index.php` | Role dashboard; redirects guests to landing | Completed accounts |
+| `complaints.php`, `concerns.php` | All Concerns / Work Queue / My reported concerns | Official, assigned personnel or own reports |
 | `history.php` | Resolution attempts, verification, rejections and referrals | Visible complaint records |
-| `complaint.php`, `concern.php` with `id` | Full private record, timeline, photos and permitted actions | Official or individually assigned personnel |
+| `complaint.php`, `concern.php` with `id` | Private record, timeline, photos and permitted actions | Official, assigned personnel or account reporter |
 | `new-complaint.php` | Redirect to public `report-concern.php` | Public |
 | `reports.php` | Reports and insights | Official |
 | `solutions.php` | Temporary resident guidance rules plus private historical reference cases | Official |
@@ -50,7 +52,7 @@ MaintainPro/
 | `user-create.php` | Create an account; display its temporary password once | Official |
 | `user-edit.php?id=USER_ID` | Update name, email, role, team or active status | Official |
 | `profile.php` | Own name, email and password | Completed accounts |
-| `login.php` | Staff sign-in, initial setup and OTP recovery | Public; signed-in staff are redirected appropriately |
+| `login.php` | All-role sign-in, resident registration, initial setup and OTP recovery | Public; signed-in accounts are redirected appropriately |
 
 ## Request flow
 

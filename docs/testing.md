@@ -1,5 +1,7 @@
 # Testing MaintainPro
 
+The September 28 [account reporting upgrade](account-reporting-upgrade.md#verification) passed 1,243 functional/browser checks and 85 PHP syntax checks. `tools/verify.php` now includes `tests/account-reporting.php`; the HTTP runner includes `tests/account-reporting-http.php`. These cover reporting by every role, anonymity, calendar limits, concurrent requests, weekly rankings and related links. Browser coverage also compares the new form and weekly panel with shared desktop/mobile typography.
+
 ## Latest system verification
 
 September 25, 2026: **907 functional checks passed**, plus 81 PHP syntax checks and SQL-boundary validation across 79 PHP files. This includes 406 HTTP checks, 79 complete browser checks, and the separate account/session regressions. The [repair and verification report](verification-20260925.md) lists the failures fixed, suite totals, migration, screenshots, backup restore validation, and external SMTP limitation.

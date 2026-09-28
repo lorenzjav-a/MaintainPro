@@ -24,7 +24,7 @@ br_heading($pageTitle, 'Manage reporting locations and save a database backup.')
 <form method="post" action="api.php" data-action="toggle_location" data-id="<?= (int)$location['id'] ?>" class="mt-2"><button class="btn btn-light btn-sm" type="submit"><?= $location['active'] ? 'Deactivate' : 'Activate' ?> location</button></form>
 </article><?php endforeach ?>
 </div></section>
-<section class="panel mt-4"><div class="panel-header"><h2 class="panel-title">Database backup</h2></div><div class="panel-body">
+<section class="panel mt-4" id="database-backup"><div class="panel-header"><h2 class="panel-title">Database backup</h2></div><div class="panel-body">
 <p>Download a SQL copy of the records. Keep this file private; it contains account and concern data.</p>
 <p class="form-text">Uploaded images are separate files. Back up the protected uploads/evidence folder together with the database. Restore SQL only into an empty database.</p>
 <form method="post" action="backup.php"><input type="hidden" name="csrf" value="<?= h($_SESSION['br_csrf']) ?>"><button class="btn btn-primary" type="submit"><?= br_icon('download') ?>Download database backup</button></form>

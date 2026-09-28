@@ -79,6 +79,7 @@
       finally { if (version === generation) container.setAttribute('aria-busy', 'false'); }
     });
     report.addEventListener('submit', async function (event) {
+      if (report.hasAttribute('data-action')) return;
       event.preventDefault(); if (busy) return;
       busy = true; var button = report.querySelector('button[type=submit]'); button.disabled = true;
       var errorBox = document.getElementById('public-error'); errorBox.hidden = true;
@@ -86,6 +87,7 @@
         var data = values(report), file = report.querySelector('input[type=file]').files[0];
         if (file) { var upload = await readPublicPhoto(file); data.photo = upload.data; data.photoName = upload.name; }
         var response = await send('submit', data);
+        if (response.redirect) { window.location.assign(response.redirect); return; }
         document.getElementById('receipt-reference').value = response.receipt.reference;
         document.getElementById('receipt-code').value = response.receipt.trackingCode;
         receiptGuidance = response.receipt.residentGuidance || [];
@@ -96,7 +98,7 @@
       } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
       finally { busy = false; button.disabled = false; }
     });
-    document.getElementById('save-receipt').addEventListener('click', function () {
+    if (document.getElementById('save-receipt')) document.getElementById('save-receipt').addEventListener('click', function () {
       var text = 'MaintainPro\nReference: ' + document.getElementById('receipt-reference').value + '\nTracking Code: ' + document.getElementById('receipt-code').value + '\nKeep these private. Use the Track Concern page.\n';
       text += '\nWhile you wait — temporary steps for residents\n' + receiptGuidance.map(function (step, i) { return (i + 1) + '. ' + step; }).join('\n') + '\nGuidance is based on your report at submission. Follow current instructions from the barangay or emergency responders.\n';
       var url = URL.createObjectURL(new Blob([text], {type: 'text/plain'})), link = document.createElement('a');

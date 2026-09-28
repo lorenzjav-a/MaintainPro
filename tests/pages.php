@@ -32,11 +32,11 @@ pageHas($form, '//*[@id="suggestions"]', 'suggestions preview');
 pageHas($form, '//*[@id="guidance-heading" and contains(., "While you wait")]', 'guidance is addressed to residents');
 httpCheck($form->query('//*[@name="selectedSuggestion"]')->length === 0, 'no proposed-solution choice on public form');
 pageHas($form, '//*[@id="receipt-guidance"]', 'receipt has resident guidance section');
-foreach (['complaints.php', 'concerns.php', 'history.php', 'reports.php', 'solutions.php', 'users.php', 'profile.php', 'user-create.php', 'user-edit.php?id=' . $staffId, 'complaint.php?id=' . $id] as $path) {
+foreach (['complaints.php', 'concerns.php', 'history.php', 'admin.php', 'reports.php', 'solutions.php', 'users.php', 'profile.php', 'user-create.php', 'user-edit.php?id=' . $staffId, 'complaint.php?id=' . $id] as $path) {
     pageHas(pageDocument($guestJar, $path), '//form[@data-action="login"]', 'anonymous private page gated');
     pageDocument($adminJar, $path);
 }
-foreach (['reports.php', 'solutions.php', 'users.php', 'user-create.php', 'user-edit.php?id=' . $staffId] as $path) pageDocument($staffJar, $path, 403);
+foreach (['admin.php', 'reports.php', 'solutions.php', 'users.php', 'user-create.php', 'user-edit.php?id=' . $staffId] as $path) pageDocument($staffJar, $path, 403);
 foreach (['index.php', 'complaints.php', 'history.php', 'profile.php', 'concern.php?id=' . $id] as $path) pageDocument($staffJar, $path);
 pageDocument($otherJar, 'concern.php?id=' . $id, 404);
 pageDocument($adminJar, 'concern.php?id[]=bad', 404);
@@ -51,6 +51,11 @@ httpCheck(!str_contains(req($adminJar, 'complaint.php?id=' . $id)['body'], '<scr
 pageHas(pageDocument($adminJar, 'history.php'), '//a[contains(@href,"' . $id . '")]', 'closed concern in history');
 pageHas(pageDocument($adminJar, 'solutions.php'), '//form[@data-action="save_rule"]', 'curated library editor');
 pageHas(pageDocument($adminJar, 'solutions.php'), '//a[contains(@href,"' . $id . '")]', 'historical solution library preserved');
+$admin = pageDocument($adminJar, 'admin.php');
+foreach (['complaints.php', 'blocked.php', 'users.php', 'reports.php', 'solutions.php', 'settings.php', 'audit.php', 'track.php'] as $destination) {
+    pageHas($admin, '//a[starts-with(@href,"' . $destination . '")]', 'administration links to ' . $destination);
+}
+httpCheck(str_contains($admin->evaluate('string(//body)'), 'Private tracking codes and account passwords remain protected'), 'administration explains identity protection');
 httpCheck(str_contains(req($adminJar, 'reports.php')['body'], 'Common key points') && str_contains(req($adminJar, 'reports.php')['body'], 'Deep'), 'structured analytics');
 pageHas(pageDocument($adminJar, 'user-edit.php?id=' . $staffId), '//input[@name="email" and @type="email" and @required]', 'personnel email editing');
 pageHas(pageDocument($adminJar, 'complaints.php?category=Roads%20and%20Infrastructure'), '//a[contains(@href,"' . $id . '")]', 'new category filtering');

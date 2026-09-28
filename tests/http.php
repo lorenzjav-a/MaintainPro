@@ -85,7 +85,7 @@ try {
         return; // The finally block still removes the disposable database/server.
     }
     $guestCsrf = token($guestJar, 'report-concern.php');
-    httpCheck(auth($guestJar, 'register', $adminData, $guestCsrf)['status'] === 422, 'registration retired');
+    httpCheck(auth($guestJar, 'register', $adminData, $guestCsrf)['status'] === 422, 'resident registration rejects duplicate email');
     httpCheck(req($guestJar, 'api.php')['status'] === 401, 'anonymous private API denied');
     httpCheck(req($guestJar, 'public-api.php')['status'] === 405, 'public API POST only');
     $public = fn(string $action, array $data, ?string $csrf = null) => req($guestJar, 'public-api.php', ['action' => $action, 'data' => $data], $csrf ?? $guestCsrf);
@@ -204,6 +204,7 @@ try {
     httpCheck(str_contains(req($adminJar, 'complaint.php?id=' . $id)['body'], 'email could not be sent'), 'assignment failure notice');
     httpCheck(req($resetJar, 'complaint.php?id=' . $id)['status'] === 404 && req($resetJar, 'evidence.php?id=' . $evidenceId)['status'] === 404, 'reassignment revokes previous staff access');
     require __DIR__ . '/extended-http.php';
+    require __DIR__ . '/account-reporting-http.php';
     foreach (['.data/before-anonymous-20260921.sql', 'includes/store.php', 'config/mail.local.php', 'database/migrations/20260921_anonymous_concerns.sql', 'vendor/phpmailer/src/PHPMailer.php', 'tests/store.php', 'tools/check-mail.php', '%63onfig/mail.local.php'] as $path) httpCheck(req($guestJar, $path)['status'] === 404, 'private path ' . $path);
     $testDatabase->assertHealthyLog();
     httpCheck(!preg_match('/(?:Fatal error|Warning|Notice):/', file_get_contents($serverLog)), 'no PHP runtime diagnostics');

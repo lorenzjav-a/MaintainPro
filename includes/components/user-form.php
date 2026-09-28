@@ -10,10 +10,10 @@
       <?php if (!$user): ?>
       <div class="col-12"><p class="info-callout mb-0">MaintainPro generates a temporary password. You will see it once after creating the account. The user must choose their own password at first sign-in.</p></div>
       <?php endif ?>
-      <div class="col-sm-6"><label class="form-label" for="user-role">Account type</label><select class="form-select" id="user-role" name="role" required><?php foreach ($ownAccount ? ['official'] : ($role === 'resident' ? ['official', 'personnel', 'resident'] : ['official', 'personnel']) as $option): ?><option value="<?= $option ?>"<?= $option === $role ? ' selected' : '' ?>><?= h(br_role($option)) ?><?= $option === 'resident' ? ' (legacy; no sign-in)' : '' ?></option><?php endforeach ?></select></div>
+      <div class="col-sm-6"><label class="form-label" for="user-role">Account type</label><select class="form-select" id="user-role" name="role" required><?php foreach ($ownAccount ? ['official'] : ['resident', 'official', 'personnel'] as $option): ?><option value="<?= $option ?>"<?= $option === $role ? ' selected' : '' ?>><?= h(br_role($option)) ?></option><?php endforeach ?></select></div>
       <div class="col-sm-6" id="user-team-wrap"<?= $role !== 'personnel' ? ' hidden' : '' ?>><label class="form-label" for="user-team">Assigned team</label><select class="form-select" id="user-team" name="team"<?= $role === 'personnel' ? ' required' : '' ?>><?php br_options(ComplaintWorkflow::TEAMS, $user['team'] ?? '', 'Choose a team'); ?></select></div>
       <?php if ($user): ?><div class="col-sm-6"><label class="form-label" for="user-active">Account status</label><select class="form-select" id="user-active" name="active"><option value="1"<?= $user['active'] ? ' selected' : '' ?>>Active</option><?php if (!$ownAccount): ?><option value="0"<?= !$user['active'] ? ' selected' : '' ?>>Inactive</option><?php endif ?></select></div><?php endif ?>
     </div></div>
-    <div class="form-footer"><small><?= $user ? 'Existing concern records are retained.' : 'Residents report anonymously. Only staff need accounts.' ?></small><button class="btn btn-primary" type="submit"><?= $user ? 'Save account settings' : 'Create account' ?></button></div>
+    <div class="form-footer"><small><?= $user ? 'Existing concern records are retained.' : 'Each account keeps its own role and reporting allowance.' ?></small><button class="btn btn-primary" type="submit"><?= $user ? 'Save account settings' : 'Create account' ?></button></div>
   </form>
 </section>

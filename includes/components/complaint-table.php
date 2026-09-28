@@ -5,6 +5,7 @@ $tab = br_query('tab', 'all');
 $tabLabels = ['all' => 'All concerns', 'pending' => 'Needs action', 'verified' => 'Closed', 'assessment' => 'Assessment', 'progress' => 'In progress', 'resolved' => 'For review', 'urgent' => 'Urgent', 'reopened' => 'Ever reopened', 'submitted' => 'New reports', 'assigned' => 'New assignments', 'work' => 'Active work', 'reopened_now' => 'Reopened'];
 if (!isset($tabLabels[$tab])) $tab = 'all';
 $filters = ['tab' => $tab, 'search' => br_query('search'), 'category' => br_query('category'), 'priority' => br_query('priority'), 'status' => br_query('status')];
+$filters += ['scope' => ($scope ?? 'work'), 'week' => br_query('week'), 'type' => br_query('type')];
 $filtered = array_values(array_filter($cases, function ($c) use ($filters, $page) {
     if ($page === 'history' && !($c['resolution'] || in_array($c['status'], ['Verified', 'Rejected', 'Referred to Another Office'], true))) return false;
     $matches = match ($filters['tab']) {
@@ -32,16 +33,17 @@ if (!in_array($tab, $shownTabs, true)) $shownTabs[] = $tab;
 <?php if (!$cases): ?>
 <section class="panel workspace-empty">
   <?= br_icon($actor['role'] === 'personnel' ? 'tool' : 'inbox') ?>
-  <h3><?= $actor['role'] === 'personnel' ? 'No work assigned yet' : 'Your concern register is ready' ?></h3>
-  <p><?= h($actor['role'] === 'personnel' ? 'Concerns assigned directly to you will appear here.' : 'Residents can submit anonymous concerns from the public landing page. Create personnel accounts so your teams can receive assignments.') ?></p>
+  <h3><?= ($scope ?? '') === 'mine' ? 'No concerns reported yet' : ($actor['role'] === 'personnel' ? 'No work assigned yet' : 'Your concern register is ready') ?></h3>
+  <p><?= h(($scope ?? '') === 'mine' ? 'Use Report Concern to submit a concern with your identity or anonymously.' : ($actor['role'] === 'personnel' ? 'Concerns assigned directly to you will appear here.' : 'Community reports appear here for assessment and assignment.')) ?></p>
   <?php if ($actor['role'] === 'official'): ?><a class="btn btn-primary" href="users.php"><?= br_icon('users') ?>Manage personnel accounts</a><?php endif ?>
 </section>
 <?php else: ?>
 <section class="panel">
-  <div class="panel-header"><div><h2 class="panel-title"><?= $compact ? 'Recent concerns' : ($page === 'history' ? 'Concern outcomes' : 'Concern register') ?> <span class="count-pill"><?= count($filtered) ?></span></h2><?php if (!$compact): ?><p class="panel-subtitle">Open a concern to view its details and available actions.</p><?php endif ?></div><?php if ($compact): ?><a class="link-button" href="complaints.php">View all <?= br_icon('arrow') ?></a><?php endif ?></div>
+  <div class="panel-header"><div><h2 class="panel-title"><?= $compact ? 'Recent concerns' : ($page === 'history' ? 'Concern outcomes' : 'Concern register') ?> <span class="count-pill"><?= count($filtered) ?></span></h2><?php if (!$compact): ?><p class="panel-subtitle">Open a concern to view its details and available actions.</p><?php endif ?></div><?php if ($compact): ?><a class="link-button" href="<?= h(br_url('complaints.php', ['scope' => $scope ?? 'work'])) ?>">View all <?= br_icon('arrow') ?></a><?php endif ?></div>
   <div class="panel-toolbar"><nav class="filter-tabs" aria-label="Concern filters"><?php foreach ($shownTabs as $value): ?><a class="filter-tab<?= $tab === $value ? ' active' : '' ?>" href="<?= h(br_url($listPage, array_replace($filters, ['tab' => $value]))) ?>"<?= $tab === $value ? ' aria-current="true"' : '' ?>><?= h($tabLabels[$value]) ?></a><?php endforeach ?></nav></div>
   <form class="filter-row pt-3" method="get" action="<?= h($listPage) ?>" role="search">
     <input type="hidden" name="tab" value="<?= h($tab) ?>">
+    <?php foreach (['scope', 'week', 'type'] as $key): ?><input type="hidden" name="<?= $key ?>" value="<?= h($filters[$key]) ?>"><?php endforeach ?>
     <div class="search-field"><?= br_icon('search') ?><input id="case-search" name="search" type="search" aria-label="Search concerns by ID, title, location, category, resident, or team" placeholder="Search concerns…" value="<?= h($filters['search']) ?>"></div>
     <?php if (!$compact): ?>
     <select class="form-select form-select-sm" name="category" aria-label="Filter by category"><?php br_options(array_values(array_unique(array_merge(array_keys(ConcernCatalog::TYPES), ComplaintWorkflow::CATEGORIES))), $filters['category'], 'All categories'); ?></select>
@@ -53,7 +55,7 @@ if (!in_array($tab, $shownTabs, true)) $shownTabs[] = $tab;
   <?php if ($rows): ?>
   <div class="table-responsive"><table class="table complaint-table"><caption class="visually-hidden">Concerns available to your account</caption><thead><tr><th scope="col">Concern</th><th scope="col" class="category-cell">Category</th><th scope="col">Priority</th><th scope="col">Status &amp; next step</th><th scope="col"><span class="visually-hidden">Open</span></th></tr></thead><tbody>
     <?php foreach ($rows as $row): $caseUrl = br_url('complaint.php', ['id' => $row['id']]); ?>
-    <tr><td data-label="Concern"><a class="case-link" href="<?= h($caseUrl) ?>"><?= h($row['title']) ?></a><div class="case-meta"><span class="case-ref"><?= h($row['id']) ?></span><?= br_icon('pin') ?><?= h($row['location']) ?></div></td><td class="category-cell" data-label="Category"><?= h($row['category']) ?></td><td data-label="Priority"><?= br_priority($row) ?></td><td data-label="Status"><?= br_status($row) ?><span class="next-step"><?= h(br_next_step($row, $actor['role'])) ?></span></td><td class="open-cell"><a class="open-case-btn" href="<?= h($caseUrl) ?>">Open <?= br_icon('chevron') ?></a></td></tr>
+    <tr><td data-label="Concern"><a class="case-link" href="<?= h($caseUrl) ?>"><?= h($row['title']) ?></a><div class="case-meta"><span class="case-ref"><?= h($row['id']) ?></span><?= br_icon('pin') ?><?= h($row['location']) ?></div><div class="case-meta">Submitted by: <?= h($row['resident']) ?><?= !empty($row['submitterRole']) ? ' · ' . h(br_role($row['submitterRole'])) : '' ?> · <?= h(br_date($row['createdAt'])) ?></div></td><td class="category-cell" data-label="Category"><?= h($row['category']) ?></td><td data-label="Priority"><?= br_priority($row) ?></td><td data-label="Status"><?= br_status($row) ?><span class="next-step"><?= h(br_next_step($row, $actor['role'])) ?></span></td><td class="open-cell"><a class="open-case-btn" href="<?= h($caseUrl) ?>">Open <?= br_icon('chevron') ?></a></td></tr>
     <?php endforeach ?>
   </tbody></table></div>
   <?php else: ?><div class="empty-state"><?= br_icon('inbox') ?><h3>No concerns match this view</h3><p>Try a different search or clear the filters.</p><a class="btn btn-light btn-sm" href="<?= h($listPage) ?>">Clear all filters</a></div><?php endif ?>

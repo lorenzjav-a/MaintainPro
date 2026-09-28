@@ -244,7 +244,10 @@ async function tab() {
     check(await official.evaluate('document.querySelector("form[data-action=edit] [data-accept-priority]").disabled'),'changed selections prevent accepting stale priority advice');
     check(await official.evaluate('document.querySelector(".case-summary").textContent.includes("Closed")'), 'official reviews and closes');
     await official.screenshot('concern-desktop');
-    for (const page of ['history.php','reports.php','solutions.php','users.php','profile.php','settings.php','audit.php','blocked.php','notifications.php']) { await official.go(page); check(await official.evaluate('!!document.querySelector("h1")'), page + ' renders'); }
+    await official.go('admin.php');
+    check(await official.evaluate('document.querySelector(".report-grid").children.length === 5 && getComputedStyle(document.querySelector(".report-grid")).gridTemplateColumns.split(" ").length === 2 && getComputedStyle(document.querySelector(".panel-title")).fontFamily.includes("Segoe UI")'), 'administration uses shared desktop grid and typography');
+    await official.screenshot('admin-desktop');
+    for (const page of ['history.php','admin.php','reports.php','solutions.php','users.php','profile.php','settings.php','audit.php','blocked.php','notifications.php']) { await official.go(page); check(await official.evaluate('!!document.querySelector("h1")'), page + ' renders'); }
     await official.click('[data-notification-row] [data-notification-read]');
     await until(() => official.evaluate('document.querySelector("[data-notification-row] [data-read-label]").textContent==="Read"'), 'single notification read');
     check(true,'mark one notification through UI');
@@ -308,7 +311,50 @@ async function tab() {
     await until(() => guest.evaluate('document.getElementById("tracking-result").textContent.includes("Closed")'), 'linked tracking follows closed primary');
     check(await guest.evaluate('!document.getElementById("tracking-result").textContent.includes('+JSON.stringify(reference)+')'), 'linked tracking keeps primary reference private');
     for (const page of ['settings.php','audit.php','blocked.php']) { await personnel.go(page); check(await personnel.evaluate('document.querySelector("h1").textContent==="Access denied"'), 'restricted management page '+page); }
-    for (const client of [guest, official, personnel]) await client.send('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:true});
+    const resident = await tab();
+    await resident.go('login.php?view=register');
+    await resident.screenshot('resident-register-desktop');
+    await resident.auth('register', {name:'Browser Resident', email:'resident@example.test', password, confirm_password:password});
+    check(await resident.evaluate('document.querySelector("h1").textContent === "Resident dashboard"'), 'resident dashboard restored');
+    for (const [client, role] of [[resident,'resident'],[personnel,'personnel'],[official,'official']]) {
+      await client.go('report-concern.php');
+      check(await client.evaluate('!!document.querySelector(".shell") && document.querySelector("#public-report").dataset.action === "submit" && document.body.textContent.includes("0 of 3 concern submissions used today.")'), role+' shared report form and allowance');
+      await client.fill('[name=category]','Waste Management'); await client.fill('[name=concernType]','Uncollected garbage');
+      await client.fill('[name=locationId]',locationId); await client.fill('[name=street]','Reporting Street'); await client.fill('[name=exactArea]','Crossing');
+      await client.click('[name=isAnonymous]');
+      await client.screenshot(role+'-report-desktop');
+      await client.submit('submit');
+      check(await client.evaluate('document.querySelector(".case-summary").textContent.includes("Anonymous") && !document.querySelector("form[data-action=start]")'), role+' anonymous submission without automatic work assignment');
+      await client.go('index.php');
+      check(await client.evaluate('document.body.textContent.includes("1 of 3 concern submissions used today.")'), role+' dashboard used count');
+      await client.go('complaints.php?scope=mine');
+      check(await client.evaluate('document.querySelector(".complaint-table").textContent.includes("Uncollected garbage")'), role+' own reported concerns list');
+    }
+    await personnel.go('complaints.php');
+    check(await personnel.evaluate('!document.querySelector("main").textContent.includes("Uncollected garbage")'), 'personnel reports stay separate from assigned queue');
+    await official.go('index.php');
+    await official.evaluate('document.getElementById("weekly-concerns").scrollIntoView({block:"start"})');
+    check(await official.evaluate('document.getElementById("weekly-concerns").textContent.includes("Uncollected garbage") && document.getElementById("weekly-concerns").textContent.includes("Common keypoints") && document.getElementById("weekly-concerns").textContent.includes("Suggested solutions") && document.querySelectorAll("#weekly-concerns .weekly-concern:first-of-type ol li").length === 3'), 'weekly concerns and three keypoint solutions shown');
+    await official.screenshot('weekly-concerns-desktop');
+    await official.click('#weekly-concerns a[href*="Uncollected"]'); await official.ready('/complaints.php');
+    check(await official.evaluate('document.querySelectorAll(".complaint-table tbody tr").length === 3 && document.querySelector(".complaint-table").textContent.includes("Anonymous")'), 'weekly related link includes all three anonymous role reports');
+    for (let i=0;i<2;i++) {
+      await resident.go('report-concern.php');
+      await resident.submit('submit',{category:'Waste Management',concernType:'Uncollected garbage',locationId,street:'Reporting Street',exactArea:'Crossing'});
+    }
+    await resident.go('report-concern.php');
+    check(await resident.evaluate('document.querySelector("#public-report button[type=submit]").disabled && document.body.textContent.includes("3 of 3 concern submissions used today.")'), 'daily limit visible after UI submissions');
+    await resident.screenshot('daily-limit-desktop');
+    for (const client of [guest, official, personnel, resident]) await client.send('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:true});
+    for (const [client,role] of [[official,'official'],[personnel,'personnel'],[resident,'resident']]) {
+      await client.go('report-concern.php');
+      check(await client.evaluate('document.documentElement.scrollWidth<=innerWidth && getComputedStyle(document.querySelector(".form-label")).fontSize === "14px" && getComputedStyle(document.body).fontFamily.includes("Segoe UI")'), role+' report mobile typography and layout');
+      await client.screenshot(role+'-report-mobile');
+    }
+    await official.go('index.php');
+    await official.evaluate('document.getElementById("weekly-concerns").scrollIntoView({block:"start"})');
+    check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth && getComputedStyle(document.querySelector("#weekly-concerns .panel-title")).fontSize === getComputedStyle(document.querySelector(".overview-grid .panel-title")).fontSize'), 'weekly panel matches shared mobile panel typography and fits');
+    await official.screenshot('weekly-concerns-mobile');
     for (const page of ['landing.php','report-concern.php','track.php','login.php','login.php?view=forgot']) {
       await guest.go(page); check(await guest.evaluate('document.documentElement.scrollWidth <= innerWidth'), page + ' fits mobile');
       if (page === 'report-concern.php') {
@@ -335,7 +381,7 @@ async function tab() {
     check(await official.evaluate('document.querySelector(".notification-dropdown").getBoundingClientRect().left>=0 && document.querySelector(".notification-dropdown").getBoundingClientRect().right<=innerWidth'),'mobile notification dropdown fits');
     await official.screenshot('notifications-mobile');
     await personnel.go('complaints.php'); check(await personnel.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'mobile work queue fits');
-    for (const page of ['settings.php','audit.php','blocked.php']) { await official.go(page); check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth'), page+' fits mobile'); await official.screenshot(page.replace('.php','')+'-mobile'); }
+    for (const page of ['admin.php','settings.php','audit.php','blocked.php']) { await official.go(page); check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth'), page+' fits mobile'); await official.screenshot(page.replace('.php','')+'-mobile'); }
     check(await guest.evaluate('(async()=>{const r=await fetch("api.php");return r.status;})()') === 401, 'guest remains anonymous');
     check(await official.evaluate('(async()=>{const r=await fetch("api.php");return (await r.json()).actor.role;})()') === 'official', 'isolated official session');
     check(await personnel.evaluate('(async()=>{const r=await fetch("api.php");return (await r.json()).actor.role;})()') === 'personnel', 'isolated personnel session');

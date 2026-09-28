@@ -3,6 +3,50 @@ declare(strict_types=1);
 
 final class ConcernInsights
 {
+    public static function week(?DateTimeImmutable $now = null): array
+    {
+        $now = ($now ?? new DateTimeImmutable('now'))->setTimezone(new DateTimeZone('Asia/Manila'));
+        $start = $now->setTime(0, 0)->modify('-' . ((int)$now->format('N') - 1) . ' days');
+        return ['start' => $start->format(DATE_ATOM), 'end' => $start->modify('+7 days')->format(DATE_ATOM),
+            'date' => $start->format('Y-m-d'), 'label' => $start->format('F j') . ' – ' . $start->modify('+6 days')->format('F j, Y')];
+    }
+
+    public static function weekly(array $cases, array $recurring): array
+    {
+        $groups = [];
+        $rank = ['Low' => 0, 'Medium' => 1, 'High' => 2, 'Urgent' => 3];
+        foreach ($cases as $c) {
+            $type = $c['concernType'] ?? '';
+            $key = $c['category'] . '|' . $type;
+            $groups[$key] ??= ['category' => $c['category'], 'type' => $type, 'count' => 0, 'priority' => 'Low', 'areas' => [], 'pointCounts' => [], 'recurring' => false];
+            $group = &$groups[$key];
+            $group['count']++;
+            $priority = self::priority($c)['priority'];
+            if ($rank[$c['priority']] > $rank[$priority]) $priority = $c['priority'];
+            if ($rank[$priority] > $rank[$group['priority']]) $group['priority'] = $priority;
+            $area = $c['locationDetails']['purok'] ?? '';
+            if ($area !== '') $group['areas'][$area] = ($group['areas'][$area] ?? 0) + 1;
+            foreach (array_unique($c['keyPoints'] ?? []) as $point) {
+                if (is_string($point)) $group['pointCounts'][$point] = ($group['pointCounts'][$point] ?? 0) + 1;
+            }
+            foreach ($recurring as $history) {
+                if ($history['concern_type'] === $type && ($history['area'] ?? '') === $area) $group['recurring'] = true;
+            }
+            unset($group);
+        }
+        $groups = array_values($groups);
+        usort($groups, fn($a, $b) => $b['count'] <=> $a['count'] ?: strcmp($a['category'] . $a['type'], $b['category'] . $b['type']));
+        foreach ($groups as &$group) {
+            arsort($group['areas']);
+            $suggestions = ConcernCatalog::officialSuggestions($group['category'], $group['type'], $group['pointCounts'], $group['recurring']);
+            $group['keyPoints'] = $suggestions['keyPoints'];
+            $group['actions'] = $suggestions['actions'];
+            unset($group['pointCounts']);
+        }
+        unset($group);
+        return array_slice($groups, 0, 5);
+    }
+
     public static function config(): array
     {
         static $config;

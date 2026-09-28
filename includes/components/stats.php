@@ -1,6 +1,12 @@
 <div class="stats-grid">
 <?php
 $cards = match ($actor['role']) {
+    'resident' => [
+        ['My reports', 'total', 'Concerns submitted from your account', 'inbox', '', 'all'],
+        ['In progress', 'progress', 'Work being carried out', 'tool', 'blue', 'progress'],
+        ['For official review', 'resolved', 'Completed work awaiting review', 'clock', '', 'resolved'],
+        ['Closed concerns', 'verified', 'Reviewed by the barangay', 'checkCircle', 'green', 'verified'],
+    ],
     'personnel' => [
         ['New assignments', 'assigned', 'Accept work assigned to you', 'clipboard', 'amber', 'assigned'],
         ['In progress', 'progress', 'Continue work and add updates', 'tool', 'blue', 'progress'],

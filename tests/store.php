@@ -10,8 +10,8 @@ try {
     check($store->needsSetup(), 'empty setup');
     $admin = $store->setup(['name' => 'Test Official', 'email' => 'official@example.test', 'password' => 'Official-password-42']);
     denied(fn() => $store->setup([]), 'setup once');
-    denied(fn() => $store->register([]), 'resident registration retired');
-    denied(fn() => $store->createUser($admin['id'], ['role' => 'resident']), 'no new resident accounts');
+    denied(fn() => $store->register([]), 'resident registration requires valid fields');
+    denied(fn() => $store->createUser($admin['id'], ['role' => 'resident']), 'resident creation requires valid identity');
     foreach (['bad', 'x@', ''] as $email) denied(fn() => $store->createUser($admin['id'], ['name' => 'Bad Staff', 'role' => 'personnel', 'team' => 'Maintenance crew', 'email' => $email]), 'invalid staff email');
     $staff = $store->createUser($admin['id'], ['name' => 'Test Staff', 'email' => 'staff@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew']);
     check($staff['must_change_password'] && strlen($staff['temporary_password']) >= 20, 'random temporary credential');

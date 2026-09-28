@@ -153,10 +153,7 @@ function br_export(): string
 
 function br_primary(array $actor): string
 {
-    [$url, $icon, $label] = match ($actor['role']) {
-        'official' => ['complaints.php?tab=assessment', 'clipboard', 'Review concerns'],
-        default => ['complaints.php?tab=work', 'clipboard', 'View assignments'],
-    };
+    [$url, $icon, $label] = ['report-concern.php', 'inbox', 'Report Concern'];
     return '<a class="btn btn-primary" href="' . h($url) . '">' . br_icon($icon) . $label . '</a>';
 }
 

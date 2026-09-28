@@ -13,6 +13,7 @@ final class ComplaintWorkflow
     public static function canSee(array $c, array $actor): bool
     {
         return $actor['role'] === 'official'
+            || (!empty($c['residentId']) && $actor['id'] === $c['residentId'])
             || ($actor['role'] === 'personnel' && !empty($c['assignedUserId']) && $actor['id'] === $c['assignedUserId']);
     }
 
@@ -70,7 +71,11 @@ final class ComplaintWorkflow
 
     public static function submit(array &$state, array $actor, array $data): string
     {
-        if ($actor['role'] !== 'guest') throw new DomainException('Use the public concern form.');
+        if (!in_array($actor['role'], ['guest', 'resident', 'official', 'personnel'], true)) throw new DomainException('Sign in to report a concern.');
+        $anonymous = $data['isAnonymous'] ?? false;
+        if (!in_array($anonymous, [true, false, 1, 0, '1', '0'], true)) throw new DomainException('Choose a valid identity setting.');
+        $anonymous = $actor['role'] === 'guest' || in_array($anonymous, [true, 1, '1'], true);
+        $submittedAt = (new DateTimeImmutable('now', new DateTimeZone('Asia/Manila')))->format(DATE_ATOM);
         [$category, $type, $points] = ConcernCatalog::selections($data);
         $managedLocation = $data['_location'] ?? null;
         $location = [
@@ -81,7 +86,7 @@ final class ComplaintWorkflow
         ];
         foreach (['street', 'exactArea', 'landmark'] as $field) $location[$field] = self::text($data[$field] ?? '', ucfirst($field), 120, $field !== 'landmark');
         $c = [
-            'id' => 'CON-' . date('Y') . '-' . str_pad((string)$state['nextId'], 6, '0', STR_PAD_LEFT),
+            'id' => 'CON-' . substr($submittedAt, 0, 4) . '-' . str_pad((string)$state['nextId'], 6, '0', STR_PAD_LEFT),
             'title' => $type . ' Concern', 'concernType' => $type, 'keyPoints' => $points,
             'category' => $category, 'locationDetails' => $location,
             'description' => self::text($data['description'] ?? '', 'Additional details', 4000, false),
@@ -91,11 +96,12 @@ final class ComplaintWorkflow
             'assignedUserId' => null, 'assignedName' => '',
             'photo' => self::photo($data['photo'] ?? ''),
             'status' => 'Submitted', 'priority' => 'Medium', 'team' => '',
-            'residentId' => null, 'resident' => 'Anonymous resident',
+            'residentId' => $actor['role'] === 'guest' ? null : $actor['id'],
+            'resident' => $anonymous ? 'Anonymous' : $actor['name'], 'isAnonymous' => $anonymous,
             'recommendation' => '', 'assessment' => '', 'resolution' => null, 'feedback' => '',
-            'reopenCount' => 0, 'createdAt' => date(DATE_ATOM), 'updatedAt' => date(DATE_ATOM), 'timeline' => [],
+            'reopenCount' => 0, 'createdAt' => $submittedAt, 'updatedAt' => $submittedAt, 'timeline' => [],
         ];
-        self::event($c, $actor, 'Concern submitted', $c['description'], null, $c['photo']);
+        self::event($c, $anonymous ? ['id' => null, 'name' => 'Anonymous'] : $actor, 'Concern submitted', $c['description'], $submittedAt, $c['photo']);
         $c['timeline'][0]['evidenceType'] = 'Initial Evidence';
         $c['priorityRecommendation'] = ConcernInsights::priority($c);
         $state['nextId']++;
@@ -113,7 +119,7 @@ final class ComplaintWorkflow
         $c = $state['cases'][$index];
         $assessment = in_array($c['status'], ['Submitted', 'Under Review', 'Reopened'], true);
         $official = $actor['role'] === 'official';
-        $personnel = $actor['role'] === 'personnel' && self::canSee($c, $actor);
+        $personnel = $actor['role'] === 'personnel' && ($c['assignedUserId'] ?? null) === $actor['id'];
         switch ($action) {
             case 'assess':
                 self::guard($official && $assessment, 'This concern cannot be assessed at this stage.');

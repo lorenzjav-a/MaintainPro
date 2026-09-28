@@ -11,6 +11,13 @@ try {
     if (!is_array($input) || !is_string($input['action'] ?? null) || !is_array($input['data'] ?? null)) throw new DomainException('Invalid request.');
     $data = $input['data'];
     $client = $_SERVER['REMOTE_ADDR'] ?? 'local';
+    if ($input['action'] === 'submit' && isset($_SESSION['br_user_id'])) {
+        $actor = br_actor();
+        if (!$actor) throw new DomainException('Sign in again before submitting a concern.');
+        $id = br_store()->submitAccount($actor['id'], $data);
+        echo json_encode(['ok' => true, 'redirect' => 'complaint.php?id=' . rawurlencode($id) . '&saved=submit'], JSON_THROW_ON_ERROR);
+        exit;
+    }
     $result = match ($input['action']) {
         'guidance' => ['residentGuidance' => br_store()->suggestions($data)],
         // Keep old open tabs compatible; these values are now resident guidance only.

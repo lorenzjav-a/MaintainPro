@@ -6,8 +6,9 @@ extract(br_page('overview'));
 require __DIR__ . '/includes/layout/header.php';
 $description = $actor['role'] === 'official'
     ? 'Assess new reports, coordinate teams, and follow reopened concerns.'
-    : 'Track assignments and completed work for ' . $actor['team'] . '.';
+    : ($actor['role'] === 'resident' ? 'Follow your reported concerns and community updates.' : 'Track assignments and completed work for ' . $actor['team'] . '.');
 br_heading($pageTitle, $description, ($actor['role'] === 'official' ? br_export() : '') . br_primary($actor));
+require __DIR__ . '/includes/components/submission-allowance.php';
 require __DIR__ . '/includes/components/stats.php';
 require __DIR__ . '/includes/components/banner.php';
 ?>
@@ -26,6 +27,7 @@ require __DIR__ . '/includes/components/banner.php';
       <section class="panel"><div class="panel-header"><h2 class="panel-title">Closing the loop</h2><?= br_icon('checkCircle') ?></div><div class="resolution-summary"><div class="completion-ring" style="--pct:<?= $ratio ?>%" role="img" aria-label="<?= $ratio ?> percent of concerns closed after official review"><span><?= $ratio ?>%</span></div><div class="resolution-copy"><strong><?= $metrics['verified'] ?> of <?= $metrics['total'] ?> reports closed after official review</strong><p><?= $metrics['resolved'] ?> resolved and awaiting official review.<br>An official reviews the evidence before closing the concern.</p><a class="link-button" href="history.php">View resolution history <?= br_icon('arrow') ?></a></div></div></section>
     </div>
     <?php require __DIR__ . '/includes/components/recurring-issues.php'; ?>
+    <?php require __DIR__ . '/includes/components/weekly-concerns.php'; ?>
     <?php endif ?>
   </div>
   <aside class="side-stack">
@@ -33,7 +35,9 @@ require __DIR__ . '/includes/components/banner.php';
     <?php require __DIR__ . '/includes/components/activity.php'; ?>
     <section class="workflow-card">
     <?php if ($actor['role'] === 'official'): ?>
-      <?= br_icon('users') ?><h3>Build your barangay team.</h3><p>Create official and personnel accounts, assign teams, and manage account access.</p><a class="link-button" href="users.php">User management <?= br_icon('arrow') ?></a>
+      <?= br_icon('users') ?><h3>Manage community accounts.</h3><p>Create resident, barangay official, and personnel accounts, assign teams, and manage access.</p><a class="link-button" href="users.php">User management <?= br_icon('arrow') ?></a>
+    <?php elseif ($actor['role'] === 'resident'): ?>
+      <?= br_icon('inbox') ?><h3>Stay informed about your concern.</h3><p>Open your reported concerns to follow progress and respond when the barangay requests more information.</p><a class="link-button" href="complaints.php?scope=mine">My reported concerns <?= br_icon('arrow') ?></a>
     <?php else: ?>
       <?= br_icon('tool') ?><h3>Record the work as it happens.</h3><p>Start assigned work, add progress notes, and submit the resolution for official review.</p><button class="link-button" type="button" data-help>How the process works <?= br_icon('arrow') ?></button>
     <?php endif ?>

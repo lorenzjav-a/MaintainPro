@@ -21,7 +21,7 @@ check($c['keyPoints'] === $report['keyPoints'] && count($c['residentGuidance']) 
 check($c['suggestion'] === '' && !array_key_exists('selectedSuggestion', $c) && !array_key_exists('suggestions', $c) && $c['recommendation'] === '', 'old selection ignored and staff plan stays separate');
 foreach (['purok', 'street', 'exactArea', 'category', 'concernType'] as $field) denied(function () use (&$state, $guest, $report, $field) { ComplaintWorkflow::submit($state, $guest, array_replace($report, [$field => ''])); }, 'required ' . $field);
 denied(function () use (&$state, $guest, $report) { ComplaintWorkflow::submit($state, $guest, array_replace($report, ['keyPoints' => ['Forged']])); }, 'unknown points');
-denied(function () use (&$state, $official, $report) { ComplaintWorkflow::submit($state, $official, $report); }, 'staff cannot impersonate guest action');
+denied(function () use (&$state, $official, $report) { ComplaintWorkflow::submit($state, array_replace($official, ['role' => 'forged']), $report); }, 'unknown role cannot submit');
 check(!ComplaintWorkflow::canSee($c, $staff), 'unassigned location inaccessible');
 ComplaintWorkflow::apply($state, $official, $id, 'assess', ['priority' => 'High', 'recommendation' => 'Inspect and repair.']);
 ComplaintWorkflow::apply($state, $official, $id, 'assign', ['_assignee' => $staff]);
@@ -45,6 +45,15 @@ check($state['cases'][0]['reopenCount'] === 1 && !ComplaintWorkflow::canSee($sta
 ComplaintWorkflow::apply($state, $official, $id, 'request_information', ['notes' => 'Please clarify the exact area']);
 ComplaintWorkflow::reporterFollowup($state['cases'][0], ['description' => 'Beside the covered court']);
 check($state['cases'][0]['status'] === 'Submitted', 'reporter follow-up returns to assessment');
+$officialWork = ['nextId' => 1, 'cases' => []];
+$officialWorkId = ComplaintWorkflow::submit($officialWork, $guest, $report);
+ComplaintWorkflow::apply($officialWork, $official, $officialWorkId, 'assess', ['priority' => 'High', 'recommendation' => 'Complete this directly.']);
+ComplaintWorkflow::apply($officialWork, $official, $officialWorkId, 'assign', ['_assignee' => $staff]);
+ComplaintWorkflow::apply($officialWork, $official, $officialWorkId, 'start', $work);
+ComplaintWorkflow::apply($officialWork, $official, $officialWorkId, 'note', $work);
+ComplaintWorkflow::apply($officialWork, $official, $officialWorkId, 'resolve', array_replace($work, ['workStatus' => 'Fully repaired', 'actions' => ['Repair']]));
+$officialWorkEvent = end($officialWork['cases'][0]['timeline']);
+check($officialWork['cases'][0]['status'] === 'Resolved' && $officialWorkEvent['actorId'] === $official['id'], 'official can complete personnel workflow actions when needed');
 foreach (ConcernCatalog::TYPES as $category => $types) foreach ($types as $type) {
     foreach ([[], ConcernCatalog::POINTS[$category]] as $points) {
         $steps = ConcernCatalog::suggestions($category, $type, $points);

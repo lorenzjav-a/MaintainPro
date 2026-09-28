@@ -5,7 +5,7 @@ $isolatedStore = new ComplaintStore($testDatabase->connect());
 $officialId = req($adminJar, 'api.php')['json']['actor']['id'];
 $caseNow = fn(string $reference) => $isolatedStore->concernForActor($officialId, $reference);
 $save = fn(string $jar, string $csrf, string $action, string $reference, array $data = []) => post($jar, $action, $data, $csrf, $reference, $caseNow($reference)['version']);
-foreach (['settings.php', 'audit.php', 'blocked.php'] as $page) {
+foreach (['admin.php', 'settings.php', 'audit.php', 'blocked.php'] as $page) {
     httpCheck(req($adminJar, $page)['status'] === 200, 'official page ' . $page);
     httpCheck(req($otherJar, $page)['status'] === 403, 'personnel direct URL protection ' . $page);
     httpCheck(str_contains(req($guestJar, $page)['body'], 'data-action="login"'), 'anonymous page protection ' . $page);
