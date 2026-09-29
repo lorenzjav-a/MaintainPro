@@ -8,6 +8,8 @@ $testDatabase = new TestDatabase();
 $server = null;
 $serverLog = tempnam(sys_get_temp_dir(), 'maintainpro-browser-');
 $oldDatabase = getenv('BR_DB_NAME');
+$oldSetupKey=getenv('APP_SETUP_KEY');
+putenv('APP_SETUP_KEY='.str_repeat('b',64));
 try {
     putenv('BR_DB_NAME=' . $testDatabase->name);
     $socket = stream_socket_server('tcp://127.0.0.1:0', $code, $message);
@@ -38,6 +40,7 @@ try {
 } finally {
     if (is_resource($server)) { proc_terminate($server); proc_close($server); }
     putenv($oldDatabase === false ? 'BR_DB_NAME' : 'BR_DB_NAME=' . $oldDatabase);
+    putenv($oldSetupKey === false ? 'APP_SETUP_KEY' : 'APP_SETUP_KEY='.$oldSetupKey);
     $testDatabase->drop();
     $mailServer->stop();
     if (is_file($serverLog)) unlink($serverLog);

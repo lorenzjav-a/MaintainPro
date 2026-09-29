@@ -2,7 +2,9 @@
 
 PHP community concern management with reporting for residents, officials and personnel, optional anonymity, guest reporting and persistent MySQL/MariaDB storage. Pages use normal PHP URLs, shared layouts and the existing MaintainPro design.
 
-All account roles can report up to three concerns per Asia/Manila calendar day. Officials see weekly top concerns, common keypoints, exactly three category-aware suggested solutions, and the related reports. See the [account reporting and weekly concerns upgrade](docs/account-reporting-upgrade.md).
+All account roles can report up to three concerns per Asia/Manila calendar day. Officials see weekly top concerns, common keypoints, up to three active suggested official actions per keypoint, and related reports. See the [account reporting and weekly concerns upgrade](docs/account-reporting-upgrade.md).
+
+The [September 29 system upgrade](docs/system-upgrade-20260929.md) adds database hardening, SQL pagination, protected first setup, full evidence backups, duplicate suggestions, editable official actions, weekly action plans, reporter notifications, suggested target dates, resolution feedback and a public aggregate dashboard.
 
 Staff features now include persistent in-app notifications, workload-aware assignment recommendations, 90-day recurring-issue detection, explainable priority recommendations and a staged Before & After evidence viewer. See the [implementation and setup report](docs/staff-insights-upgrade.md) and the [September 25 system repairs and verification](docs/verification-20260925.md).
 
@@ -10,7 +12,7 @@ Staff features now include persistent in-app notifications, workload-aware assig
 
 1. Start **Apache** and **MySQL** in the XAMPP Control Panel.
 2. On a new installation, run `C:\xampp\php\php.exe database\setup.php` from the project folder. The database on this PC is already configured.
-3. Open **http://localhost/MaintainPro/** for the public landing page. On an empty installation, use **Sign in** to create the first official account.
+3. Open **http://localhost/MaintainPro/** for the public landing page. On an empty installation, configure `APP_SETUP_KEY` in the PHP/Apache environment before using **Sign in** to create the first official account. See [secure first setup](docs/configuration.md#secure-first-official-setup). Existing installations do not need a setup key.
 4. Residents can register through **Sign in → Resident registration**, or use guest reporting. Officials create accounts under **User management → Create account**. All signed-in roles use **Report Concern** from their dashboard.
 
 PHP 8.1+ requires `pdo_mysql`, `mbstring`, `openssl`, sessions and image metadata support. The test suites also use `curl` and `dom`. XAMPP supplies these. Bootstrap CSS, SweetAlert and PHPMailer are bundled locally; no build step or CDN connection is required.

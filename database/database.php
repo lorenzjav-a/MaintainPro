@@ -5,6 +5,97 @@ require_once dirname(__DIR__) . '/config/database.php';
 // All SQL belongs in this file. Callers pass values to named operations.
 final class MaintainProDatabase
 {
+    public function duplicateCandidates(string $id, string $since): array
+    {
+        return $this->run("SELECT c.id,c.status,c.created_at,c.street_normalized,
+            JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.locationDetails.exactArea')) AS exact_area,
+            JSON_EXTRACT(c.payload,'$.keyPoints') AS keypoints,
+            c.street_normalized=source.street_normalized AS same_street
+            FROM complaints source JOIN complaints c ON c.category_name=source.category_name
+              AND c.concern_type=source.concern_type AND c.purok_key=source.purok_key
+            WHERE source.id=? AND c.id<>source.id AND c.status NOT IN ('Linked to Primary','Rejected','Referred to Another Office')
+              AND (c.status NOT IN ('Resolved','Verified') OR c.created_at>=?)
+              AND NOT EXISTS(SELECT 1 FROM duplicate_dismissals d WHERE (d.complaint_id=source.id AND d.candidate_id=c.id) OR (d.candidate_id=source.id AND d.complaint_id=c.id))
+            ORDER BY same_street DESC,c.created_at DESC,c.id DESC LIMIT 100",[$id,$since])->fetchAll();
+    }
+
+    public function dismissDuplicate(string $id, string $candidate, string $official): void
+    {
+        $this->run('INSERT INTO duplicate_dismissals(complaint_id,candidate_id,dismissed_by,created_at) VALUES(?,?,?,?) ON DUPLICATE KEY UPDATE complaint_id=VALUES(complaint_id)',[$id,$candidate,$official,time()]);
+    }
+
+    public function officialRules(string $category, string $type, ?string $point = null, bool $activeOnly = false): array
+    {
+        return $this->run('SELECT * FROM official_solution_rules WHERE category=? AND concern_type=?'.($point!==null?' AND keypoint=?':'').($activeOnly?' AND active=1':'').' ORDER BY keypoint,sort_order,id', $point!==null?[$category,$type,$point]:[$category,$type])->fetchAll();
+    }
+
+    public function officialRule(int $id): ?array
+    {
+        return $this->run('SELECT * FROM official_solution_rules WHERE id=?',[$id])->fetch() ?: null;
+    }
+
+    public function saveOfficialRule(array $v): void
+    {
+        $this->run('INSERT INTO official_solution_rules(category,concern_type,keypoint,action_text,sort_order,active,created_by,updated_by,created_at,updated_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE action_text=VALUES(action_text),active=VALUES(active),updated_by=VALUES(updated_by),updated_at=VALUES(updated_at),version=version+1',$v);
+    }
+
+    public function actionPlan(int $id): ?array
+    {
+        return $this->run('SELECT * FROM weekly_action_plans WHERE id=?',[$id])->fetch() ?: null;
+    }
+
+    public function createActionPlan(array $v): int
+    {
+        $existing=$this->run('SELECT id FROM weekly_action_plans WHERE request_key=?',[$v[count($v)-1]])->fetchColumn();
+        if ($existing!==false) return (int)$existing;
+        $this->run("INSERT INTO weekly_action_plans(solution_rule_id,category,concern_type,keypoint,selected_solution,title,notes,team,assigned_user_id,created_by,week_start,target_date,outcome,created_at,updated_at,request_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",$v);
+        return (int)$this->connection->lastInsertId();
+    }
+
+    public function actionPlanRequest(string $key): ?int
+    {
+        $id=$this->run('SELECT id FROM weekly_action_plans WHERE request_key=?',[$key])->fetchColumn();
+        return $id===false ? null : (int)$id;
+    }
+
+    public function updateActionPlan(int $id, array $v, int $version): void
+    {
+        $stmt=$this->run('UPDATE weekly_action_plans SET title=?,notes=?,team=?,assigned_user_id=?,target_date=?,status=?,completed_at=?,outcome=?,updated_at=?,version=version+1 WHERE id=? AND version=?',[...$v,$id,$version]);
+        if ($stmt->rowCount()!==1) throw new ConflictException('This action plan changed. Reload before saving.');
+    }
+
+    public function actionPlans(string $status, string $week, int $page, int $perPage): array
+    {
+        $where='(?=\'\' OR status=?) AND (?=\'\' OR week_start=?)'; $values=[$status,$status,$week,$week];
+        $total=(int)$this->run('SELECT COUNT(*) FROM weekly_action_plans WHERE '.$where,$values)->fetchColumn();
+        $page=min(max(1,$page),max(1,(int)ceil($total/$perPage)));
+        $items=$this->run('SELECT p.*,u.name AS personnel_name FROM weekly_action_plans p LEFT JOIN users u ON u.id=p.assigned_user_id WHERE '.$where.' ORDER BY p.created_at DESC,p.id DESC LIMIT '.(int)$perPage.' OFFSET '.(($page-1)*$perPage),$values)->fetchAll();
+        return ['items'=>$items,'total'=>$total,'page'=>$page,'perPage'=>$perPage];
+    }
+
+    public function feedback(string $id): ?array
+    {
+        return $this->run('SELECT rating,comment,created_at FROM concern_feedback WHERE complaint_id=?',[$id])->fetch() ?: null;
+    }
+
+    public function insertFeedback(string $id, string $user, int $rating, string $comment): void
+    {
+        $this->run('INSERT INTO concern_feedback(complaint_id,reporter_id,rating,comment,created_at,updated_at) VALUES(?,?,?,?,?,?)',[$id,$user,$rating,$comment,time(),time()]);
+    }
+
+    public function feedbackAnalytics(): array
+    {
+        return ['summary'=>$this->run('SELECT COUNT(*) AS responses,ROUND(AVG(rating),2) AS average FROM concern_feedback')->fetch(),
+            'categories'=>$this->run('SELECT c.category_name AS category,COUNT(*) AS responses,ROUND(AVG(f.rating),2) AS average FROM concern_feedback f JOIN complaints c ON c.id=f.complaint_id GROUP BY c.category_name ORDER BY responses DESC')->fetchAll(),
+            'recent'=>$this->run("SELECT f.complaint_id,f.rating,f.comment,f.created_at,c.category_name FROM concern_feedback f JOIN complaints c ON c.id=f.complaint_id WHERE f.comment<>'' ORDER BY f.created_at DESC LIMIT 20")->fetchAll()];
+    }
+
+    public function evidenceFiles(): array
+    {
+        return $this->run('SELECT file_path FROM concern_evidence ORDER BY id')->fetchAll(PDO::FETCH_COLUMN);
+    }
+
     public function insertEvidence(string $id, string $concern, ?string $user, string $type, string $path, string $original, string $mime, int $size, int $width, int $height, int $created): void
     {
         $this->run('INSERT INTO concern_evidence (id,complaint_id,uploaded_by,evidence_type,file_path,original_filename,mime_type,file_size,width,height,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)', [$id,$concern,$user,$type,$path,$original,$mime,$size,$width,$height,$created]);
@@ -96,40 +187,89 @@ final class MaintainProDatabase
         if ($tab==='verified') $where[]="status='Verified'";
         foreach (['priority','category'] as $field) if (($filters[$field] ?? '')!=='') { $where[]="JSON_UNQUOTE(JSON_EXTRACT(payload,'$.".$field."'))=?"; $values[]=$filters[$field]; }
         if (($filters['status'] ?? '')!=='') { $where[]='status=?'; $values[]=$filters['status']; }
+        foreach (['team' => 'team', 'personnel' => 'assigned_user_id', 'type' => 'concern_type'] as $filter => $column) {
+            if (($filters[$filter] ?? '') !== '') { $where[]=$column.'=?'; $values[]=$filters[$filter]; }
+        }
+        if (!empty($filters['week'])) {
+            $start = new DateTimeImmutable($filters['week'], new DateTimeZone('Asia/Manila'));
+            $where[]='created_at>=? AND created_at<?';
+            array_push($values,$start->format(DATE_ATOM),$start->modify('+7 days')->format(DATE_ATOM));
+            if (($filters['type'] ?? '') === '') $where[]="(concern_type IS NULL OR concern_type='')";
+        }
         if (($filters['search'] ?? '')!=='') {
-            $where[]="(LOCATE(?,id)>0 OR LOCATE(?,JSON_UNQUOTE(JSON_EXTRACT(payload,'$.title')))>0 OR LOCATE(?,JSON_UNQUOTE(JSON_EXTRACT(payload,'$.location')))>0)";
-            array_push($values,$filters['search'],$filters['search'],$filters['search']);
+            $where[]="LOCATE(?,CONCAT_WS(' ',id,JSON_UNQUOTE(JSON_EXTRACT(payload,'$.title')),JSON_UNQUOTE(JSON_EXTRACT(payload,'$.location')),category_name,team,
+                CASE WHEN COALESCE(JSON_EXTRACT(payload,'$.isAnonymous')=true,resident_id IS NULL) THEN 'Anonymous'
+                ELSE COALESCE((SELECT name FROM users WHERE users.id=complaints.resident_id),JSON_UNQUOTE(JSON_EXTRACT(payload,'$.resident'))) END))>0";
+            $values[]=$filters['search'];
         }
         $condition=implode(' AND ',$where);
         $total=(int)$this->run('SELECT COUNT(*) FROM complaints WHERE '.$condition,$values)->fetchColumn();
-        $items=$this->run('SELECT payload,version FROM complaints WHERE '.$condition.' ORDER BY created_at DESC,id DESC LIMIT '.(int)$perPage.' OFFSET '.(($page-1)*$perPage),$values)->fetchAll();
+        $page = min($page,max(1,(int)ceil($total/$perPage)));
+        $order = $history ? 'updated_at DESC,id DESC' : 'created_at DESC,id DESC';
+        if ($actor['role']==='personnel' && !$own && !$history) $order="FIELD(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority')),'Urgent','High','Medium','Low'),created_at,id";
+        $items=$this->run('SELECT payload,version FROM complaints WHERE '.$condition.' ORDER BY '.$order.' LIMIT '.(int)$perPage.' OFFSET '.(($page-1)*$perPage),$values)->fetchAll();
         return ['items'=>$items,'total'=>$total,'page'=>$page,'perPage'=>$perPage];
     }
 
-    public function complaintMetrics(array $actor): array
+    public function complaintMetrics(array $actor, bool $own = false): array
     {
-        // Reuse the existing metric definitions without fetching any image payloads.
-        $rows=$this->run("SELECT id,status,team,JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority')) AS priority,
-          JSON_UNQUOTE(JSON_EXTRACT(payload,'$.createdAt')) AS createdAt,
-          JSON_UNQUOTE(JSON_EXTRACT(payload,'$.resolution.date')) AS resolvedAt,JSON_EXTRACT(payload,'$.reopenCount') AS reopenCount
-          FROM complaints WHERE ?='official' OR (?='personnel' AND assigned_user_id=?) OR (?='resident' AND resident_id=?)",[$actor['role'],$actor['role'],$actor['id'],$actor['role'],$actor['id']])->fetchAll();
-        foreach($rows as &$row) $row['resolution']=!empty($row['resolvedAt']) && $row['resolvedAt']!=='null' ? ['date'=>$row['resolvedAt']] : null;
-        unset($row);
-        require_once dirname(__DIR__).'/includes/view.php';
-        return br_metrics($rows);
+        $where=$own ? 'resident_id=?' : "(?='official' OR (?='personnel' AND assigned_user_id=?) OR (?='resident' AND resident_id=?))";
+        $values=$own?[$actor['id']]:[$actor['role'],$actor['role'],$actor['id'],$actor['role'],$actor['id']];
+        $active="status NOT IN ('Verified','Rejected','Referred to Another Office','Linked to Primary')";
+        $expressions=['total'=>'COUNT(*)','assessment'=>"SUM(status IN ('Submitted','Under Review','Reopened'))",'pending'=>'SUM('.$active.')',
+            'urgent'=>"SUM(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority'))='Urgent' AND ".$active.')',
+            'reopened'=>"SUM(JSON_EXTRACT(payload,'$.reopenCount')>0)"];
+        foreach(['progress'=>'In Progress','resolved'=>'Resolved','verified'=>'Verified','assigned'=>'Assigned','submitted'=>'Submitted','reopened_now'=>'Reopened'] as $name=>$status) $expressions[$name]="SUM(status='".$status."')";
+        $select=[];
+        foreach($expressions as $name=>$expression) $select[]='COALESCE('.$expression.',0) AS '.$name;
+        $select[]="AVG(CASE WHEN status IN ('Resolved','Verified') THEN GREATEST(0,TIMESTAMPDIFF(SECOND,REPLACE(LEFT(created_at,19),'T',' '),REPLACE(LEFT(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.resolution.date')),19),'T',' ')))/86400 END) AS average";
+        $row=$this->run('SELECT '.implode(',',$select).' FROM complaints WHERE '.$where,$values)->fetch();
+        foreach($expressions as $name=>$unused) $row[$name]=(int)$row[$name];
+        $row['average']=$row['average']===null?'—':number_format((float)$row['average'],1);
+        return $row;
     }
 
-    public function sqlBackup(): string
+    public function legacyEvidenceConcern(string $id, array $actor): ?array
+    {
+        return $this->run("SELECT payload,version FROM complaints WHERE (?='official' OR (?='personnel' AND assigned_user_id=?) OR resident_id=?)
+            AND JSON_SEARCH(payload,'one',?,NULL,'$.timeline[*].evidenceId') IS NOT NULL LIMIT 1",[$actor['role'],$actor['role'],$actor['id'],$actor['id'],$id])->fetch() ?: null;
+    }
+
+    public function dashboardGroups(): array
+    {
+        return ['categories'=>$this->run('SELECT category_name AS label,COUNT(*) AS count FROM complaints GROUP BY category_name ORDER BY count DESC,label')->fetchAll(),
+            'teams'=>$this->run("SELECT team AS label,COUNT(*) AS count FROM complaints WHERE team<>'' AND status IN ('Assigned','In Progress','Reopened') GROUP BY team ORDER BY count DESC,team LIMIT 3")->fetchAll()];
+    }
+
+    public function publicStatistics(): array
+    {
+        $month=(new DateTimeImmutable('first day of this month',new DateTimeZone('Asia/Manila')))->setTime(0,0)->format(DATE_ATOM);
+        return ['summary'=>$this->run("SELECT COUNT(*) AS total,COALESCE(SUM(created_at>=?),0) AS this_month,
+            COALESCE(SUM(status IN ('Submitted','Under Review','Returned for Information','Reopened')),0) AS under_review,
+            COALESCE(SUM(status IN ('Assigned','In Progress')),0) AS in_progress,
+            COALESCE(SUM(status IN ('Resolved','Verified')),0) AS resolved FROM complaints",[$month])->fetch(),
+            'categories'=>$this->run('SELECT category_name AS label,COUNT(*) AS count FROM complaints GROUP BY category_name ORDER BY count DESC,label')->fetchAll(),
+            // Free-text addresses never enter public groups. Only the official location registry is used.
+            'puroks'=>$this->run("SELECT COALESCE(l.name,'Unspecified area') AS label,COUNT(*) AS count FROM complaints c LEFT JOIN locations l ON c.purok_key=CONCAT('id:',l.id) GROUP BY l.id,l.name ORDER BY count DESC,label")->fetchAll(),
+            'months'=>$this->run("SELECT LEFT(created_at,7) AS label,COUNT(*) AS count FROM complaints GROUP BY LEFT(created_at,7) ORDER BY label DESC LIMIT 12")->fetchAll()];
+    }
+
+    public function sqlBackup(bool $withoutCredentials = false): string
     {
         $sql="-- MaintainPro database backup. Restore only into an empty database.\nSET FOREIGN_KEY_CHECKS=0;\n";
         foreach ($this->run('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $table) {
             $quoted='`'.str_replace('`','``',$table).'`';
             $schema=$this->run('SHOW CREATE TABLE '.$quoted)->fetch(PDO::FETCH_NUM)[1];
             $sql.=$schema.";\n";
+            if ($withoutCredentials && in_array($table,['password_resets','password_reset_requests','login_attempts','public_attempts','feature_alerts'],true)) continue;
             $columns=$this->run('SHOW FULL COLUMNS FROM '.$quoted)->fetchAll();
             $columns=array_column(array_filter($columns,fn($c)=>!str_contains($c['Extra'],'GENERATED')),'Field');
             $names=implode(',',array_map(fn($name)=>'`'.str_replace('`','``',$name).'`',$columns));
             foreach($this->run('SELECT '.$names.' FROM '.$quoted)->fetchAll(PDO::FETCH_NUM) as $row) {
+                if ($withoutCredentials && $table==='users') {
+                    $row[array_search('password_hash',$columns,true)]='!reset-required';
+                    $row[array_search('auth_version',$columns,true)]=(int)$row[array_search('auth_version',$columns,true)]+1;
+                }
                 $values=array_map(fn($v)=>$v===null?'NULL':$this->connection->quote((string)$v),$row);
                 $sql.='INSERT INTO '.$quoted.' ('.$names.') VALUES ('.implode(',',$values).");\n";
             }
@@ -181,7 +321,7 @@ final class MaintainProDatabase
     {
         $target = $queue ? 'concerns.php' : 'concern.php?id=' . rawurlencode($concern);
         $this->run('INSERT INTO notifications (user_id,type,title,message,related_concern_id,target_url,event_key,created_at)
-            SELECT users.id,?,?,?,?,?,?,? FROM users WHERE users.id=? AND active=1 AND role IN (\'official\',\'personnel\')
+            SELECT users.id,?,?,?,?,?,?,? FROM users WHERE users.id=? AND active=1 AND role IN (\'official\',\'personnel\',\'resident\')
             ON DUPLICATE KEY UPDATE notifications.id=notifications.id', [$type,$title,$message,$concern,$target,hash('sha256',$event),time(),$user]);
     }
 
@@ -192,13 +332,13 @@ final class MaintainProDatabase
 
     public function notifications(array $actor, int $before = 0): array
     {
-        $rows = $this->run('SELECT n.id,n.type,n.title,n.message,n.related_concern_id,n.target_url,n.is_read,n.created_at,n.read_at,c.assigned_user_id
+        $rows = $this->run('SELECT n.id,n.type,n.title,n.message,n.related_concern_id,n.target_url,n.is_read,n.created_at,n.read_at,c.assigned_user_id,c.resident_id
             FROM notifications n LEFT JOIN complaints c ON c.id=n.related_concern_id
             WHERE n.user_id=? AND (?=0 OR n.id<?) ORDER BY n.id DESC LIMIT 30', [$actor['id'],$before,$before])->fetchAll();
         foreach ($rows as &$row) {
             // A historical assignment message does not restore access after reassignment.
-            if ($actor['role'] !== 'official' && $row['assigned_user_id'] !== $actor['id']) $row['target_url'] = 'concerns.php';
-            unset($row['assigned_user_id']);
+            if ($actor['role'] !== 'official' && $row['assigned_user_id'] !== $actor['id'] && $row['resident_id'] !== $actor['id']) $row['target_url'] = 'concerns.php';
+            unset($row['assigned_user_id'],$row['resident_id']);
         }
         unset($row);
         return ['items' => $rows, 'unread' => (int)$this->run('SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0', [$actor['id']])->fetchColumn()];
@@ -293,6 +433,16 @@ final class MaintainProDatabase
     }
 
     // Accounts
+    public function setupAvailable(): bool
+    {
+        return !(bool)$this->run("SELECT EXISTS(SELECT 1 FROM users WHERE role='official') OR EXISTS(SELECT 1 FROM settings WHERE name='setup_complete' AND value='1')")->fetchColumn();
+    }
+
+    public function completeSetup(): void
+    {
+        $this->run("INSERT INTO settings(name,value) VALUES('setup_complete','1') ON DUPLICATE KEY UPDATE value='1'");
+    }
+
     public function userCount(): int
     {
         return (int)$this->run('SELECT COUNT(*) FROM users')->fetchColumn();
@@ -456,7 +606,10 @@ final class MaintainProDatabase
 
     public function weeklyComplaints(string $start, string $end): array
     {
-        return $this->run('SELECT payload,version FROM complaints WHERE created_at>=? AND created_at<? ORDER BY created_at DESC,id DESC', [$start, $end])->fetchAll();
+        return $this->run("SELECT JSON_OBJECT('id',id,'category',category_name,'concernType',concern_type,
+            'keyPoints',JSON_EXTRACT(payload,'$.keyPoints'),'priority',JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority')),
+            'locationDetails',JSON_EXTRACT(payload,'$.locationDetails')) AS payload,version
+            FROM complaints WHERE created_at>=? AND created_at<? ORDER BY created_at DESC,id DESC", [$start, $end])->fetchAll();
     }
 
     public function insertComplaint(array $complaint): void
@@ -516,6 +669,7 @@ final class DatabaseMaintenance
                 $connection->exec('ALTER TABLE users ADD COLUMN must_change_password TINYINT NOT NULL DEFAULT 0');
             }
             self::applyMigrations($connection);
+            self::seedOfficialSolutions($connection);
         } finally {
             try {
                 $release = $connection->prepare('SELECT RELEASE_LOCK(?)');
@@ -527,6 +681,21 @@ final class DatabaseMaintenance
     }
 
     /** @return array<string,string> version => absolute file path */
+    private static function seedOfficialSolutions(PDO $connection): void
+    {
+        if ($connection->query("SELECT value FROM settings WHERE name='official_solutions_seeded'")->fetchColumn()!==false) return;
+        require_once dirname(__DIR__).'/includes/concern-catalog.php';
+        $connection->beginTransaction();
+        try {
+            $insert=$connection->prepare('INSERT IGNORE INTO official_solution_rules(category,concern_type,keypoint,action_text,sort_order,created_at,updated_at) VALUES(?,?,?,?,?,?,?)');
+            foreach (ConcernCatalog::TYPES as $category=>$types) foreach ($types as $type) foreach (ConcernCatalog::POINTS[$category] as $point) {
+                foreach (ConcernCatalog::OFFICIAL_SOLUTIONS[$category][$point] as $i=>$action) $insert->execute([$category,$type,$point,$action,$i+1,time(),time()]);
+            }
+            $connection->exec("INSERT INTO settings(name,value) VALUES('official_solutions_seeded','1')");
+            $connection->commit();
+        } catch (Throwable $error) { $connection->rollBack(); throw $error; }
+    }
+
     public static function migrationFiles(): array
     {
         $files = glob(__DIR__ . '/migrations/*.sql');
@@ -562,15 +731,40 @@ final class DatabaseMaintenance
         foreach (self::migrationFiles() as $version => $file) {
             $sql = file_get_contents($file);
             if ($sql === false) throw new RuntimeException('Unable to read migration: ' . $version);
-            $checksum = hash('sha256', $sql);
+            $checksum = hash('sha256', str_replace("\r\n", "\n", $sql));
             if (isset($applied[$version])) {
-                if (!hash_equals((string)$applied[$version], $checksum)) {
+                if (!self::migrationChecksumMatches($sql,(string)$applied[$version])) {
                     throw new RuntimeException('Applied migration checksum changed: ' . $version . '. Restore the original file and add a new migration.');
                 }
                 continue;
             }
+            if ($version==='20260929_system_upgrade') self::preflightUpgrade($connection);
             $connection->exec($sql);
             $record->execute([$version, $checksum, time()]);
+        }
+    }
+
+    public static function migrationChecksumMatches(string $sql, string $stored): bool
+    {
+        // Git on Windows may convert LF to CRLF. Accept only these exact byte
+        // variants; do not trim whitespace, remove comments, or rewrite history.
+        $lf=str_replace("\r\n","\n",$sql);
+        foreach ([$sql,$lf,str_replace("\n","\r\n",$lf)] as $candidate) {
+            if (hash_equals($stored,hash('sha256',$candidate))) return true;
+        }
+        return false;
+    }
+
+    private static function preflightUpgrade(PDO $connection): void
+    {
+        foreach ([['complaints','resident_id','users'],['concern_tracking','complaint_id','complaints'],['notifications','user_id','users'],
+            ['notifications','related_concern_id','complaints'],['password_resets','user_id','users'],['audit_logs','actor_id','users'],
+            ['concern_evidence','complaint_id','complaints'],['concern_evidence','uploaded_by','users']] as [$table,$column,$parent]) {
+            $orphans=(int)$connection->query('SELECT COUNT(*) FROM '.$table.' c LEFT JOIN '.$parent.' p ON p.id=c.'.$column.' WHERE c.'.$column.' IS NOT NULL AND p.id IS NULL')->fetchColumn();
+            if ($orphans) throw new RuntimeException('Schema repair stopped: '.$orphans.' orphan reference(s) in '.$table.'.'.$column.'. Reconcile ownership from a trusted backup and rerun setup; no records were deleted.');
+        }
+        foreach (['complaints'=>'payload','solution_rules'=>'actions'] as $table=>$column) {
+            if ((int)$connection->query('SELECT COUNT(*) FROM '.$table.' WHERE NOT JSON_VALID('.$column.')')->fetchColumn()) throw new RuntimeException('Schema repair stopped: invalid JSON in '.$table.'.'.$column.'. Correct the affected data and rerun setup; no records were deleted.');
         }
     }
 
@@ -685,6 +879,42 @@ SQL;
 // Test fixtures use this same SQL boundary and cannot target the workspace database.
 final class DatabaseTestFixtures
 {
+    public function repeatUpgradeMigration(): void
+    {
+        $this->connection->exec(file_get_contents(__DIR__.'/migrations/20260929_system_upgrade.sql'));
+    }
+
+    public function legacyEvidence(string $id, string $evidenceId, string $photo): void
+    {
+        $statement=$this->connection->prepare("UPDATE complaints SET payload=JSON_SET(payload,'$.timeline[0].evidenceId',?,'$.timeline[0].photo',?) WHERE id=?");
+        $statement->execute([$evidenceId,$photo,$id]);
+    }
+
+    public function upgradeConstraints(): array
+    {
+        return $this->connection->query("SELECT TABLE_NAME,COLUMN_NAME,REFERENCED_TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND REFERENCED_TABLE_NAME IS NOT NULL")->fetchAll();
+    }
+
+    public function invalidPayload(string $id): void
+    {
+        $stmt=$this->connection->prepare('UPDATE complaints SET payload=? WHERE id=?'); $stmt->execute(['invalid json',$id]);
+    }
+
+    public function orphanNotification(): void
+    {
+        $this->connection->exec("INSERT INTO notifications(user_id,type,title,message,event_key,created_at,target_url) VALUES('missing','test','test','test','test',1,'')");
+    }
+
+    public function allUsersInactive(): void
+    {
+        $this->connection->exec('UPDATE users SET active=0');
+    }
+
+    public function removeOfficialRole(): void
+    {
+        $this->connection->exec("UPDATE users SET role='resident' WHERE role='official'");
+    }
+
     public function failNotifications(bool $enabled): void
     {
         $this->connection->exec('DROP TRIGGER IF EXISTS test_fail_notification');

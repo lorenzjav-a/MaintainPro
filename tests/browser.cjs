@@ -36,7 +36,7 @@ async function tab() {
   await send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false});
   const evaluate = async expression => {
     const result = await send('Runtime.evaluate', {expression, returnByValue: true, awaitPromise: true});
-    if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
+    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
     return result.result.value;
   };
   const ready = async (pathname, selector = 'h1,h2') => until(() => evaluate('location.pathname === ' + JSON.stringify(pathname) + ' && document.readyState === "complete" && !!document.querySelector(' + JSON.stringify(selector) + ')'), pathname + ' ready');
@@ -97,7 +97,7 @@ async function tab() {
     // A known valid one-pixel PNG; file type and contents are both checked server-side.
     const setPhoto = async (client, selector) => client.evaluate('(() => {const bytes=Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII="),c=>c.charCodeAt(0));const transfer=new DataTransfer();transfer.items.add(new File([bytes],"evidence.png",{type:"image/png"}));const input=document.querySelector(' + JSON.stringify(selector) + ');input.files=transfer.files;input.dispatchEvent(new Event("change",{bubbles:true}));})()');
     await official.go('login.php');
-    await official.auth('setup', {name: 'Browser Official', email: 'official@example.test', password, confirm_password: password});
+    await official.auth('setup', {name: 'Browser Official', email: 'official@example.test', password, confirm_password: password, setup_key: process.env.APP_SETUP_KEY});
     await official.ready('/index.php');
     check(await official.evaluate('document.querySelector("h1").textContent === "Administrative dashboard"'), 'official dashboard');
     await official.go('user-create.php');
@@ -334,8 +334,32 @@ async function tab() {
     check(await personnel.evaluate('!document.querySelector("main").textContent.includes("Uncollected garbage")'), 'personnel reports stay separate from assigned queue');
     await official.go('index.php');
     await official.evaluate('document.getElementById("weekly-concerns").scrollIntoView({block:"start"})');
-    check(await official.evaluate('document.getElementById("weekly-concerns").textContent.includes("Uncollected garbage") && document.getElementById("weekly-concerns").textContent.includes("Common keypoints") && document.getElementById("weekly-concerns").textContent.includes("Suggested solutions") && document.querySelectorAll("#weekly-concerns .weekly-concern:first-of-type ol li").length === 3'), 'weekly concerns and three keypoint solutions shown');
+    check(await official.evaluate('document.getElementById("weekly-concerns").textContent.includes("Uncollected garbage") && document.getElementById("weekly-concerns").textContent.includes("Common keypoints") && document.getElementById("weekly-concerns").textContent.includes("Suggested solutions") && document.querySelectorAll("#weekly-concerns .weekly-concern:first-of-type > ol > li").length === 3'), 'weekly concerns and three keypoint solutions shown');
     await official.screenshot('weekly-concerns-desktop');
+    await official.click('#weekly-concerns a[href^="action-plans.php?rule="]');
+    await official.ready('/action-plans.php','form[data-action=create_action_plan]');
+    await official.fill('form[data-action=create_action_plan] [name=title]','Weekly safety inspection');
+    await official.fill('form[data-action=create_action_plan] [name=team]','Maintenance crew');
+    await official.fill('form[data-action=create_action_plan] [name=personnelId]',staffId);
+    await official.fill('form[data-action=create_action_plan] [name=targetDate]','2026-12-30');
+    await official.click('form[data-action=create_action_plan] button[type=submit]');
+    await until(()=>official.evaluate('location.search.includes("saved=create_action_plan") && !!document.querySelector("form[data-action=update_action_plan]")'),'plan created through UI');
+    check(await official.evaluate('document.body.textContent.includes("Weekly safety inspection")'),'weekly suggestion creates a real plan');
+    await official.fill('form[data-action=update_action_plan] [name=status]','Completed');
+    await official.fill('form[data-action=update_action_plan] [name=outcome]','Inspected and secured the site.');
+    await official.click('form[data-action=update_action_plan] button[type=submit]');
+    await until(()=>official.evaluate('location.search.includes("saved=update_action_plan") && document.querySelector("form[data-action=update_action_plan] [name=version]")?.value === "2"'),'plan completed through UI');
+    check(await official.evaluate('document.querySelector("[name=status]").value === "Completed" && document.body.textContent.includes("Completed")'),'plan completion retained');
+    await official.screenshot('action-plan-desktop');
+    await official.go('official-solutions.php');
+    const firstRuleText=await official.evaluate('document.querySelector("[name=action1]").value');
+    await official.click('[data-rule-slot="2"] [data-move-rule="-1"]');
+    check(await official.evaluate('document.querySelector("[name=action2]").value === '+JSON.stringify(firstRuleText)),'official action reorder control');
+    await official.click('form[data-action=save_official_rules] button[type=submit]');
+    await until(()=>official.evaluate('location.search.includes("saved=save_official_rules") && document.readyState === "complete"'),'official library saves through UI');
+    check(await official.evaluate('document.querySelector("[name=action2]").value === '+JSON.stringify(firstRuleText)),'official action order persists');
+    await official.screenshot('official-solutions-desktop');
+    await official.go('index.php');
     await official.click('#weekly-concerns a[href*="Uncollected"]'); await official.ready('/complaints.php');
     check(await official.evaluate('document.querySelectorAll(".complaint-table tbody tr").length === 3 && document.querySelector(".complaint-table").textContent.includes("Anonymous")'), 'weekly related link includes all three anonymous role reports');
     for (let i=0;i<2;i++) {
@@ -355,7 +379,7 @@ async function tab() {
     await official.evaluate('document.getElementById("weekly-concerns").scrollIntoView({block:"start"})');
     check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth && getComputedStyle(document.querySelector("#weekly-concerns .panel-title")).fontSize === getComputedStyle(document.querySelector(".overview-grid .panel-title")).fontSize'), 'weekly panel matches shared mobile panel typography and fits');
     await official.screenshot('weekly-concerns-mobile');
-    for (const page of ['landing.php','report-concern.php','track.php','login.php','login.php?view=forgot']) {
+    for (const page of ['landing.php','report-concern.php','track.php','transparency.php','login.php','login.php?view=forgot']) {
       await guest.go(page); check(await guest.evaluate('document.documentElement.scrollWidth <= innerWidth'), page + ' fits mobile');
       if (page === 'report-concern.php') {
         await guest.fill('[name=category]', 'Waste Management');
@@ -381,7 +405,7 @@ async function tab() {
     check(await official.evaluate('document.querySelector(".notification-dropdown").getBoundingClientRect().left>=0 && document.querySelector(".notification-dropdown").getBoundingClientRect().right<=innerWidth'),'mobile notification dropdown fits');
     await official.screenshot('notifications-mobile');
     await personnel.go('complaints.php'); check(await personnel.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'mobile work queue fits');
-    for (const page of ['admin.php','settings.php','audit.php','blocked.php']) { await official.go(page); check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth'), page+' fits mobile'); await official.screenshot(page.replace('.php','')+'-mobile'); }
+    for (const page of ['admin.php','settings.php','audit.php','blocked.php','official-solutions.php','action-plans.php']) { await official.go(page); check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth'), page+' fits mobile'); await official.screenshot(page.replace('.php','')+'-mobile'); }
     check(await guest.evaluate('(async()=>{const r=await fetch("api.php");return r.status;})()') === 401, 'guest remains anonymous');
     check(await official.evaluate('(async()=>{const r=await fetch("api.php");return (await r.json()).actor.role;})()') === 'official', 'isolated official session');
     check(await personnel.evaluate('(async()=>{const r=await fetch("api.php");return (await r.json()).actor.role;})()') === 'personnel', 'isolated personnel session');

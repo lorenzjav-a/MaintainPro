@@ -85,7 +85,7 @@
       reopen: ['Reopen this concern?', 'Your feedback will return the concern to the barangay for reassessment.', 'Reopen concern'],
       verify: ['Confirm the concern is resolved?', 'This records official review and closes the concern.', 'Confirm resolution'],
       exception: ['Record this assessment outcome?', 'The selected outcome and your reason will be added to the concern timeline.', 'Record outcome'],
-      request_information: ['Request more information?', 'The request will appear on the reporter\'s private tracking page and remain in the concern timeline.', 'Send request'],
+      request_information: ['Request more information?', 'The request will appear in the reporter\'s account or private tracking page and remain in the concern timeline.', 'Send request'],
       link_concern: ['Link these reports?', 'The original report stays recorded, but work progress and assignment will follow the primary concern.', 'Link reports'],
       block: ['Mark this work as blocked?', 'Officials will be notified and the reason will be recorded in the concern timeline.', 'Mark as blocked']
     };
@@ -143,11 +143,14 @@
         if (action === 'create_user') { showCreatedAccount(result.created_account); form.reset(); return; }
         var destination = action === 'profile' ? 'profile.php'
           : action === 'update_user' ? 'users.php'
+          : action === 'save_official_rules' ? 'official-solutions.php'
+          : ['create_action_plan','update_action_plan'].includes(action) ? 'action-plans.php'
           : ['save_rule', 'reset_rule'].includes(action) ? 'solutions.php'
           : ['create_location', 'update_location', 'toggle_location'].includes(action) ? 'settings.php'
           : 'complaint.php';
         var query = new URLSearchParams({saved: action});
-        if (destination === 'complaint.php') query.set('id', result.id || id);
+        if (destination === 'complaint.php' || destination === 'action-plans.php') query.set('id', result.id || id);
+        if (action === 'save_official_rules') { query.set('category',data.category); query.set('type',data.concernType); query.set('keypoint',data.keypoint); }
         navigating = true;
         window.location.assign(destination + '?' + query.toString());
       });
@@ -156,6 +159,31 @@
       form.removeAttribute('aria-busy');
       if (!navigating) { busy = false; buttons.forEach(function (button) { button.disabled = false; }); }
     });
+  });
+
+  function updateSla(form) {
+    var advice = form && form.querySelector('[data-sla-dates]');
+    if (!advice) return;
+    var dates = JSON.parse(advice.dataset.slaDates), priority = form.querySelector('[name="priority"]').value;
+    advice.querySelector('[data-sla-label]').textContent = dates[priority].replace('T',' ');
+  }
+  document.addEventListener('change', function(event) { if (event.target.name === 'priority') updateSla(event.target.closest('form')); });
+  document.addEventListener('click', function(event) {
+    var button = event.target.closest('[data-accept-sla], [data-move-rule], [data-accept-priority]');
+    if (!button) return;
+    var form = button.closest('form');
+    if (button.hasAttribute('data-accept-priority')) { setTimeout(function() { updateSla(form); }, 0); return; }
+    if (button.hasAttribute('data-accept-sla')) {
+      var dates = JSON.parse(form.querySelector('[data-sla-dates]').dataset.slaDates);
+      form.querySelector('[name="dueAt"]').value = dates[form.querySelector('[name="priority"]').value];
+      return;
+    }
+    var slot = button.closest('[data-rule-slot]'), target = form.querySelector('[data-rule-slot="' + (Number(slot.dataset.ruleSlot) + Number(button.dataset.moveRule)) + '"]');
+    if (!target) return;
+    var first = slot.querySelector('textarea'), second = target.querySelector('textarea'), value = first.value;
+    first.value = second.value; second.value = value;
+    var a = slot.querySelector('input[type="checkbox"]'), b = target.querySelector('input[type="checkbox"]'), active = a.checked;
+    a.checked = b.checked; b.checked = active; second.focus();
   });
 
   function toggleMenu(open) {

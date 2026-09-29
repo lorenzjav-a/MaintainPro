@@ -19,7 +19,7 @@ function br_page(string $page, array $roles = []): array
         'overview' => match ($actor['role']) {'official' => 'Administrative dashboard', 'resident' => 'Resident dashboard', default => 'Personnel dashboard'},
         'complaints' => match ($actor['role']) {'official' => 'All concerns', 'resident' => 'My concerns', default => 'Work queue'},
         'history' => 'Resolution history', 'reports' => 'Reports & insights', 'solutions' => 'Solution library',
-        'admin' => 'Administration',
+        'admin' => 'Administration', 'official-solutions' => 'Official action library', 'action-plans' => 'Weekly action plans',
         'users' => 'User management', 'profile' => 'My profile', 'complaint' => 'Concern details',
         'notifications' => 'Notifications',
         'settings' => 'Workspace settings', 'audit' => 'Audit history', 'blocked' => 'Blocked work',
@@ -28,15 +28,16 @@ function br_page(string $page, array $roles = []): array
     $context = ['actor' => $actor, 'page' => $page, 'pageTitle' => $titles[$page], 'titles' => $titles];
     if ($roles && !in_array($actor['role'], $roles, true)) br_page_error($context, 403, 'Access denied', 'Your account does not have access to this page.');
     // Apply the same individual-assignment rules as the API.
-    $lightweight = in_array($page, ['admin', 'notifications', 'settings', 'audit', 'blocked'], true);
+    $lightweight = !in_array($page, ['reports','solutions'], true);
     $context['cases'] = $lightweight ? [] : br_store()->visibleConcerns($actor['id']);
     $context['scope'] = br_query('scope') === 'mine' || $actor['role'] === 'resident' ? 'mine' : 'work';
+    if ($page==='overview') $context['cases']=br_store()->pagedConcerns($actor['id'],['scope'=>$context['scope']],1,20)['items'];
     if (in_array($page, ['overview', 'complaints', 'history'], true)) {
         $context['cases'] = array_values(array_filter($context['cases'], fn($c) => $context['scope'] === 'mine'
             ? $c['isOwn'] : ($actor['role'] === 'official' || $c['canWork'])));
         if ($context['scope'] === 'mine' && $page === 'complaints') $context['pageTitle'] = 'My reported concerns';
     }
-    if (br_query('week') !== '') {
+    if (br_query('week') !== '' && $page!=='action-plans') {
         if ($actor['role'] !== 'official' || $page !== 'complaints') br_page_error($context, 403, 'Access denied', 'Weekly analytics are available to barangay officials.');
         $date = DateTimeImmutable::createFromFormat('!Y-m-d', br_query('week'), new DateTimeZone('Asia/Manila'));
         if (!$date || $date->format('Y-m-d') !== br_query('week') || $date->format('N') !== '1') br_page_error($context, 422, 'Invalid week', 'Choose a week from the dashboard.');
@@ -44,7 +45,7 @@ function br_page(string $page, array $roles = []): array
         $context['cases'] = array_values(array_filter($context['cases'], fn($c) => strtotime($c['createdAt']) >= strtotime($context['weeklyPeriod']['start']) && strtotime($c['createdAt']) < strtotime($context['weeklyPeriod']['end']) && ($c['concernType'] ?? '') === br_query('type')));
     }
     $context['metrics'] = br_metrics($context['cases']);
-    if ($lightweight) $context['metrics'] = array_replace($context['metrics'],br_store()->navigationCounts($actor['id']));
+    if ($lightweight) $context['metrics'] = br_store()->metrics($actor['id'],$context['scope']==='mine');
     return $context;
 }
 
@@ -63,6 +64,7 @@ function br_page_error(array $context, int $status, string $title, string $messa
 
 function br_find_case(array $context, string $id): array
 {
-    foreach ($context['cases'] as $case) if ($case['id'] === $id) return $case;
+    $case = br_store()->concernForActor($context['actor']['id'], $id);
+    if ($case !== null) return $case;
     br_page_error($context, 404, 'Concern unavailable', 'This concern was not found or is not available to your account.');
 }

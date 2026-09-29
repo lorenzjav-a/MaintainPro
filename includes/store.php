@@ -4,11 +4,13 @@ require_once __DIR__ . '/domain.php';
 require_once dirname(__DIR__) . '/database/database.php';
 require_once __DIR__ . '/notifications.php';
 require_once __DIR__ . '/evidence-storage.php';
+require_once __DIR__ . '/planning.php';
 
 final class ConflictException extends DomainException {}
 
 final class ComplaintStore
 {
+    use ConcernPlanning;
     private MaintainProDatabase $db;
     private array $pendingEvidence = [];
 
@@ -97,7 +99,7 @@ final class ComplaintStore
 
     public function needsSetup(): bool
     {
-        return $this->db->userCount() === 0;
+        return $this->db->setupAvailable();
     }
 
     public function user(string $id): ?array
@@ -217,6 +219,18 @@ final class ComplaintStore
         return $this->db->evidenceForActor($evidenceId, $actor);
     }
 
+    public function legacyEvidence(string $userId, string $evidenceId): ?string
+    {
+        $actor=$this->actor($userId);
+        if (!$actor || $actor['must_change_password']) return null;
+        $row=$this->db->legacyEvidenceConcern($evidenceId,$actor);
+        if (!$row) return null;
+        $c=self::decodeConcern($row);
+        if (!ComplaintWorkflow::canSee($c,$actor)) return null;
+        foreach ($c['timeline'] as $event) if (($event['evidenceId'] ?? '')===$evidenceId && !empty($event['photo'])) return $event['photo'];
+        return null;
+    }
+
     public function navigationCounts(string $userId): array
     {
         $actor = $this->actor($userId);
@@ -296,15 +310,16 @@ final class ComplaintStore
 
     public function setup(array $data, string $client = ''): array
     {
+        if (PHP_SAPI !== 'cli') $this->publicLimit('setup', $client);
         return $this->transaction(function () use ($data, $client) {
             if (!$this->needsSetup()) throw new DomainException('The workspace is already set up. Sign in with your staff account.');
-            $local = PHP_SAPI === 'cli' || in_array($client, ['127.0.0.1', '::1', 'localhost'], true);
             $setupKey = getenv('APP_SETUP_KEY');
             $provided = is_string($data['setup_key'] ?? null) ? $data['setup_key'] : '';
-            if (!$local && (!is_string($setupKey) || $setupKey === '' || !hash_equals($setupKey, $provided))) {
-                throw new DomainException('Initial setup is available only on the server unless APP_SETUP_KEY is configured.');
+            if (PHP_SAPI !== 'cli' && (!is_string($setupKey) || strlen($setupKey) < 32 || !hash_equals($setupKey, $provided))) {
+                throw new DomainException('Initial browser setup requires the configured installation key. Contact the server administrator.');
             }
             $user = $this->insertUser($data, 'official');
+            $this->db->completeSetup();
             $this->db->recordAudit($user, 'official_account_created', 'user', $user['id'], $user['name'], ['initialSetup' => true]);
             return $user;
         });
@@ -344,6 +359,7 @@ final class ComplaintStore
             if (password_verify($password, $hash)) throw new DomainException('Choose a password different from your temporary password.');
             $this->db->replacePassword($id, password_hash($password, PASSWORD_DEFAULT));
             $this->db->deleteUserResets($id);
+            $this->db->recordAudit($user,'initial_password_changed','user',$id,$user['name'],[]);
             return $this->user($id);
         });
     }
@@ -405,6 +421,7 @@ final class ComplaintStore
                 if ((int)($e->errorInfo[1] ?? 0) === 1062) throw new DomainException('That email address is already registered.');
                 throw $e;
             }
+            $this->db->recordAudit($actor,'profile_updated','user',$id,$name,['nameChanged'=>$name!==$actor['name'],'emailChanged'=>$email!==$actor['email'],'passwordChanged'=>$newPassword!=='']);
         });
     }
 
@@ -500,6 +517,8 @@ final class ComplaintStore
             }
             $this->db->replacePassword($row['user_id'], password_hash($password, PASSWORD_DEFAULT));
             $this->db->deleteUserResets($row['user_id']);
+            $user=$this->user($row['user_id']);
+            $this->db->recordAudit($user,'password_reset_completed','user',$user['id'],$user['name'],[]);
         });
     }
 
@@ -522,8 +541,12 @@ final class ComplaintStore
     {
         $actor = $this->actor($userId);
         if (!$actor || $actor['must_change_password']) throw new DomainException('Sign in with a completed staff account.');
-        foreach (['tab', 'search', 'category', 'priority', 'status'] as $key) {
+        foreach (['tab', 'search', 'category', 'priority', 'status', 'scope', 'team', 'personnel', 'week', 'type'] as $key) {
             $filters[$key] = is_string($filters[$key] ?? null) ? mb_substr(trim($filters[$key]), 0, $key === 'search' ? 120 : 100) : '';
+        }
+        if ($filters['week'] !== '') {
+            $date=DateTimeImmutable::createFromFormat('!Y-m-d',$filters['week'],new DateTimeZone('Asia/Manila'));
+            if ($actor['role']!=='official' || !$date || $date->format('Y-m-d')!==$filters['week'] || $date->format('N')!=='1') throw new DomainException('Choose a valid week from the official dashboard.');
         }
         $result = $this->db->pagedComplaints($actor, $filters, max(1, $page), min(50, max(1, $perPage)), $history);
         $result['items'] = array_map(fn(array $row) => $this->presentConcern(self::decodeConcern($row), $actor), $result['items']);
@@ -536,11 +559,22 @@ final class ComplaintStore
         return $page['items'];
     }
 
-    public function metrics(string $userId): array
+    public function metrics(string $userId, bool $own = false): array
     {
         $actor = $this->actor($userId);
         if (!$actor || $actor['must_change_password']) throw new DomainException('Sign in with a completed staff account.');
-        return $this->db->complaintMetrics($actor);
+        return $this->db->complaintMetrics($actor,$own);
+    }
+
+    public function dashboardGroups(string $officialId): array
+    {
+        $this->authorizeOfficial($officialId);
+        return $this->db->dashboardGroups();
+    }
+
+    public function publicStatistics(): array
+    {
+        return $this->db->publicStatistics();
     }
 
     public function mutate(string $userId, string $action, string $id, array $data, mixed $expectedVersion): string
@@ -600,6 +634,8 @@ final class ComplaintStore
             // Save them atomically instead of maintaining a second, inconsistent copy.
             $this->db->updateComplaint($c, $before['version']);
             (new ConcernNotifications($this->db))->changed($c, $before, $action);
+            if (in_array($action,['assess','edit'],true)) $this->notifyDuplicateSuggestions($c);
+            if (($before['dueAt'] ?? null)!==($c['dueAt'] ?? null)) $this->db->recordAudit($actor,'target_date_changed','concern',$id,$id,['before'=>$before['dueAt'] ?? null,'after'=>$c['dueAt'] ?? null]);
             $audit = match ($action) {
                 'assign' => 'assignment_changed', 'verify' => 'concern_manually_closed', 'reopen' => 'concern_reopened',
                 'link_concern' => 'concern_linked', 'manage_block' => 'blocked_work_managed', default => null,
@@ -636,6 +672,7 @@ final class ComplaintStore
             $this->persistLatestEvidence($c, $actor['id'], is_string($data['photoName'] ?? null) ? $data['photoName'] : '');
             if (!empty($c['initialEvidenceId'])) $this->db->updateComplaint($c, 1);
             (new ConcernNotifications($this->db))->changed($c, null, 'submit');
+            $this->notifyDuplicateSuggestions($c);
             return $id;
         });
     }
@@ -648,6 +685,7 @@ final class ComplaintStore
         $anonymous = (bool)($c['isAnonymous'] ?? !$owner);
         $c['isAnonymous'] = $anonymous;
         $c['isOwn'] = $owner !== null && $owner === $actor['id'];
+        $c['reporterChannel'] = $owner !== null ? 'account' : 'tracking';
         $c['canWork'] = $actor['role'] === 'official' || ($actor['role'] === 'personnel' && ($c['assignedUserId'] ?? null) === $actor['id']);
         $reporter = !$anonymous && $owner ? $this->user($owner) : null;
         $c['resident'] = $anonymous ? 'Anonymous' : ($reporter['name'] ?? $c['resident']);
@@ -682,12 +720,23 @@ final class ComplaintStore
         $period = ConcernInsights::week();
         $rows = $this->db->weeklyComplaints($period['start'], $period['end']);
         $cases = array_map(fn($row) => self::decodeConcern($row), $rows);
-        return $period + ['groups' => ConcernInsights::weekly($cases, $this->recurrenceGroups($officialId))];
+        $groups=ConcernInsights::weekly($cases, $this->recurrenceGroups($officialId));
+        foreach ($groups as &$group) {
+            $group['officialActions']=[];
+            foreach ($group['keyPoints'] as $point) $group['officialActions'][$point]=$this->db->officialRules($group['category'],$group['type'],$point,true);
+            if ($group['keyPoints']) {
+                $texts=[];
+                foreach ($group['officialActions'] as $rules) foreach ($rules as $rule) if ($rule['action_text']!=='') $texts[]=$rule['action_text'];
+                $group['actions']=array_slice(array_values(array_unique($texts)),0,3);
+            }
+        }
+        unset($group);
+        return $period + ['groups'=>$groups];
     }
 
     public function publicLimit(string $purpose, string $client): void
     {
-        $reporting = in_array($purpose, ['report', 'followup'], true);
+        $reporting = in_array($purpose, ['report', 'followup', 'setup'], true);
         $allowed = $this->transaction(fn() => $this->db->recordPublicAttempt(hash('sha256', $purpose . '|' . $client), $reporting ? 5 : 40, $reporting ? 3600 : 900));
         if (!$allowed) throw new DomainException('Too many requests. Please try again later.');
     }
@@ -715,6 +764,7 @@ final class ComplaintStore
             $this->persistLatestEvidence($case, null, is_string($data['photoName'] ?? null) ? $data['photoName'] : '');
             if (!empty($case['initialEvidenceId'])) $this->db->updateComplaint($case, 1);
             (new ConcernNotifications($this->db))->changed($case,null,'submit');
+            $this->notifyDuplicateSuggestions($case);
             $token = bin2hex(random_bytes(24));
             $this->db->insertTracking($id, hash('sha256', $token));
             return ['reference' => $id, 'trackingCode' => $token, 'residentGuidance' => $case['residentGuidance']];
@@ -814,5 +864,34 @@ final class ComplaintStore
             $this->db->recordAudit($actor, 'database_backup_generated', 'system', null, 'MaintainPro database', ['bytes' => strlen($content)]);
             return ['filename' => 'maintainpro-' . date('Ymd-His') . '.sql', 'content' => $content];
         });
+    }
+
+    public function generateFullBackup(string $officialId): array
+    {
+        $temporary=null;
+        try {
+            return $this->transaction(function() use($officialId,&$temporary) {
+                $actor=$this->authorizeOfficial($officialId);
+                $base=tempnam(sys_get_temp_dir(),'maintainpro-backup-');
+                if ($base===false) throw new RuntimeException('Cannot create a private backup file.');
+                unlink($base);
+                $temporary=$base.'.zip';
+                $zip=new PharData($temporary,0,null,Phar::ZIP);
+                $zip->addFromString('database.sql',$this->db->sqlBackup(true));
+                $files=$this->db->evidenceFiles();
+                foreach ($files as $relative) {
+                    $file=EvidenceStorage::storedFile($relative);
+                    if (!$file) throw new RuntimeException('A referenced evidence file is missing or invalid. Backup was not produced.');
+                    $zip->addFile($file['path'],$relative);
+                }
+                $zip->addFromString('RESTORE.txt',"MaintainPro full data backup\nCreated: ".date(DATE_ATOM)."\n\n1. Install the matching MaintainPro source and PHP/MariaDB environment.\n2. Configure database and SMTP settings separately. Configuration secrets are excluded.\n3. Import database.sql into an EMPTY database. Run php database/setup.php.\n4. Copy uploads/evidence to the protected application uploads/evidence directory, preserving paths. Inline legacy evidence is in SQL.\n5. Account passwords and password-reset grants are excluded. Use Forgot password after restoring; SMTP must be configured. All previous account sessions must be discarded.\n6. Guest tracking HASHES are retained so existing private tracking codes keep working. No plaintext tracking codes are stored.\n\nThis archive contains private concern records and evidence. Keep it in authorized storage. No source, configuration, sessions, logs or temporary files are included.\n");
+                unset($zip);
+                $this->db->recordAudit($actor,'full_backup_created','system',null,'MaintainPro full system backup',['evidenceFiles'=>count($files),'bytes'=>filesize($temporary)]);
+                return ['filename'=>'maintainpro-full-'.date('Ymd-His').'.zip','path'=>$temporary];
+            });
+        } catch (Throwable $error) {
+            if ($temporary!==null && is_file($temporary)) unlink($temporary);
+            throw $error;
+        }
     }
 }

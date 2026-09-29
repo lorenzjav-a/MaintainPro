@@ -7,7 +7,7 @@ $residentFollowUps = array_values(array_filter($c['timeline'] ?? [], static func
 <?php if ($residentFollowUps): ?>
 <section class="case-section resident-response-section" aria-labelledby="resident-responses-heading">
   <h3 id="resident-responses-heading"><?= br_icon('inbox') ?>Reporter responses</h3>
-  <p class="form-text">Responses are append-only and were submitted through the private tracking page.</p>
+  <p class="form-text">Responses are append-only and were submitted through the <?= ($c['reporterChannel'] ?? 'tracking') === 'account' ? 'MaintainPro account' : 'private tracking page' ?>.</p>
   <div class="resident-response-list">
     <?php foreach (array_reverse($residentFollowUps) as $response): ?>
     <article class="resident-response-card">

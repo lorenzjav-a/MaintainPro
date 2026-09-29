@@ -3,6 +3,20 @@ declare(strict_types=1);
 
 final class ConcernInsights
 {
+    public static function normalizedStreet(string $value): string
+    {
+        $value = preg_replace('/\s+/u',' ',mb_strtolower(str_replace('.','',trim($value))));
+        $value = preg_replace(['/\bst\b/u','/\brd\b/u','/\bave\b/u'],['street','road','avenue'],$value);
+        return trim(preg_replace('/\s+/u',' ',$value));
+    }
+
+    public static function recommendedDates(): array
+    {
+        $dates=[];
+        foreach (self::config()['sla_hours'] as $priority=>$hours) $dates[$priority]=date('Y-m-d\TH:i',time()+(int)$hours*3600);
+        return $dates;
+    }
+
     public static function week(?DateTimeImmutable $now = null): array
     {
         $now = ($now ?? new DateTimeImmutable('now'))->setTimezone(new DateTimeZone('Asia/Manila'));

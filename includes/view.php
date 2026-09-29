@@ -162,9 +162,9 @@ function br_stat(string $label, mixed $number, string $caption, string $icon, st
     <a class="stat-card <?= h($color) ?>" href="<?= h(br_url('complaints.php', ['tab' => $tab])) ?>"><div class="stat-top"><span><?= h($label) ?></span><span class="stat-icon"><?= br_icon($icon) ?></span></div><div class="number"><?= h($number) ?></div><div class="stat-caption"><?= h($caption) ?></div></a>
 <?php }
 
-function br_chart(array $cases, bool $full = false): void
+function br_chart(array $cases, bool $full = false, ?array $groups = null): void
 {
-    $data = br_group($cases, 'category');
+    $data = $groups ?? br_group($cases, 'category');
     $max = $data[0]['count'] ?? 1; ?>
     <div class="category-chart">
         <?php foreach ($full ? $data : array_slice($data, 0, 5) as $row): ?>

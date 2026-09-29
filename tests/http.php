@@ -9,6 +9,8 @@ $server = null;
 $mailServer = null;
 $serverLog = tempnam(sys_get_temp_dir(), 'maintainpro-http-');
 $previousDatabase = getenv('BR_DB_NAME');
+$previousSetupKey=getenv('APP_SETUP_KEY');
+putenv('APP_SETUP_KEY='.str_repeat('a',64));
 $checks = 0;
 $jars = [];
 function httpCheck(bool $ok, string $label): void {
@@ -78,7 +80,9 @@ try {
     $adminCsrf = token($adminJar, 'login.php');
     $adminData = ['name' => 'HTTP Official', 'email' => 'official@example.test', 'password' => $password, 'confirm_password' => $password];
     httpCheck(auth($adminJar, 'setup', $adminData, '')['status'] === 403, 'setup CSRF');
-    httpCheck(auth($adminJar, 'setup', $adminData, $adminCsrf)['status'] === 200, 'first official setup');
+    httpCheck(auth($adminJar, 'setup', $adminData, $adminCsrf)['status'] === 422, 'localhost cannot bypass installation key');
+    $adminData['setup_key']=str_repeat('a',64);
+    httpCheck(auth($adminJar, 'setup', $adminData, $adminCsrf)['status'] === 200, 'first official setup with installation key');
     $adminCsrf = token($adminJar);
     if (in_array('--accounts-only', array_slice($argv, 1), true)) {
         require __DIR__ . '/account-pages.php';
@@ -205,6 +209,7 @@ try {
     httpCheck(req($resetJar, 'complaint.php?id=' . $id)['status'] === 404 && req($resetJar, 'evidence.php?id=' . $evidenceId)['status'] === 404, 'reassignment revokes previous staff access');
     require __DIR__ . '/extended-http.php';
     require __DIR__ . '/account-reporting-http.php';
+    require __DIR__ . '/system-upgrade-http.php';
     foreach (['.data/before-anonymous-20260921.sql', 'includes/store.php', 'config/mail.local.php', 'database/migrations/20260921_anonymous_concerns.sql', 'vendor/phpmailer/src/PHPMailer.php', 'tests/store.php', 'tools/check-mail.php', '%63onfig/mail.local.php'] as $path) httpCheck(req($guestJar, $path)['status'] === 404, 'private path ' . $path);
     $testDatabase->assertHealthyLog();
     httpCheck(!preg_match('/(?:Fatal error|Warning|Notice):/', file_get_contents($serverLog)), 'no PHP runtime diagnostics');
@@ -213,6 +218,7 @@ try {
     if (is_resource($server)) { proc_terminate($server); proc_close($server); }
     if ($mailServer) $mailServer->stop();
     putenv($previousDatabase === false ? 'BR_DB_NAME' : 'BR_DB_NAME=' . $previousDatabase);
+    putenv($previousSetupKey === false ? 'APP_SETUP_KEY' : 'APP_SETUP_KEY='.$previousSetupKey);
     $testDatabase->drop();
     if ($serverLog && is_file($serverLog)) unlink($serverLog);
     foreach ($jars as $cookieFile) if (is_file($cookieFile)) unlink($cookieFile);

@@ -18,6 +18,15 @@ final class ConcernNotifications
         $id = $c['id'];
         $assigned = $c['assignedUserId'] ?? null;
         $previous = $before['assignedUserId'] ?? null;
+        // Account reporters receive their own safe status messages, including accounts
+        // that hide their identity. Guests have no residentId and use tracking only.
+        $reporterTitles = ['submit'=>'Concern received','assess'=>'Priority assessed / under review','assign'=>'Concern assigned',
+            'start'=>'Work in progress','request_information'=>'More information requested','resolve'=>'Concern resolved',
+            'verify'=>'Concern closed','reopen'=>'Concern reopened','exception'=>'Concern outcome updated','link_concern'=>'Report linked'];
+        if (!empty($c['residentId']) && isset($reporterTitles[$action])) {
+            $title=$reporterTitles[$action];
+            $this->db->createNotification($c['residentId'],'reporter_status',$title,$id . ': ' . $title . '. Open your concern in your MaintainPro dashboard.', $id,$key.':reporter');
+        }
         if ($action === 'submit') {
             $priority = $c['priorityRecommendation']['priority'];
             $title = in_array($priority,['High','Urgent'],true) ? 'New concern: ' . $priority . ' recommended' : 'New concern submitted';

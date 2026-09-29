@@ -16,7 +16,7 @@ require __DIR__ . '/includes/components/banner.php';
   <div>
     <?php $compact = true; require __DIR__ . '/includes/components/complaint-table.php'; ?>
     <?php if ($actor['role'] === 'official'):
-        $teams = br_group(array_filter($cases, fn($c) => $c['team'] && in_array($c['status'], ['Assigned', 'In Progress', 'Reopened'], true)), 'team');
+        $dashboardGroups=br_store()->dashboardGroups($actor['id']); $teams=$dashboardGroups['teams'];
         $ratio = $metrics['total'] ? (int)round($metrics['verified'] / $metrics['total'] * 100) : 0;
     ?>
     <div class="bottom-panels">
@@ -31,7 +31,7 @@ require __DIR__ . '/includes/components/banner.php';
     <?php endif ?>
   </div>
   <aside class="side-stack">
-    <?php if ($actor['role'] === 'official'): ?><section class="panel"><div class="panel-header"><h2 class="panel-title">Concerns by category</h2></div><?php br_chart($cases); ?><div class="chart-note">Top categories · <?= $metrics['total'] ?> total reports</div></section><?php endif ?>
+    <?php if ($actor['role'] === 'official'): ?><section class="panel"><div class="panel-header"><h2 class="panel-title">Concerns by category</h2></div><?php br_chart($cases,false,$dashboardGroups['categories']); ?><div class="chart-note">Top categories · <?= $metrics['total'] ?> total reports</div></section><?php endif ?>
     <?php require __DIR__ . '/includes/components/activity.php'; ?>
     <section class="workflow-card">
     <?php if ($actor['role'] === 'official'): ?>

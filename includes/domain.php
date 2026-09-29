@@ -128,7 +128,14 @@ final class ComplaintWorkflow
                 $c['priority'] = self::choice($data['priority'] ?? '', self::PRIORITIES, 'priority');
                 $c['assessment'] = self::text($data['assessment'] ?? '', 'Assessment notes', 3000, false);
                 $c['status'] = 'Under Review';
+                if (array_key_exists('dueAt',$data)) {
+                    $deadline=self::text($data['dueAt'],'Target completion',16,false);
+                    $due=$deadline!=='' ? DateTimeImmutable::createFromFormat('!Y-m-d\TH:i',$deadline) : false;
+                    self::guard($deadline==='' || ($due && $due->format('Y-m-d\TH:i')===$deadline),'Choose a valid target completion date and time.');
+                    $c['dueAt']=$due ? $due->getTimestamp() : null;
+                }
                 self::event($c, $actor, 'Assessment recorded', $c['recommendation'] . ($c['assessment'] ? "\nAssessment notes: " . $c['assessment'] : ''));
+                $c['timeline'][array_key_last($c['timeline'])]['dueAt']=$c['dueAt'] ?? null;
                 break;
             case 'assign':
                 self::guard($official && in_array($c['status'], ['Under Review', 'Assigned', 'In Progress'], true) && $c['recommendation'] !== '', 'Save the official assessment and recommended action before assigning.');

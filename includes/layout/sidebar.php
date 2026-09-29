@@ -11,6 +11,8 @@ if ($actor['role'] === 'official') {
     $records[] = ['admin', 'admin.php', 'Administration', 'shield', null];
     $records[] = ['reports', 'reports.php', 'Reports & insights', 'chart', null];
     $records[] = ['solutions', 'solutions.php', 'Solution library', 'book', null];
+    $records[] = ['official-solutions', 'official-solutions.php', 'Official action library', 'book', null];
+    $records[] = ['action-plans', 'action-plans.php', 'Weekly action plans', 'clipboard', null];
     $records[] = ['users', 'users.php', 'User management', 'users', null];
     $records[] = ['blocked', 'blocked.php', 'Blocked work', 'tool', null];
     $records[] = ['settings', 'settings.php', 'Workspace settings', 'building', null];

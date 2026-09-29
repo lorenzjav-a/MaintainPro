@@ -1,5 +1,7 @@
 # Project structure
 
+The [September 29 upgrade](system-upgrade-20260929.md) adds a separate editable official action library, weekly plans, duplicate dismissals and resolution feedback. `includes/planning.php` extends the existing store's authorization/transaction boundaries. Concern lists use SQL pagination, details use a direct authorized lookup, and dashboard counts/groups use aggregate queries. The new public transparency route reads only aggregates.
+
 The [account reporting upgrade](account-reporting-upgrade.md) restores resident access and extends the shared report form to every account role, with a daily allowance and optional anonymity. Officials also receive weekly category/type rankings. The existing `resident_id` and JSON payload are reused without a schema migration. Own reports remain separate from personnel work assignments.
 
 The September 2026 anonymous-reporting update is described in [Anonymous upgrade](anonymous-upgrade.md). Public visitors use `landing.php`, `report-concern.php`, `track.php` and `public-api.php`; authenticated staff retain the dedicated workspace pages. `includes/concern-catalog.php` supplies validated choices, public-safe resident guidance, and the centralized category/keypoint solution catalog used for official weekly decision support. `evidence.php` authorizes private timeline image delivery. Importable SQL migrations are the only SQL sources outside `database/database.php` and remain under `database/migrations`.
@@ -48,6 +50,9 @@ MaintainPro/
 | `new-complaint.php` | Redirect to public `report-concern.php` | Public |
 | `reports.php` | Reports and insights | Official |
 | `solutions.php` | Temporary resident guidance rules plus private historical reference cases | Official |
+| `official-solutions.php` | Editable ordered official actions by category/type/keypoint | Official |
+| `action-plans.php` | Weekly plan creation, updates and history | Official |
+| `transparency.php` | Aggregate community progress | Public |
 | `users.php` | Account management | Official |
 | `user-create.php` | Create an account; display its temporary password once | Official |
 | `user-edit.php?id=USER_ID` | Update name, email, role, team or active status | Official |
@@ -58,7 +63,7 @@ MaintainPro/
 
 1. A workspace page calls `br_page()` in `includes/page.php` before writing HTML.
 2. `includes/bootstrap.php` starts the normal `maintainpro` PHP session. `br_actor()` checks the active account and its authentication version.
-3. Page guards redirect anonymous or temporary-password users, reject unauthorized roles with HTTP 403, and use `ComplaintWorkflow::visible()` to scope records. Missing or inaccessible complaints return HTTP 404.
+3. Page guards redirect anonymous or temporary-password users and reject unauthorized roles with HTTP 403. Paged SQL queries scope list records; direct concern lookup and workflow guards enforce individual record access. Missing or inaccessible complaints return HTTP 404.
 4. PHP renders the shared layout and page content. Links use normal PHP URLs. Searches and filters use GET parameters, so refresh, Back/Forward and bookmarks preserve them.
 5. JavaScript submits JSON actions to `api.php` or `auth.php` with the CSRF header. The server independently checks permissions and validates the action.
 6. Complaint writes include the version originally rendered on the page. A conflict returns HTTP 409; the user can keep the draft or reload the latest record. Old drafts are never automatically retried with a fresh version.

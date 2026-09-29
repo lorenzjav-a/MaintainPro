@@ -33,6 +33,8 @@ $sections = [
             ['Reports and insights', 'reports.php'],
             ['Weekly top concerns', 'index.php#weekly-concerns'],
             ['Solution library', 'solutions.php'],
+            ['Official action library', 'official-solutions.php'],
+            ['Weekly action plans', 'action-plans.php'],
             ['Administrative dashboard', 'index.php'],
         ],
     ],

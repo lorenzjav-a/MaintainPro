@@ -35,7 +35,7 @@ $stepIndex = $c['status'] === 'Reopened' ? 1 : array_search($c['status'], array_
     <?php if ($c['resolution']): ?><section class="case-section"><h3><?= br_icon('checkCircle') ?><?= $c['status'] === 'Reopened' ? 'Previous resolution attempt' : 'Recorded resolution' ?></h3><p><?= h($c['resolution']['notes']) ?></p><div class="photo-label"><?= h($c['resolution']['team']) ?> · <?= h(br_date($c['resolution']['date'], true)) ?></div></section><?php endif ?>
     <?php if ($c['feedback']): ?><section class="case-section suggestion-box"><div class="eyebrow">REVIEW FEEDBACK</div><p><?= h($c['feedback']) ?></p></section><?php endif ?>
     <?php if ($actor['role'] === 'official' && br_review($c)):
-        $matches = array_values(array_filter($cases, fn($x) => $x['id'] !== $c['id'] && $x['category'] === $c['category'] && $x['status'] === 'Verified' && $x['resolution']));
+        $matches = br_store()->pagedConcerns($actor['id'], ['category'=>$c['category'],'status'=>'Verified'], 1, 3)['items'];
     ?>
     <div class="related-box"><h4><?= br_icon('book') ?> Similar official-closed cases <span class="count-pill"><?= count($matches) ?></span></h4>
       <?php foreach (array_slice($matches, 0, 3) as $i => $previous): ?><div class="related-case"><strong><a href="<?= h(br_url('complaint.php', ['id' => $previous['id']])) ?>"><?= h($previous['id']) ?> · <?= h($previous['title']) ?></a></strong><p><?= h($previous['resolution']['notes']) ?></p><textarea id="recommendation-draft-<?= $i ?>" hidden><?= h($previous['recommendation'] ?: $previous['resolution']['notes']) ?></textarea><button type="button" class="link-button mt-2" data-use-recommendation="recommendation-draft-<?= $i ?>">Use previous recommendation as a draft</button></div><?php endforeach ?>
@@ -43,7 +43,7 @@ $stepIndex = $c['status'] === 'Reopened' ? 1 : array_search($c['status'], array_
       <p class="form-text mb-0 mt-2">Category match only. Review applicability before saving the official action.</p>
     </div>
     <?php endif ?>
-    <?php require __DIR__ . '/includes/components/concern-insights.php'; require __DIR__ . '/includes/components/evidence.php'; require __DIR__ . '/includes/components/complaint-actions.php'; ?>
+    <?php require __DIR__ . '/includes/components/possible-duplicates.php'; require __DIR__ . '/includes/components/resolution-feedback.php'; require __DIR__ . '/includes/components/concern-insights.php'; require __DIR__ . '/includes/components/evidence.php'; require __DIR__ . '/includes/components/complaint-actions.php'; ?>
   </div><aside class="case-timeline"><h3><?= br_icon('clock') ?>Activity timeline</h3>
     <?php foreach (array_reverse($c['timeline']) as $event): ?><div class="timeline-entry"><strong><?= h(($event['title'] ?? '') === 'Returned for Information' ? 'Information requested from reporter' : $event['title']) ?></strong><span class="timeline-date"><?= h(br_date($event['date'], true)) ?><br><?= h($event['actor']) ?></span><p><?= h($event['note']) ?></p>
     <?php if (!empty($event['priorityDecision'])): ?><p class="form-text">System priority: <?= h($event['priorityDecision']['recommended']) ?> · Official priority: <?= h($event['priorityDecision']['priority']) ?> (<?= $event['priorityDecision']['overridden'] ? 'overridden' : 'accepted' ?>)</p><?php endif ?>

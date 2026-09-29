@@ -100,6 +100,15 @@ try {
             $_SESSION['br_auth_version'] = (int)br_store()->user($actor['id'])['auth_version'];
             session_regenerate_id(true);
         }
+    } elseif ($action === 'save_official_rules') {
+        br_store()->saveOfficialRules($actor['id'],$data);
+    } elseif (in_array($action,['create_action_plan','update_action_plan'],true)) {
+        if ($action==='update_action_plan' && !preg_match('/\A[1-9][0-9]{0,17}\z/',$id)) throw new DomainException('Invalid action plan.');
+        $id=(string)br_store()->saveActionPlan($actor['id'],$action==='create_action_plan'?0:(int)$id,$data);
+    } elseif ($action==='dismiss_duplicate') {
+        br_store()->dismissDuplicate($actor['id'],$id,$data);
+    } elseif ($action==='submit_feedback') {
+        br_store()->submitFeedback($actor['id'],$id,$data);
     } elseif (in_array($action, ['save_rule', 'reset_rule'], true)) {
         br_store()->saveRule($actor['id'], $data, $action === 'reset_rule');
     } elseif (in_array($action, ['create_location', 'update_location', 'toggle_location'], true)) {

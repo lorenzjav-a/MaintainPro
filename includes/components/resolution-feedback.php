@@ -1,0 +1,6 @@
+<?php $resolutionFeedback=br_store()->concernFeedback($actor['id'],$c['id']); ?>
+<?php if($resolutionFeedback['feedback']): $response=$resolutionFeedback['feedback']; ?>
+<section class="case-section"><h3 class="section-title">Reporter resolution feedback</h3><p>Satisfaction: <strong><?= (int)$response['rating'] ?> / 5</strong></p><p><?= h($response['comment']) ?></p></section>
+<?php elseif($resolutionFeedback['canSubmit']): ?>
+<section class="action-panel"><h3 class="section-title">How was the resolution?</h3><p class="form-text">Optional feedback for the barangay. You can submit once for this concern.</p><form method="post" action="api.php" data-action="submit_feedback" data-id="<?= h($c['id']) ?>"><label class="form-label">Satisfaction rating<select class="form-select" name="rating" required><option value="">Choose a rating</option><?php foreach([1=>'Very dissatisfied',2=>'Dissatisfied',3=>'Neutral',4=>'Satisfied',5=>'Very satisfied'] as $rating=>$label): ?><option value="<?= $rating ?>"><?= $rating ?> - <?= h($label) ?></option><?php endforeach ?></select></label><label class="form-label">Comment (optional)<textarea class="form-control" name="comment" maxlength="2000" rows="3"></textarea></label><button class="btn btn-primary" type="submit">Submit feedback</button></form></section>
+<?php endif ?>

@@ -26,16 +26,13 @@ if (is_array($record)) {
 }
 
 // Compatibility for evidence saved in complaint JSON before file storage.
-foreach (ComplaintWorkflow::visible($store->state(), $actor) as $case) {
-    foreach ($case['timeline'] as $event) {
-        if (($event['evidenceId'] ?? '') !== $id || empty($event['photo'])) continue;
-        if (!preg_match('~^data:(image/(?:jpeg|png|webp));base64,(.+)$~D', $event['photo'], $match)) break;
+$legacyPhoto=$store->legacyEvidence($actor['id'],$id);
+if ($legacyPhoto!==null && preg_match('~^data:(image/(?:jpeg|png|webp));base64,(.+)$~D', $legacyPhoto, $match)) {
         $extension = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'][$match[1]];
         header('Content-Type: ' . $match[1]);
         header('Content-Security-Policy: default-src \'none\'; sandbox');
         header('Content-Disposition: inline; filename="evidence-' . $id . '.' . $extension . '"');
         echo base64_decode($match[2], true);
         exit;
-    }
 }
 http_response_code(404);

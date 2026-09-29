@@ -20,7 +20,7 @@ For a new installation, run from the project root:
 C:\xampp\php\php.exe database\setup.php
 ```
 
-The command creates the configured database and applies `database/migrations/20260921_anonymous_concerns.sql` without sample data. It can be rerun without deleting records or resetting IDs. It also adds `users.must_change_password` if missing. The anonymous migration has already been applied on this PC.
+The command creates the configured database and applies pending migrations without sample concerns or accounts. It can be rerun without deleting records or resetting IDs. The September 29 migration has already been applied on this PC. It checks legacy data before adding constraints and stops with a diagnostic if invalid JSON or orphan references need repair; it never silently removes those records. Existing built-in official actions are seeded once into their separate editable library.
 
 Runtime SQL, installation commands and fixture queries live in `database/database.php`; importable migration scripts live in `database/migrations`. Connection settings remain in `config/database.php`. `includes/store.php` calls named database methods and handles validation, authorization and workflows.
 
@@ -41,6 +41,8 @@ For manual setup, run `C:\xampp\php\php.exe database\setup.php --schema` to prin
 `.data/barangayresolve.sqlite` is legacy data and is not read by the application. It remains protected from browser access. Existing sessions from the old demo cannot grant access.
 
 ## Gmail and password recovery
+
+See the secure first-setup instructions below when installing into an empty database. SMTP configuration is also needed for account recovery after restoring a credential-free full ZIP backup.
 
 PHPMailer 7.0.2 is bundled in `vendor/phpmailer`, with its license and version metadata. `includes/mail.php` sends OTP recovery codes and assignment notices. Existing passwords and staff invitations are never emailed. The current local sender configuration is incomplete or invalid; real email needs configuration before use.
 
@@ -80,3 +82,23 @@ Codes expire after 10 minutes and allow five attempts. Verification grants last 
 Registered and unknown addresses receive the same public request response. Inactive and unknown accounts receive no email. Missing sender configuration produces a temporary-unavailability message. SMTP failures invalidate the challenge and write a generic PHP diagnostic without exposing email addresses, codes or credentials.
 
 Successful resets revoke previous login sessions and preserve complaint data. The account's current email and authentication version are checked again before changing its password. Resetting also satisfies the initial temporary-password replacement requirement. When troubleshooting, use the CLI check and inspect the recipient's spam folder.
+
+## Secure first official setup
+
+On a fresh installation, set `APP_SETUP_KEY` to a random secret of at least 32 characters in the environment used by PHP. Restart Apache after setting its environment. A variable set only in a PowerShell window is not inherited by an already-running Apache process.
+
+Generate a 64-character random value locally:
+
+```powershell
+C:\xampp\php\php.exe -r "echo bin2hex(random_bytes(32)), PHP_EOL;"
+```
+
+Open Sign in, enter the setup key and create the first official. Remove the environment key after setup. Browser setup is rate limited and requires both zero officials and the absence of the persistent `setup_complete` marker. Deactivating or removing officials does not reopen public setup. Existing installations are marked complete during migration and need no key. Account creation afterward stays inside official User management.
+
+## Target dates, duplicates and backups
+
+`config/features.php` contains `sla_hours`: Urgent 24, High 72, Medium 168 and Low 336 hours. These are suggested completion windows; officials can accept, replace or omit them. `duplicate_recent_days` defaults to 30 days for completed candidate concerns; unresolved candidates remain eligible. Neither feature automatically merges or resolves concerns.
+
+Workspace settings offers the existing SQL backup and **Full System Backup**. Full backup requires PHP Phar ZIP support (`PharData`, supplied by this XAMPP installation). Its ZIP contains `database.sql`, referenced protected evidence files and `RESTORE.txt`. It excludes configuration, source, password hashes, reset grants, sessions and temporary files. Missing referenced evidence aborts the backup so an incomplete archive is not presented as successful.
+
+For a full restore, install the matching application and configure its database separately, import `database.sql` into an empty database, restore the evidence paths and run `database/setup.php`. Configure SMTP, then have accounts use Forgot password: previous passwords deliberately cannot authenticate after a full ZIP restore. Guest tracking hashes remain available so existing tracking codes continue working. Read the archive's `RESTORE.txt` for the exact steps.

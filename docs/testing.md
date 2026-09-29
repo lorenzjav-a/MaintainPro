@@ -4,6 +4,25 @@ The September 28 [account reporting upgrade](account-reporting-upgrade.md#verifi
 
 ## Latest system verification
 
+September 29, 2026: **1,811 functional/browser checks passed**, plus **96 PHP syntax checks** and SQL-boundary validation across **95 PHP files**. The [system upgrade report](system-upgrade-20260929.md) records the changes, migration, data preservation and setup requirements.
+
+| Current suite | Passing checks |
+| --- | ---: |
+| Workflow and authorization | 162 |
+| Store and accounts | 51 |
+| Staff insights | 56 |
+| Storage and rollback | 62 |
+| Keypoint solutions | 198 |
+| Account reporting | 103 |
+| System upgrade, migration and ZIP restore | 88 |
+| Password recovery | 42 |
+| HTTP, privacy and permissions | 939 |
+| Desktop/mobile Chrome | 110 |
+
+`tests/system-upgrade.php` is included in the verification runner; `tests/system-upgrade-http.php` is included by the HTTP suite. The recovery suite intentionally tests failed email delivery and prints a generic SMTP diagnostic before passing. Desktop/mobile screenshots of the new library, action plans and transparency page were reviewed. The normal workspace database received no test accounts or concerns.
+
+## Earlier system verification
+
 September 25, 2026: **907 functional checks passed**, plus 81 PHP syntax checks and SQL-boundary validation across 79 PHP files. This includes 406 HTTP checks, 79 complete browser checks, and the separate account/session regressions. The [repair and verification report](verification-20260925.md) lists the failures fixed, suite totals, migration, screenshots, backup restore validation, and external SMTP limitation.
 
 Tests isolate their databases, evidence files, application logs, sessions, and loopback SMTP delivery. No test records are written to the live database. A forced post-upload database failure verifies rollback and file cleanup. HTTP/browser runs also inspect the isolated application log for hidden PHP errors.
@@ -43,6 +62,9 @@ C:\xampp\php\php.exe tests\workflow.php
 C:\xampp\php\php.exe tests\store.php
 C:\xampp\php\php.exe tests\features.php
 C:\xampp\php\php.exe tests\workflow-storage.php
+C:\xampp\php\php.exe tests\keypoint-solutions.php
+C:\xampp\php\php.exe tests\account-reporting.php
+C:\xampp\php\php.exe tests\system-upgrade.php
 C:\xampp\php\php.exe tests\password-reset.php
 C:\xampp\php\php.exe tests\http.php
 ```

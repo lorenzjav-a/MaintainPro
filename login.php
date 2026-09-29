@@ -78,6 +78,7 @@ unset($_SESSION['br_password_reset_done']);
         <?php endif ?>
         <noscript><p class="info-callout">Enable JavaScript to sign in or manage your account.</p></noscript>
         <form id="auth-form" method="post" action="auth.php" data-action="<?= $action ?>">
+          <?php if ($setup): ?><label class="form-label">Installation setup key<input type="password" class="form-control" name="setup_key" required minlength="32" maxlength="256" autocomplete="off"></label><p class="form-text">Enter the installation key configured by the server administrator. Setup closes permanently after the first official account is created.</p><?php endif ?>
           <?php if ($setup || $registering): ?>
           <div class="mb-3"><label class="form-label" for="account-name">Full name</label><input id="account-name" name="name" class="form-control" autocomplete="name" required minlength="2" maxlength="100" placeholder="Your full name"></div>
           <?php endif ?>
