@@ -394,6 +394,13 @@ async function tab() {
     await official.go('index.php');
     check(await official.evaluate('getComputedStyle(document.querySelector(".mobile-dock")).display === "grid" && document.documentElement.scrollWidth <= innerWidth'), 'mobile dashboard and navigation');
     await official.click('.mobile-dock button[data-menu]'); check(await official.evaluate('document.querySelector(".sidebar").classList.contains("mobile-open")'), 'mobile menu'); await official.click('.sidebar-scrim');
+    await official.send('Emulation.setDeviceMetricsOverride', {width:390,height:500,deviceScaleFactor:1,mobile:true});
+    await official.click('.mobile-dock button[data-menu]');
+    check(await official.evaluate('(()=>{const side=document.querySelector(".sidebar"),last=side.querySelector(".sidebar-footer");side.scrollTop=side.scrollHeight;return getComputedStyle(side).overflowY==="auto" && side.scrollTop>0 && last.getBoundingClientRect().bottom<=side.getBoundingClientRect().bottom+1})()'), 'short mobile sidebar scrolls to its footer');
+    await official.click('.sidebar-scrim');
+    await official.send('Emulation.setDeviceMetricsOverride', {width:1024,height:500,deviceScaleFactor:1,mobile:false});
+    check(await official.evaluate('(()=>{const side=document.querySelector(".sidebar"),last=side.querySelector(".sidebar-footer");side.scrollTop=side.scrollHeight;return getComputedStyle(side).overflowY==="auto" && side.scrollTop>0 && last.getBoundingClientRect().bottom<=side.getBoundingClientRect().bottom+1})()'), 'short desktop sidebar scrolls to its footer');
+    await official.send('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:true});
     await official.screenshot('dashboard-mobile');
     await official.go(detail); check(await official.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'mobile concern fits'); await official.screenshot('concern-mobile');
     await official.evaluate('document.getElementById("evidence").scrollIntoView({block:"start"})');

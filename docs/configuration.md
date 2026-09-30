@@ -20,7 +20,7 @@ For a new installation, run from the project root:
 C:\xampp\php\php.exe database\setup.php
 ```
 
-The command creates the configured database and applies pending migrations without sample concerns or accounts. It can be rerun without deleting records or resetting IDs. The September 29 migration has already been applied on this PC. It checks legacy data before adding constraints and stops with a diagnostic if invalid JSON or orphan references need repair; it never silently removes those records. Existing built-in official actions are seeded once into their separate editable library.
+The command creates the configured database and applies pending migrations without sample concerns or accounts. It can be rerun without deleting records or resetting IDs. The October 1 integrity repair has been applied on this PC; see [the audit and recovery record](database-integrity-20261001.md). Setup checks legacy data before adding constraints and stops with a diagnostic if invalid JSON or orphan references need reconciliation; it never silently removes those records. Existing built-in official actions are seeded once into their separate editable library. Back up an existing installation before running setup.
 
 Runtime SQL, installation commands and fixture queries live in `database/database.php`; importable migration scripts live in `database/migrations`. Connection settings remain in `config/database.php`. `includes/store.php` calls named database methods and handles validation, authorization and workflows.
 

@@ -4,6 +4,8 @@ The September 28 [account reporting upgrade](account-reporting-upgrade.md#verifi
 
 ## Latest system verification
 
+October 1, 2026: the database integrity repair passed **98 PHP syntax checks**, SQL-boundary validation, the functional and HTTP suites including **10 new integrity checks** and **939 HTTP checks**, plus **110 browser checks**. See the [integrity audit](database-integrity-20261001.md) for the live before/after schema and data verification. The browser suite required execution outside the sandbox on this PC.
+
 September 29, 2026: **1,811 functional/browser checks passed**, plus **96 PHP syntax checks** and SQL-boundary validation across **95 PHP files**. The [system upgrade report](system-upgrade-20260929.md) records the changes, migration, data preservation and setup requirements.
 
 | Current suite | Passing checks |

@@ -15,7 +15,8 @@ $files = 0;
 $sqlPattern = '~\b(?:SELECT\s+[^;]+?\s+FROM\b|SELECT\s+\w+\s*\(|INSERT\s+INTO\b|REPLACE\s+INTO\b|UPDATE\s+\S+\s+SET\b|DELETE\s+FROM\b|(?:CREATE|ALTER|DROP|TRUNCATE)\s+(?:TABLE|DATABASE)\b|SHOW\s+(?:COLUMNS|TABLES|DATABASES)\b)~is';
 foreach (new RecursiveIteratorIterator($filtered) as $file) {
     $relative = str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
-    if ($relative === 'database/database.php' || str_starts_with($relative, 'database/migrations/')) continue;
+    // The user-requested full database export is an import artifact, not application SQL.
+    if ($relative === 'database/database.php' || $relative === 'maintainpro_fixed.sql' || str_starts_with($relative, 'database/migrations/')) continue;
     if ($file->getExtension() === 'sql') {
         $violations[] = $relative;
         continue;
@@ -31,4 +32,4 @@ if ($violations) {
     fwrite(STDERR, "FAIL: Move SQL into database/database.php:\n" . implode("\n", array_unique($violations)) . "\n");
     exit(1);
 }
-echo "PASS: SQL boundary checked across $files PHP files; importable migrations are confined to database/migrations.\n";
+echo "PASS: SQL boundary checked across $files PHP files; only migrations and the requested database export contain standalone SQL.\n";

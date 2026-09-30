@@ -256,7 +256,7 @@ final class MaintainProDatabase
 
     public function sqlBackup(bool $withoutCredentials = false): string
     {
-        $sql="-- MaintainPro database backup. Restore only into an empty database.\nSET FOREIGN_KEY_CHECKS=0;\n";
+        $sql="-- MaintainPro database backup. Restore only into an empty database.\nSET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;\nSET FOREIGN_KEY_CHECKS=0;\n";
         foreach ($this->run('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN) as $table) {
             $quoted='`'.str_replace('`','``',$table).'`';
             $schema=$this->run('SHOW CREATE TABLE '.$quoted)->fetch(PDO::FETCH_NUM)[1];
@@ -635,6 +635,34 @@ final class MaintainProDatabase
 // CLI installation and disposable test database operations.
 final class DatabaseMaintenance
 {
+    private const INTEGRITY_TABLES = [
+        'audit_logs','complaints','concern_evidence','concern_feedback','concern_tracking',
+        'duplicate_dismissals','feature_alerts','locations','login_attempts','notifications',
+        'official_solution_rules','password_resets','password_reset_requests','public_attempts',
+        'schema_migrations','settings','solution_rules','users','weekly_action_plans',
+    ];
+
+    private const INTEGRITY_REFERENCES = [
+        ['audit_logs','actor_id','users','id','SET NULL'],
+        ['complaints','resident_id','users','id','RESTRICT'],
+        ['concern_evidence','complaint_id','complaints','id','CASCADE'],
+        ['concern_evidence','uploaded_by','users','id','SET NULL'],
+        ['concern_feedback','complaint_id','complaints','id','CASCADE'],
+        ['concern_feedback','reporter_id','users','id','SET NULL'],
+        ['concern_tracking','complaint_id','complaints','id','CASCADE'],
+        ['duplicate_dismissals','complaint_id','complaints','id','CASCADE'],
+        ['duplicate_dismissals','candidate_id','complaints','id','CASCADE'],
+        ['duplicate_dismissals','dismissed_by','users','id','SET NULL'],
+        ['notifications','user_id','users','id','CASCADE'],
+        ['notifications','related_concern_id','complaints','id','SET NULL'],
+        ['official_solution_rules','created_by','users','id','SET NULL'],
+        ['official_solution_rules','updated_by','users','id','SET NULL'],
+        ['password_resets','user_id','users','id','CASCADE'],
+        ['weekly_action_plans','solution_rule_id','official_solution_rules','id','SET NULL'],
+        ['weekly_action_plans','assigned_user_id','users','id','SET NULL'],
+        ['weekly_action_plans','created_by','users','id','SET NULL'],
+    ];
+
     private static function requireCli(): void
     {
         if (PHP_SAPI !== 'cli') throw new RuntimeException('Database maintenance requires the command line.');
@@ -663,6 +691,12 @@ final class DatabaseMaintenance
         }
 
         try {
+            // A partial legacy import can have users in general_ci while the
+            // bootstrap creates password_resets with a foreign key to users.
+            // Normalize that parent first, before creating dependent tables.
+            $existingUsers=$connection->prepare('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?');
+            $existingUsers->execute([$database,'users']);
+            if ((int)$existingUsers->fetchColumn()) self::normalizeLegacyTable($connection,'users');
             $connection->exec(self::schema());
             $columns = $connection->query('SHOW COLUMNS FROM users')->fetchAll(PDO::FETCH_COLUMN);
             if (!in_array('must_change_password', $columns, true)) {
@@ -736,10 +770,26 @@ final class DatabaseMaintenance
                 if (!self::migrationChecksumMatches($sql,(string)$applied[$version])) {
                     throw new RuntimeException('Applied migration checksum changed: ' . $version . '. Restore the original file and add a new migration.');
                 }
+                // A dump can contain a migration marker while omitting later ALTERs.
+                // This guarded repair is deliberately safe to rerun after such imports.
+                if ($version==='20261001_database_integrity_repair') {
+                    try { self::verifyIntegrity($connection); }
+                    catch (RuntimeException) {
+                        self::preflightIntegrity($connection);
+                        $connection->exec($sql);
+                        self::verifyIntegrity($connection);
+                    }
+                }
                 continue;
             }
-            if ($version==='20260929_system_upgrade') self::preflightUpgrade($connection);
+            if ($version==='20260929_system_upgrade') {
+                self::preflightUpgrade($connection);
+                self::normalizeLegacyTable($connection, 'complaints');
+                self::normalizeLegacyTable($connection, 'solution_rules');
+            }
+            if ($version==='20261001_database_integrity_repair') self::preflightIntegrity($connection);
             $connection->exec($sql);
+            if ($version==='20261001_database_integrity_repair') self::verifyIntegrity($connection);
             $record->execute([$version, $checksum, time()]);
         }
     }
@@ -760,11 +810,131 @@ final class DatabaseMaintenance
         foreach ([['complaints','resident_id','users'],['concern_tracking','complaint_id','complaints'],['notifications','user_id','users'],
             ['notifications','related_concern_id','complaints'],['password_resets','user_id','users'],['audit_logs','actor_id','users'],
             ['concern_evidence','complaint_id','complaints'],['concern_evidence','uploaded_by','users']] as [$table,$column,$parent]) {
-            $orphans=(int)$connection->query('SELECT COUNT(*) FROM '.$table.' c LEFT JOIN '.$parent.' p ON p.id=c.'.$column.' WHERE c.'.$column.' IS NOT NULL AND p.id IS NULL')->fetchColumn();
+            // Byte comparisons work even when legacy ID columns have mixed collations.
+            $orphans=(int)$connection->query('SELECT COUNT(*) FROM '.$table.' c LEFT JOIN '.$parent.' p ON BINARY p.id=BINARY c.'.$column.' WHERE c.'.$column.' IS NOT NULL AND p.id IS NULL')->fetchColumn();
             if ($orphans) throw new RuntimeException('Schema repair stopped: '.$orphans.' orphan reference(s) in '.$table.'.'.$column.'. Reconcile ownership from a trusted backup and rerun setup; no records were deleted.');
         }
         foreach (['complaints'=>'payload','solution_rules'=>'actions'] as $table=>$column) {
             if ((int)$connection->query('SELECT COUNT(*) FROM '.$table.' WHERE NOT JSON_VALID('.$column.')')->fetchColumn()) throw new RuntimeException('Schema repair stopped: invalid JSON in '.$table.'.'.$column.'. Correct the affected data and rerun setup; no records were deleted.');
+        }
+    }
+
+    private static function normalizeLegacyTable(PDO $connection, string $table): void
+    {
+        if (!in_array($table,self::INTEGRITY_TABLES,true)) throw new RuntimeException('Unsupported table in integrity repair.');
+        $schema=(string)$connection->query('SELECT DATABASE()')->fetchColumn();
+        $check=$connection->prepare('SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME=? AND COLLATION_NAME IS NOT NULL AND COLLATION_NAME<>?');
+        $check->execute([$schema,$table,'utf8mb4_unicode_ci']);
+        $changing=$check->fetchAll(PDO::FETCH_COLUMN);
+        if (!$changing) {
+            $default=$connection->prepare('SELECT TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?');
+            $default->execute([$schema,$table]);
+            $collation=$default->fetchColumn();
+            if ($collation===false) throw new RuntimeException('Integrity repair requires table '.$table.'.');
+            if ($collation!=='utf8mb4_unicode_ci') $connection->exec('ALTER TABLE `'.$table.'` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+            return;
+        }
+        $foreign=$connection->prepare('SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE WHERE (TABLE_SCHEMA=? AND TABLE_NAME=? AND COLUMN_NAME=? AND REFERENCED_TABLE_NAME IS NOT NULL) OR (REFERENCED_TABLE_SCHEMA=? AND REFERENCED_TABLE_NAME=? AND REFERENCED_COLUMN_NAME=?)');
+        foreach ($changing as $column) {
+            $foreign->execute([$schema,$table,$column,$schema,$table,$column]);
+            if ((int)$foreign->fetchColumn()) throw new RuntimeException('Cannot safely convert '.$table.'.'.$column.' while it has an existing foreign key. Back up and reconcile its linked tables first.');
+        }
+        $connection->exec('ALTER TABLE `'.$table.'` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+    }
+
+    private static function preflightIntegrity(PDO $connection): void
+    {
+        $schema=(string)$connection->query('SELECT DATABASE()')->fetchColumn();
+        $columns=$connection->prepare('SELECT TABLE_NAME,COLUMN_NAME,COLUMN_TYPE,CHARACTER_SET_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=?');
+        $columns->execute([$schema]);
+        $known=[];
+        foreach ($columns->fetchAll() as $row) $known[$row['TABLE_NAME']][$row['COLUMN_NAME']]=$row;
+        foreach (self::INTEGRITY_REFERENCES as [$child,$column,$parent,$parentColumn]) {
+            if (!isset($known[$child][$column],$known[$parent][$parentColumn])) throw new RuntimeException('Integrity repair requires '.$child.'.'.$column.' and '.$parent.'.'.$parentColumn.'.');
+            $a=$known[$child][$column]; $b=$known[$parent][$parentColumn];
+            if ($a['COLUMN_TYPE']!==$b['COLUMN_TYPE'] || $a['CHARACTER_SET_NAME']!==$b['CHARACTER_SET_NAME']) {
+                throw new RuntimeException('Incompatible foreign-key types: '.$child.'.'.$column.' and '.$parent.'.'.$parentColumn.'.');
+            }
+            $orphans=(int)$connection->query('SELECT COUNT(*) FROM `'.$child.'` c LEFT JOIN `'.$parent.'` p ON BINARY p.`'.$parentColumn.'`=BINARY c.`'.$column.'` WHERE c.`'.$column.'` IS NOT NULL AND p.`'.$parentColumn.'` IS NULL')->fetchColumn();
+            if ($orphans) throw new RuntimeException('Integrity repair stopped: '.$orphans.' orphan reference(s) in '.$child.'.'.$column.'. No data was changed.');
+        }
+        foreach (['complaints'=>'payload','solution_rules'=>'actions','audit_logs'=>'changes'] as $table=>$column) {
+            $invalid=(int)$connection->query('SELECT COUNT(*) FROM `'.$table.'` WHERE NOT JSON_VALID(`'.$column.'`)')->fetchColumn();
+            if ($invalid) throw new RuntimeException('Integrity repair stopped: '.$invalid.' invalid JSON row(s) in '.$table.'.'.$column.'. No data was changed.');
+        }
+        $invalidRules=(int)$connection->query('SELECT COUNT(*) FROM official_solution_rules WHERE sort_order NOT BETWEEN 1 AND 3 OR active NOT IN (0,1)')->fetchColumn();
+        if ($invalidRules) throw new RuntimeException('Integrity repair stopped: '.$invalidRules.' invalid official action rule(s). No data was changed.');
+        foreach ([
+            'official_solution_rules'=>['category','concern_type','keypoint','sort_order'],
+            'solution_rules'=>['category','concern_type'],
+        ] as $table=>$keys) {
+            $group=implode(',',array_map(static fn($key)=>$key==='sort_order'?'`sort_order`':'CONVERT(`'.$key.'` USING utf8mb4) COLLATE utf8mb4_unicode_ci',$keys));
+            $duplicates=(int)$connection->query('SELECT COUNT(*) FROM (SELECT 1 FROM `'.$table.'` GROUP BY '.$group.' HAVING COUNT(*)>1) duplicate_keys')->fetchColumn();
+            if ($duplicates) throw new RuntimeException('Integrity repair stopped: '.$duplicates.' duplicate key group(s) under utf8mb4_unicode_ci in '.$table.'. No data was changed.');
+        }
+        foreach (self::INTEGRITY_TABLES as $table) self::normalizeLegacyTable($connection,$table);
+        $collation=$connection->prepare('SELECT DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?');
+        $collation->execute([$schema]);
+        if ($collation->fetchColumn()!=='utf8mb4_unicode_ci') {
+            // The database identifier was validated by initialize().
+            $connection->exec('ALTER DATABASE `'.$schema.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+        }
+    }
+
+    private static function verifyIntegrity(PDO $connection): void
+    {
+        $schema=(string)$connection->query('SELECT DATABASE()')->fetchColumn();
+        $databaseDefault=$connection->prepare('SELECT DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME=?');
+        $databaseDefault->execute([$schema]);
+        if ($databaseDefault->fetchColumn()!=='utf8mb4_unicode_ci') throw new RuntimeException('Integrity repair incomplete: database default collation differs.');
+        $tables=$connection->prepare('SELECT TABLE_NAME,ENGINE,TABLE_COLLATION FROM information_schema.TABLES WHERE TABLE_SCHEMA=?');
+        $tables->execute([$schema]);
+        $seen=[];
+        foreach ($tables->fetchAll() as $table) {
+            if (!in_array($table['TABLE_NAME'],self::INTEGRITY_TABLES,true)) continue;
+            $seen[$table['TABLE_NAME']]=true;
+            if ($table['ENGINE']!=='InnoDB' || $table['TABLE_COLLATION']!=='utf8mb4_unicode_ci') throw new RuntimeException('Integrity repair incomplete: table options differ for '.$table['TABLE_NAME'].'.');
+        }
+        foreach (self::INTEGRITY_TABLES as $table) if (!isset($seen[$table])) throw new RuntimeException('Integrity repair incomplete: missing table '.$table.'.');
+        $statement=$connection->prepare('SELECT k.TABLE_NAME,k.COLUMN_NAME,k.REFERENCED_TABLE_NAME,k.REFERENCED_COLUMN_NAME,r.DELETE_RULE FROM information_schema.KEY_COLUMN_USAGE k JOIN information_schema.REFERENTIAL_CONSTRAINTS r ON r.CONSTRAINT_SCHEMA=k.CONSTRAINT_SCHEMA AND r.TABLE_NAME=k.TABLE_NAME AND r.CONSTRAINT_NAME=k.CONSTRAINT_NAME WHERE k.TABLE_SCHEMA=? AND k.REFERENCED_TABLE_NAME IS NOT NULL');
+        $statement->execute([$schema]);
+        $found=[];
+        foreach ($statement->fetchAll() as $row) $found[$row['TABLE_NAME'].'.'.$row['COLUMN_NAME']]=$row['REFERENCED_TABLE_NAME'].'.'.$row['REFERENCED_COLUMN_NAME'].':'.$row['DELETE_RULE'];
+        foreach (self::INTEGRITY_REFERENCES as [$child,$column,$parent,$parentColumn,$deleteRule]) {
+            if (($found[$child.'.'.$column] ?? null)!==$parent.'.'.$parentColumn.':'.$deleteRule) throw new RuntimeException('Missing or wrong foreign key: '.$child.'.'.$column.'.');
+        }
+        $tableMarks=implode(',',array_fill(0,count(self::INTEGRITY_TABLES),'?'));
+        $bad=$connection->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME IN ($tableMarks) AND COLLATION_NAME IS NOT NULL AND COLLATION_NAME<>'utf8mb4_unicode_ci'");
+        $bad->execute([$schema,...self::INTEGRITY_TABLES]);
+        if ((int)$bad->fetchColumn()) throw new RuntimeException('Integrity repair incomplete: legacy column collations remain.');
+        $generated=$connection->prepare("SELECT COLUMN_NAME,EXTRA,GENERATION_EXPRESSION FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=? AND TABLE_NAME='complaints'");
+        $generated->execute([$schema]);
+        $generatedRows=[];
+        foreach ($generated->fetchAll() as $row) $generatedRows[$row['COLUMN_NAME']]=$row;
+        foreach (['assigned_user_id','concern_type','due_at','category_name','purok_key','street_normalized','recurrence_key'] as $column) {
+            if (!isset($generatedRows[$column]) || !str_contains($generatedRows[$column]['EXTRA'],'STORED GENERATED')) throw new RuntimeException('Integrity repair incomplete: missing generated complaint column '.$column.'.');
+        }
+        if (!str_contains($generatedRows['recurrence_key']['GENERATION_EXPRESSION'],'purok_key')) throw new RuntimeException('Integrity repair incomplete: recurrence formula is outdated.');
+        $indexes=$connection->prepare('SELECT TABLE_NAME,INDEX_NAME,GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS columns_list FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=? GROUP BY TABLE_NAME,INDEX_NAME');
+        $indexes->execute([$schema]);
+        $indexed=[];
+        foreach ($indexes->fetchAll() as $row) $indexed[$row['TABLE_NAME'].'.'.$row['INDEX_NAME']]=$row['columns_list'];
+        foreach (['idx_assignment_status'=>'assigned_user_id,status','idx_recurrence_date'=>'recurrence_key,created_at','idx_created'=>'created_at','idx_status_due'=>'status,due_at','idx_concern_match'=>'category_name,concern_type,purok_key,created_at','idx_reporter_date'=>'resident_id,created_at'] as $name=>$columns) {
+            if (($indexed['complaints.'.$name] ?? null)!==$columns) throw new RuntimeException('Integrity repair incomplete: missing complaint index '.$name.'.');
+        }
+        $checks=$connection->prepare('SELECT TABLE_NAME,LOWER(REPLACE(CHECK_CLAUSE,CHAR(96),\'\')) AS clause_text FROM information_schema.CHECK_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=?');
+        $checks->execute([$schema]);
+        $clauses=[];
+        foreach ($checks->fetchAll() as $row) $clauses[$row['TABLE_NAME']][]=$row['clause_text'];
+        foreach (['complaints'=>'json_valid(payload)','solution_rules'=>'json_valid(actions)','audit_logs'=>'json_valid(changes)'] as $table=>$fragment) {
+            $present=false;
+            foreach ($clauses[$table] ?? [] as $clause) if (str_contains($clause,$fragment)) $present=true;
+            if (!$present) throw new RuntimeException('Integrity repair incomplete: missing JSON check on '.$table.'.');
+        }
+        foreach (['sort_order'=>'between 1 and 3','active'=>'in (0,1)'] as $column=>$fragment) {
+            $present=false;
+            foreach ($clauses['official_solution_rules'] ?? [] as $clause) if (str_contains($clause,$column) && str_contains($clause,$fragment)) $present=true;
+            if (!$present) throw new RuntimeException('Integrity repair incomplete: missing official action '.$column.' check.');
         }
     }
 
@@ -879,6 +1049,27 @@ SQL;
 // Test fixtures use this same SQL boundary and cannot target the workspace database.
 final class DatabaseTestFixtures
 {
+    public function partialLegacyUsers(): void
+    {
+        $this->connection->exec("CREATE TABLE users (
+            id VARCHAR(64) NOT NULL PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            email VARCHAR(254) NOT NULL UNIQUE,
+            password_hash VARCHAR(255) NOT NULL,
+            role ENUM('resident','official','personnel') NOT NULL,
+            team VARCHAR(100) NOT NULL DEFAULT '',
+            active TINYINT NOT NULL DEFAULT 1,
+            auth_version INT NOT NULL DEFAULT 1,
+            created_at VARCHAR(35) NOT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+        $this->connection->exec("INSERT INTO users(id,name,email,password_hash,role,created_at) VALUES('legacy-user','Legacy User','legacy@example.test','hash','resident','2026-09-01')");
+    }
+
+    public function legacyUserName(): string
+    {
+        return (string)$this->connection->query("SELECT name FROM users WHERE id='legacy-user'")->fetchColumn();
+    }
+
     public function repeatUpgradeMigration(): void
     {
         $this->connection->exec(file_get_contents(__DIR__.'/migrations/20260929_system_upgrade.sql'));
@@ -903,6 +1094,55 @@ final class DatabaseTestFixtures
     public function orphanNotification(): void
     {
         $this->connection->exec("INSERT INTO notifications(user_id,type,title,message,event_key,created_at,target_url) VALUES('missing','test','test','test','test',1,'')");
+    }
+
+    public function removeOrphanNotification(): void
+    {
+        $this->connection->exec("DELETE FROM notifications WHERE user_id='missing' AND event_key='test'");
+    }
+
+    public function dropIntegrityForeignKey(string $table, string $column): void
+    {
+        $allowed=['notifications.user_id','official_solution_rules.created_by','official_solution_rules.updated_by'];
+        if (!in_array($table.'.'.$column,$allowed,true)) throw new RuntimeException('Unsupported integrity test fixture.');
+        $find=$this->connection->prepare('SELECT CONSTRAINT_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=? AND REFERENCED_TABLE_NAME IS NOT NULL');
+        $find->execute([$table,$column]);
+        $name=$find->fetchColumn();
+        if ($name!==false) $this->connection->exec('ALTER TABLE `'.$table.'` DROP FOREIGN KEY `'.$name.'`');
+    }
+
+    public function useLegacyRuleCollations(): void
+    {
+        $this->dropIntegrityForeignKey('official_solution_rules','created_by');
+        $this->dropIntegrityForeignKey('official_solution_rules','updated_by');
+        $this->connection->exec('ALTER TABLE official_solution_rules CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci');
+        $this->connection->exec('ALTER TABLE solution_rules CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci');
+    }
+
+    public function invalidSolutionJson(): void
+    {
+        $find=$this->connection->query("SELECT CONSTRAINT_NAME FROM information_schema.CHECK_CONSTRAINTS WHERE CONSTRAINT_SCHEMA=DATABASE() AND TABLE_NAME='solution_rules' AND LOWER(REPLACE(CHECK_CLAUSE,CHAR(96),'')) LIKE '%json_valid(actions)%'");
+        $name=$find->fetchColumn();
+        if ($name!==false) $this->connection->exec('ALTER TABLE solution_rules DROP CONSTRAINT `'.$name.'`');
+        $this->connection->exec("INSERT INTO solution_rules(category,concern_type,actions) VALUES('Integrity test','Invalid JSON','{bad')");
+    }
+
+    public function removeInvalidSolutionJson(): void
+    {
+        $this->connection->exec("DELETE FROM solution_rules WHERE category='Integrity test' AND concern_type='Invalid JSON'");
+    }
+
+    public function integrityCounts(): array
+    {
+        $keys=(int)$this->connection->query('SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND REFERENCED_TABLE_NAME IS NOT NULL')->fetchColumn();
+        $collations=(int)$this->connection->query("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND COLLATION_NAME IS NOT NULL AND COLLATION_NAME<>'utf8mb4_unicode_ci'")->fetchColumn();
+        return [$keys,$collations];
+    }
+
+    public function dataChecksums(): array
+    {
+        $rows=$this->connection->query('CHECKSUM TABLE users,complaints,concern_tracking,notifications,audit_logs,concern_evidence,official_solution_rules,weekly_action_plans,concern_feedback EXTENDED')->fetchAll();
+        return array_column($rows,'Checksum','Table');
     }
 
     public function allUsersInactive(): void

@@ -209,6 +209,8 @@ button:disabled {
   position: fixed;
   inset: 0 auto 0 0;
   width: 244px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   background: var(--nav);
   color: #fff;
   display: flex;

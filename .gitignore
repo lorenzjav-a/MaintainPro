@@ -5,3 +5,4 @@ tests/tmp/
 config/mail.local.php
 includes/mail.local.php
 /debug.log
+/maintainpro_fixed.sql

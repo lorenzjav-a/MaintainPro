@@ -6,6 +6,8 @@ All account roles can report up to three concerns per Asia/Manila calendar day. 
 
 The [September 29 system upgrade](docs/system-upgrade-20260929.md) adds database hardening, SQL pagination, protected first setup, full evidence backups, duplicate suggestions, editable official actions, weekly action plans, reporter notifications, suggested target dates, resolution feedback and a public aggregate dashboard.
 
+The [October 1 database integrity audit](docs/database-integrity-20261001.md) repaired mixed collations, missing foreign keys and checks in the local database while preserving its data. The original migration checksums remain intact. Keep the private pre-repair backup in `.data/` secure.
+
 Staff features now include persistent in-app notifications, workload-aware assignment recommendations, 90-day recurring-issue detection, explainable priority recommendations and a staged Before & After evidence viewer. See the [implementation and setup report](docs/staff-insights-upgrade.md) and the [September 25 system repairs and verification](docs/verification-20260925.md).
 
 ## Run with XAMPP
