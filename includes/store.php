@@ -107,6 +107,8 @@ final class ComplaintStore
         $user = $this->db->user($id);
         if (!$user) return null;
         $user['active'] = (bool)$user['active'];
+        $user['email_verified'] = (bool)$user['email_verified'];
+        $user['is_system_admin'] = (bool)$user['is_system_admin'];
         $user['must_change_password'] = (bool)$user['must_change_password'];
         return $user;
     }
@@ -114,7 +116,7 @@ final class ComplaintStore
     public function actor(string $id): ?array
     {
         $user = $this->user($id);
-        return $user && $user['active'] && in_array($user['role'], ['resident', 'official', 'personnel'], true) ? $user : null;
+        return $user && $user['active'] && $user['email_verified'] && in_array($user['role'], ['resident', 'official', 'personnel'], true) ? $user : null;
     }
 
     private function authorizeOfficial(string $id): array
@@ -124,9 +126,16 @@ final class ComplaintStore
         return $actor;
     }
 
+    private function authorizeAdmin(string $id): array
+    {
+        $actor = $this->authorizeOfficial($id);
+        if (!$actor['is_system_admin']) throw new DomainException('System administrator access is required.');
+        return $actor;
+    }
+
     public function users(string $officialId): array
     {
-        $this->authorizeOfficial($officialId);
+        $this->authorizeAdmin($officialId);
         return $this->db->users();
     }
 
@@ -150,7 +159,7 @@ final class ComplaintStore
     public function createLocation(string $officialId, array $data): void
     {
         $this->transaction(function () use ($officialId, $data) {
-            $actor = $this->authorizeOfficial($officialId);
+            $actor = $this->authorizeAdmin($officialId);
             $name = ComplaintWorkflow::text($data['name'] ?? '', 'Purok / Sitio name', 120);
             $sort = filter_var($data['sortOrder'] ?? 0, FILTER_VALIDATE_INT);
             if ($sort === false || $sort < 0 || $sort > 10000) throw new DomainException('Use a valid display order.');
@@ -167,7 +176,7 @@ final class ComplaintStore
     public function updateLocation(string $officialId, int $id, array $data, bool $toggle = false): void
     {
         $this->transaction(function () use ($officialId, $id, $data, $toggle) {
-            $actor = $this->authorizeOfficial($officialId);
+            $actor = $this->authorizeAdmin($officialId);
             $current = $this->db->location($id);
             if (!$current) throw new DomainException('Location not found.');
             $name = $toggle ? $current['name'] : ComplaintWorkflow::text($data['name'] ?? '', 'Purok / Sitio name', 120);
@@ -194,7 +203,7 @@ final class ComplaintStore
 
     public function auditLogs(string $officialId, array $filters = [], int $page = 1, int $perPage = 20): array
     {
-        $this->authorizeOfficial($officialId);
+        $this->authorizeAdmin($officialId);
         $allowed = ['date' => '', 'action' => '', 'user' => ''];
         foreach ($allowed as $key => $default) {
             $value = $filters[$key] ?? $default;
@@ -290,7 +299,7 @@ final class ComplaintStore
         return $password;
     }
 
-    private function insertUser(array $data, string $role, string $team = ''): array
+    private function insertUser(array $data, string $role, string $team = '', bool $isAdmin = false): array
     {
         $name = self::name($data['name'] ?? '');
         $email = self::email($data['email'] ?? '');
@@ -300,7 +309,7 @@ final class ComplaintStore
         if ($role !== 'personnel') $team = '';
         $id = 'user-' . bin2hex(random_bytes(12));
         try {
-            $this->db->insertUser($id, $name, $email, password_hash($password, PASSWORD_DEFAULT), $role, $team, date(DATE_ATOM));
+            $this->db->insertUser($id, $name, $email, password_hash($password, PASSWORD_DEFAULT), $role, $team, date(DATE_ATOM), $isAdmin);
         } catch (PDOException $e) {
             if ((int)($e->errorInfo[1] ?? 0) === 1062) throw new DomainException('That email address is already registered.');
             throw $e;
@@ -318,7 +327,7 @@ final class ComplaintStore
             if (PHP_SAPI !== 'cli' && (!is_string($setupKey) || strlen($setupKey) < 32 || !hash_equals($setupKey, $provided))) {
                 throw new DomainException('Initial browser setup requires the configured installation key. Contact the server administrator.');
             }
-            $user = $this->insertUser($data, 'official');
+            $user = $this->insertUser($data, 'official', '', true);
             $this->db->completeSetup();
             $this->db->recordAudit($user, 'official_account_created', 'user', $user['id'], $user['name'], ['initialSetup' => true]);
             return $user;
@@ -327,21 +336,113 @@ final class ComplaintStore
 
     public function register(array $data): array
     {
+        if (PHP_SAPI !== 'cli') throw new DomainException('Use email verification to create a resident account.');
         return $this->transaction(function () use ($data) {
             if ($this->needsSetup()) throw new DomainException('The barangay must finish workspace setup first.');
             return $this->insertUser($data, 'resident');
         });
     }
 
+    public function assignedWorkCounts(string $officialId, string $userId): array
+    {
+        $this->authorizeOfficial($officialId);
+        return $this->db->assignedWorkCounts($userId);
+    }
+
+    public function requestRegistration(array $data, string $client, callable $send): string
+    {
+        $name=self::name($data['name'] ?? '');
+        $email=self::email($data['email'] ?? '');
+        $password=self::password($data['password'] ?? '');
+        $challenge=bin2hex(random_bytes(32));
+        $code=(string)random_int(100000,999999);
+        $recipient=$this->transaction(function() use($name,$email,$password,$client,$challenge,$code) {
+            if ($this->needsSetup()) throw new DomainException('The barangay must finish workspace setup first.');
+            $now=time();
+            $bucket=hash('sha256','registration-ip:'.$client);
+            $this->db->removeOldRegistrationAttempts($now-3600);
+            if ($this->db->registrationAttempts($bucket,$now-3600)>=20) throw new DomainException('Too many registration attempts from this connection. Try again in an hour.');
+            $this->db->recordRegistrationAttempt($bucket,$now);
+            $existing=$this->db->registrationUser($email);
+            if ($existing && ((int)$existing['email_verified'] || $existing['role']!=='resident' || !(int)$existing['active']
+                || !password_verify($password,$existing['password_hash']))) return null;
+            $emailBucket=hash('sha256','registration-email:'.$email);
+            if ($this->db->registrationAttempts($emailBucket,$now-900)>=3 || $now-$this->db->latestRegistrationAttempt($emailBucket)<60) {
+                throw new DomainException('Wait before requesting another code. You can request up to three codes per email in 15 minutes.');
+            }
+            $this->db->recordRegistrationAttempt($emailBucket,$now);
+            $id=$existing['id'] ?? 'user-'.bin2hex(random_bytes(12));
+            if ($existing) $this->db->removeRegistrationChallengeForUser($id);
+            else {
+                try { $this->db->insertPendingResident($id,$name,$email,password_hash($password,PASSWORD_DEFAULT),date(DATE_ATOM)); }
+                catch (PDOException $e) {
+                    if ((int)($e->errorInfo[1] ?? 0)===1062) return null;
+                    throw $e;
+                }
+            }
+            $this->db->createRegistrationChallenge($challenge,$id,password_hash($code,PASSWORD_DEFAULT),$now+600,$now);
+            return $email;
+        });
+        if ($recipient!==null) {
+            try { $send($recipient,$code); }
+            catch (Throwable) { error_log('MaintainPro: registration verification email delivery failed.'); }
+        }
+        return $challenge;
+    }
+
+    public function resendRegistration(string $challenge, string $client, callable $send): void
+    {
+        $code=(string)random_int(100000,999999);
+        $recipient=$this->transaction(function() use($challenge,$client,$code) {
+            $row=$this->db->registrationChallenge($challenge,true);
+            if (!$row || (int)$row['email_verified'] || !(int)$row['active'] || $row['role']!=='resident') return null;
+            $now=time();
+            $bucket=hash('sha256','registration-resend:'.$client);
+            $this->db->removeOldRegistrationAttempts($now-3600);
+            if ($now-(int)$row['sent_at']<60 || $this->db->registrationAttempts($bucket,$now-900)>=10
+                || $this->db->registrationAttempts(hash('sha256','registration-email:'.$row['email']),$now-900)>=3) {
+                throw new DomainException('Wait before requesting another code. You can request up to three codes per email in 15 minutes.');
+            }
+            foreach ([$bucket,hash('sha256','registration-email:'.$row['email'])] as $key) $this->db->recordRegistrationAttempt($key,$now);
+            $this->db->replaceRegistrationCode($challenge,password_hash($code,PASSWORD_DEFAULT),$now+600,$now);
+            return $row['email'];
+        });
+        if ($recipient!==null) {
+            try { $send($recipient,$code); }
+            catch (Throwable) { error_log('MaintainPro: registration verification email delivery failed.'); }
+        }
+    }
+
+    public function verifyRegistration(string $challenge, mixed $code): array
+    {
+        return $this->transaction(function() use($challenge,$code) {
+            $row=$this->db->registrationChallenge($challenge,true);
+            if (!$row || (int)$row['email_verified'] || !(int)$row['active'] || $row['role']!=='resident'
+                || (int)$row['expires_at']<=time() || (int)$row['attempts']>=5) throw new DomainException('The code is incorrect or expired. Request a new code.');
+            $this->db->recordRegistrationCodeAttempt($challenge);
+            if (!is_string($code) || !preg_match('/\A[0-9]{6}\z/',$code) || !password_verify($code,$row['otp_hash'])) {
+                // The attempt must commit even when verification fails.
+                return null;
+            }
+            $this->db->completeRegistration($challenge,$row['user_id']);
+            $user=$this->user($row['user_id']);
+            $this->db->recordAudit($user,'resident_email_verified','user',$user['id'],$user['name'],[]);
+            return $user;
+        }) ?? throw new DomainException('The code is incorrect or expired. Request a new code.');
+    }
+
     public function createUser(string $officialId, array $data): array
     {
         return $this->transaction(function () use ($officialId, $data) {
-            $actor = $this->authorizeOfficial($officialId);
+            $actor = $this->authorizeAdmin($officialId);
             if (!in_array($data['role'] ?? '', ['resident', 'official', 'personnel'], true)) throw new DomainException('Choose a valid account role.');
+            if (isset($data['isAdmin']) && !in_array($data['isAdmin'], ['0', '1'], true)) throw new DomainException('Choose a valid administrator setting.');
+            if ($data['role'] !== 'official' && ($data['isAdmin'] ?? '0') === '1') throw new DomainException('Only an official can receive administrator access.');
+            $isAdmin = $data['role'] === 'official' && ($data['isAdmin'] ?? '0') === '1';
             $temporaryPassword = 'MP-' . bin2hex(random_bytes(10));
-            $user = $this->insertUser(array_replace($data, ['password' => $temporaryPassword]), is_string($data['role'] ?? null) ? $data['role'] : '', is_string($data['team'] ?? null) ? $data['team'] : '');
+            $user = $this->insertUser(array_replace($data, ['password' => $temporaryPassword]), is_string($data['role'] ?? null) ? $data['role'] : '', is_string($data['team'] ?? null) ? $data['team'] : '', $isAdmin);
             $this->db->requirePasswordChange($user['id']);
-            $this->db->recordAudit($actor, $user['role'] . '_account_created', 'user', $user['id'], $user['name'], ['role' => $user['role'], 'team' => $user['team']]);
+            $this->db->recordAudit($actor, $user['role'] . '_account_created', 'user', $user['id'], $user['name'], ['role' => $user['role'], 'team' => $user['team'], 'isSystemAdmin' => $isAdmin]);
             return $this->user($user['id']) + ['temporary_password' => $temporaryPassword];
         });
     }
@@ -367,7 +468,9 @@ final class ComplaintStore
     public function updateUser(string $officialId, string $id, array $data): void
     {
         $this->transaction(function () use ($officialId, $id, $data) {
-            $actor = $this->authorizeOfficial($officialId);
+            $this->db->lockAccountAdministration();
+            $actor = $this->authorizeAdmin($officialId);
+            $this->db->lockedUser($id);
             $user = $this->user($id);
             if (!$user) throw new DomainException('Account not found.');
             $role = $data['role'] ?? '';
@@ -376,8 +479,45 @@ final class ComplaintStore
             if ($role === 'personnel' && !in_array($team, ComplaintWorkflow::TEAMS, true)) throw new DomainException('Choose a personnel team.');
             if (!isset($data['active']) || !in_array($data['active'], ['1', '0'], true)) throw new DomainException('Choose an account status.');
             $active = $data['active'] === '1';
+            if (isset($data['isAdmin']) && !in_array($data['isAdmin'], ['0', '1'], true)) throw new DomainException('Choose a valid administrator setting.');
+            if ($role !== 'official' && ($data['isAdmin'] ?? '0') === '1') throw new DomainException('Only an official can receive administrator access.');
+            $isAdmin = $role === 'official' && ($data['isAdmin'] ?? ($user['is_system_admin'] ? '1' : '0')) === '1';
             if ($id === $officialId && (!$active || $role !== 'official')) throw new DomainException('You cannot deactivate or remove official access from your own account.');
-            $this->db->updateUser($id, $role, $team, $active);
+            if ($id === $officialId && !$isAdmin) throw new DomainException('You cannot remove administrator access from your own account.');
+            if ($user['active'] && $user['is_system_admin'] && (!$active || !$isAdmin || $role !== 'official') && $this->db->activeAdminCount() <= 1) throw new DomainException('Assign another active system administrator before removing the last one.');
+            $reassigned=['concerns'=>0,'actionPlans'=>0];
+            if ($user['role']==='personnel' && (!$active || $role!=='personnel' || $team!==$user['team'])) {
+                $concerns=$this->db->activeAssignedConcerns($id);
+                $plans=$this->db->activeAssignedPlans($id);
+                if ($concerns || $plans) {
+                    $replacementId=$data['reassignTo'] ?? '';
+                    if (!is_string($replacementId) || $replacementId==='' || $replacementId===$id) {
+                        throw new DomainException('This account still has '.count($concerns).' active concern(s) and '.count($plans).' active action plan(s). Choose another active personnel account to reassign all work before changing this account.');
+                    }
+                    $this->db->lockedUser($replacementId);
+                    $replacement=$this->user($replacementId);
+                    if (!$replacement || !$replacement['active'] || $replacement['role']!=='personnel' || !filter_var($replacement['email'],FILTER_VALIDATE_EMAIL)) {
+                        throw new DomainException('Choose another active personnel account with a valid email address.');
+                    }
+                    foreach ($concerns as $row) {
+                        $before=self::decodeConcern($row);
+                        $changed=ComplaintWorkflow::reassignActiveWork($before,$actor,$replacement);
+                        $this->db->updateComplaint($changed,$before['version']);
+                        (new ConcernNotifications($this->db))->changed($changed,$before,'assign');
+                        $this->db->recordAudit($actor,'assignment_changed','concern',$changed['id'],$changed['id'],['from'=>$id,'to'=>$replacementId,'accountChange'=>true]);
+                        $reassigned['concerns']++;
+                    }
+                    foreach ($plans as $plan) {
+                        $this->db->reassignActivePlan((int)$plan['id'],$id,$replacementId,$replacement['team'],(int)$plan['version']);
+                        $this->db->createPlanNotification($replacementId,'plan_assignment','Action plan assigned','Action plan #'.$plan['id'].' has been reassigned to you.',(int)$plan['id'],'plan:'.$plan['id'].':account-reassign:'.$plan['version']);
+                        $this->db->createPlanNotification($id,'plan_reassigned','Action plan reassigned','Action plan #'.$plan['id'].' is no longer assigned to you.',(int)$plan['id'],'plan:'.$plan['id'].':account-moved:'.$plan['version']);
+                        $this->db->recordAudit($actor,'action_plan_reassigned','action_plan',(string)$plan['id'],'Action plan #'.$plan['id'],['from'=>$id,'to'=>$replacementId,'accountChange'=>true]);
+                        $reassigned['actionPlans']++;
+                    }
+                    $this->db->recordAudit($actor,'personnel_work_reassigned','user',$id,$user['name'],['to'=>$replacementId]+$reassigned);
+                }
+            }
+            $this->db->updateUser($id, $role, $team, $active, $isAdmin);
             $name = self::name($data['name'] ?? $user['name']);
             $email = self::email($data['email'] ?? $user['email']);
             try { $this->db->updateAccountIdentity($id, $name, $email); }
@@ -393,9 +533,11 @@ final class ComplaintStore
             if ($role !== $user['role']) $changes['role'] = ['from' => $user['role'], 'to' => $role];
             if ($team !== $user['team']) $changes['team'] = ['from' => $user['team'], 'to' => $team];
             if ($active !== (bool)$user['active']) $changes['active'] = ['from' => (bool)$user['active'], 'to' => $active];
+            if ($isAdmin !== $user['is_system_admin']) $changes['isSystemAdmin'] = ['from' => $user['is_system_admin'], 'to' => $isAdmin];
             if ($name !== $user['name']) $changes['nameChanged'] = true;
             if ($email !== $user['email']) $changes['emailChanged'] = true;
             if ($changes) {
+                if ($reassigned['concerns'] || $reassigned['actionPlans']) $changes['reassignedWork']=$reassigned;
                 $action = isset($changes['active']) ? ($active ? 'account_activated' : 'account_deactivated')
                     : (isset($changes['role']) ? 'role_changed' : (isset($changes['team']) ? 'team_changed' : 'account_updated'));
                 $this->db->recordAudit($actor, $action, 'user', $id, $name, $changes);
@@ -491,18 +633,24 @@ final class ComplaintStore
 
     public function verifyPasswordReset(string $challenge, mixed $code): string
     {
-        $token = $this->transaction(function () use ($challenge, $code) {
+        $result = $this->transaction(function () use ($challenge, $code) {
             $row = $this->db->resetRequest($challenge);
-            if (!$row || $row['reset_token_hash'] !== null || (int)$row['expires_at'] <= time() || (int)$row['attempts'] >= 5) return null;
+            if (!$row || $row['reset_token_hash'] !== null) return ['error' => 'This verification code is no longer available. Please request a new code.'];
+            if ((int)$row['expires_at'] <= time()) return ['error' => 'This verification code has expired. Please request a new code.'];
+            if ((int)$row['attempts'] >= 5) return ['error' => 'Too many incorrect attempts. Please request a new verification code.'];
             $this->db->recordResetAttempt($challenge);
-            if (!is_string($code) || !preg_match('/\A[0-9]{6}\z/', $code) || !password_verify($code, $row['otp_hash'])) return null;
+            if (!is_string($code) || !preg_match('/\A[0-9]{6}\z/', $code) || !password_verify($code, $row['otp_hash'])) {
+                return ['error' => (int)$row['attempts'] + 1 >= 5
+                    ? 'Too many incorrect attempts. Please request a new verification code.'
+                    : 'The verification code is incorrect. Please try again.'];
+            }
             $token = bin2hex(random_bytes(32));
             $this->db->grantPasswordReset($challenge, hash('sha256', $token), time() + 600);
-            return $token;
+            return ['token' => $token];
         });
         // Reject after commit so failed attempts cannot be rolled back.
-        if ($token === null) throw new DomainException('The code is incorrect, expired, or no longer available. Request a new code if needed.');
-        return $token;
+        if (isset($result['error'])) throw new DomainException($result['error']);
+        return $result['token'];
     }
 
     public function resetPassword(string $challenge, string $token, array $data): void
@@ -604,6 +752,7 @@ final class ComplaintStore
             unset($data['_assignee'], $data['_location'], $data['_primary'], $data['_residentGuidance'], $data['_suggestions']);
             if ($action === 'assign') {
                 $assignedId = $data['personnelId'] ?? '';
+                if (is_string($assignedId)) $this->db->lockedUser($assignedId);
                 $assigned = is_string($assignedId) ? $this->user($assignedId) : null;
                 if (!$assigned || !$assigned['active'] || $assigned['role'] !== 'personnel' || !filter_var($assigned['email'], FILTER_VALIDATE_EMAIL)) throw new DomainException('Choose active personnel with a valid email address.');
                 $data['_assignee'] = $assigned;
@@ -859,7 +1008,7 @@ final class ComplaintStore
     public function generateBackup(string $officialId): array
     {
         return $this->transaction(function () use ($officialId) {
-            $actor = $this->authorizeOfficial($officialId);
+            $actor = $this->authorizeAdmin($officialId);
             $content = $this->db->sqlBackup();
             $this->db->recordAudit($actor, 'database_backup_generated', 'system', null, 'MaintainPro database', ['bytes' => strlen($content)]);
             return ['filename' => 'maintainpro-' . date('Ymd-His') . '.sql', 'content' => $content];
@@ -871,7 +1020,7 @@ final class ComplaintStore
         $temporary=null;
         try {
             return $this->transaction(function() use($officialId,&$temporary) {
-                $actor=$this->authorizeOfficial($officialId);
+                $actor=$this->authorizeAdmin($officialId);
                 $base=tempnam(sys_get_temp_dir(),'maintainpro-backup-');
                 if ($base===false) throw new RuntimeException('Cannot create a private backup file.');
                 unlink($base);

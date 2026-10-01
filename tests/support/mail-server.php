@@ -62,6 +62,11 @@ final class TestMailServer
         return array_map(fn($line) => json_decode($line, true, 16, JSON_THROW_ON_ERROR), file($this->inbox, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES));
     }
 
+    public function inboxPath(): string
+    {
+        return $this->inbox;
+    }
+
     public function stop(): void
     {
         if (is_resource($this->process)) { proc_terminate($this->process); proc_close($this->process); }

@@ -27,7 +27,7 @@ function br_mailer(): PHPMailer
         || (!$auth && !$local)
         || !in_array($config['encryption'], $local ? ['tls', 'ssl', 'none'] : ['tls', 'ssl'], true)
         || !filter_var($config['port'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 65535]])) {
-        throw new MailConfigurationException('Password reset email is temporarily unavailable. Please contact an official.');
+        throw new MailConfigurationException("We couldn't send the verification code right now. Please try again later.");
     }
     $mail = new PHPMailer(true);
     $mail->isSMTP();
@@ -49,7 +49,7 @@ function br_mailer(): PHPMailer
 function br_send_reset_code(PHPMailer $mail, string $email, string $code): void
 {
     $mail->addAddress($email);
-    $mail->Subject = 'MaintainPro password reset code';
+    $mail->Subject = 'MaintainPro Password Reset Code';
     $mail->isHTML(true);
     $mail->Body = '<h2>Reset your MaintainPro password</h2><p>Your one-time code is:</p>'
         . '<p style="font-size:32px;font-weight:bold;letter-spacing:6px">' . htmlspecialchars($code, ENT_QUOTES, 'UTF-8') . '</p>'
@@ -58,6 +58,17 @@ function br_send_reset_code(PHPMailer $mail, string $email, string $code): void
     $mail->AltBody = "Your MaintainPro password reset code is: $code\n\n"
         . "It expires in 10 minutes. Enter it in the browser where you requested the reset.\n"
         . 'If you did not request this, ignore this email. Your password has not changed. Do not share this code.';
+    $mail->send();
+}
+
+function br_send_registration_code(PHPMailer $mail, string $email, string $code): void
+{
+    $mail->addAddress($email);
+    $mail->Subject = 'Verify your MaintainPro resident account';
+    $mail->isHTML(true);
+    $safe=htmlspecialchars($code,ENT_QUOTES,'UTF-8');
+    $mail->Body='<h2>Verify your resident account</h2><p>Your six-digit code is:</p><p style="font-size:32px;font-weight:bold;letter-spacing:6px">'.$safe.'</p><p>The code expires in 10 minutes. Enter it in the browser where you registered. If you did not register, ignore this email.</p>';
+    $mail->AltBody="Your MaintainPro verification code is: $code\nIt expires in 10 minutes. If you did not register, ignore this email.";
     $mail->send();
 }
 

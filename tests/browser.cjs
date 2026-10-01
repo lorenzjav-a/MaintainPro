@@ -58,7 +58,7 @@ async function tab() {
   const auth = async (action, fields) => {
     for (const [key, value] of Object.entries(fields)) await fill('#auth-form [name="' + key + '"]', value);
     await click('#auth-form button[type="submit"]');
-    await until(() => evaluate('document.readyState === "complete" && (!!document.querySelector(".shell") || document.querySelector("#auth-form")?.dataset.action === "change_password")'), action);
+    await until(() => evaluate('document.readyState === "complete" && (!!document.querySelector(".shell") || document.querySelector("#auth-form")?.dataset.action === "change_password" || ('+JSON.stringify(action)+' === "register" && document.querySelector("#auth-form")?.dataset.action === "verify_registration"))'), action);
   };
   const screenshot = async name => {
     name = name.replace(/[^a-z0-9_-]/gi, '-');
@@ -315,6 +315,17 @@ async function tab() {
     await resident.go('login.php?view=register');
     await resident.screenshot('resident-register-desktop');
     await resident.auth('register', {name:'Browser Resident', email:'resident@example.test', password, confirm_password:password});
+    check(await resident.evaluate('document.querySelector("#auth-form")?.dataset.action === "verify_registration"'), 'resident must verify email before dashboard');
+    const registrationCode=await until(() => {
+      const messages=fs.readFileSync(process.env.BR_TEST_MAILBOX,'utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
+      const code=messages.at(-1)?.body.match(/\b([0-9]{6})\b/)?.[1];
+      return code || false;
+    },'resident verification email');
+    await resident.fill('#auth-form [name="code"]',registrationCode);
+    await resident.click('#auth-form button[type="submit"]');
+    await until(()=>resident.evaluate('!!document.querySelector(".shell,.swal2-html-container")'),'resident verification result');
+    const verificationError=await resident.evaluate('document.querySelector(".swal2-html-container")?.textContent || ""');
+    if (verificationError) throw new Error('Resident verification failed: '+verificationError);
     check(await resident.evaluate('document.querySelector("h1").textContent === "Resident dashboard"'), 'resident dashboard restored');
     for (const [client, role] of [[resident,'resident'],[personnel,'personnel'],[official,'official']]) {
       await client.go('report-concern.php');
@@ -413,6 +424,15 @@ async function tab() {
     await official.screenshot('notifications-mobile');
     await personnel.go('complaints.php'); check(await personnel.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'mobile work queue fits');
     for (const page of ['admin.php','settings.php','audit.php','blocked.php','official-solutions.php','action-plans.php']) { await official.go(page); check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth'), page+' fits mobile'); await official.screenshot(page.replace('.php','')+'-mobile'); }
+    await guest.go('login.php?view=forgot');
+    await guest.fill('#auth-form [name=email]','official@example.test');
+    await guest.click('#auth-form button[type=submit]');
+    await until(()=>guest.evaluate('document.querySelector("#auth-form")?.dataset.action === "verify_reset"'),'reset verification screen');
+    check(await guest.evaluate('document.getElementById("resend-code").disabled && document.getElementById("resend-code").textContent.includes("Resend code in")'),'reset resend countdown starts disabled');
+    const initialCountdown=await guest.evaluate('document.getElementById("resend-code").textContent');
+    await until(()=>guest.evaluate('document.getElementById("resend-code").textContent !== '+JSON.stringify(initialCountdown)),'reset countdown changes');
+    check(await guest.evaluate('document.getElementById("resend-code").disabled'),'reset resend stays disabled while cooling down');
+    await guest.screenshot('reset-verify-mobile');
     check(await guest.evaluate('(async()=>{const r=await fetch("api.php");return r.status;})()') === 401, 'guest remains anonymous');
     check(await official.evaluate('(async()=>{const r=await fetch("api.php");return (await r.json()).actor.role;})()') === 'official', 'isolated official session');
     check(await personnel.evaluate('(async()=>{const r=await fetch("api.php");return (await r.json()).actor.role;})()') === 'personnel', 'isolated personnel session');

@@ -12,7 +12,7 @@
     fetch('auth.php', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf}, body: JSON.stringify({action: action, data: data})})
       .then(function (response) { return response.json().then(function (body) { if (!response.ok) throw new Error(body.error || 'Please try again.'); return body; }); })
       .then(function (body) {
-        var destinations = ['index.php', 'login.php', 'login.php?view=verify', 'login.php?view=reset', 'login.php?view=change-password'];
+        var destinations = ['index.php', 'login.php', 'login.php?view=verify', 'login.php?view=reset', 'login.php?view=change-password', 'login.php?view=verify-registration'];
         window.location.assign(destinations.indexOf(body.redirect) >= 0 ? body.redirect : 'login.php');
       })
       .catch(function (err) { Swal.fire({icon: 'error', title: 'Unable to continue', text: err.message, confirmButtonText: 'Try again'}); })
@@ -21,6 +21,7 @@
         document.body.classList.remove('app-busy');
         document.getElementById('auth-form').removeAttribute('aria-busy');
         buttons.forEach(function (button) { button.disabled = false; });
+        updateResetResend();
       });
   }
   document.getElementById('auth-form').addEventListener('submit', function (event) {
@@ -34,9 +35,22 @@
     send(event.target.getAttribute('data-action'), data);
   });
   var resend = document.getElementById('resend-code');
+  var resendReadyAt = resend ? Date.now() + Math.max(0, Number(resend.dataset.seconds) || 0) * 1000 : 0;
+  function updateResetResend() {
+    if (!resend) return;
+    var remaining = Math.max(0, Math.ceil((resendReadyAt - Date.now()) / 1000));
+    resend.disabled = busy || remaining > 0;
+    resend.textContent = remaining > 0
+      ? 'Resend code in ' + String(Math.floor(remaining / 60)).padStart(2, '0') + ':' + String(remaining % 60).padStart(2, '0')
+      : 'Resend Code';
+  }
+  updateResetResend();
+  if (resend) window.setInterval(updateResetResend, 1000);
+  var resendRegistration = document.getElementById('resend-registration');
   var signOut = document.getElementById('account-signout');
   if (signOut) signOut.addEventListener('click', function () { send('logout', {}); });
   if (resend) resend.addEventListener('click', function () { send('request_reset', {}); });
+  if (resendRegistration) resendRegistration.addEventListener('click', function () { send('resend_registration', {}); });
   var showPassword = document.getElementById('show-password');
   if (showPassword) showPassword.addEventListener('change', function (event) {
     document.getElementById('account-password').type = event.target.checked ? 'text' : 'password';

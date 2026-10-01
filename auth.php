@@ -32,6 +32,7 @@ try {
             $_SESSION['br_reset_challenge'] = $challenge;
             $_SESSION['br_reset_email'] = strtolower(trim($email));
             $_SESSION['br_reset_until'] = time() + 600;
+            $_SESSION['br_reset_sent_at'] = time();
             $_SESSION['br_csrf'] = bin2hex(random_bytes(32));
             echo json_encode(['ok' => true, 'redirect' => 'login.php?view=verify']);
             exit;
@@ -44,6 +45,11 @@ try {
             echo json_encode(['ok' => true, 'redirect' => 'login.php?view=reset']);
             exit;
         case 'reset_password':
+            if (!isset($_SESSION['br_reset_challenge'], $_SESSION['br_reset_token']) || ($_SESSION['br_reset_verified_until'] ?? 0) <= time()) {
+                unset($_SESSION['br_reset_token'], $_SESSION['br_reset_verified_until']);
+                echo json_encode(['ok' => true, 'redirect' => 'login.php?view=forgot']);
+                exit;
+            }
             br_store()->resetPassword($_SESSION['br_reset_challenge'] ?? '', $_SESSION['br_reset_token'] ?? '', $data);
             $_SESSION = ['br_csrf' => bin2hex(random_bytes(32)), 'br_password_reset_done' => true];
             session_regenerate_id(true);
@@ -58,8 +64,24 @@ try {
             br_enter_account(br_store()->changeTemporaryPassword($actor['id'], $data));
             break;
         case 'register':
-            br_enter_account(br_store()->register($data));
-            break;
+            $mailer=br_mailer();
+            $_SESSION['br_registration_challenge']=br_store()->requestRegistration($data,$_SERVER['REMOTE_ADDR'] ?? 'local',
+                fn(string $recipient,string $code)=>br_send_registration_code($mailer,$recipient,$code));
+            session_regenerate_id(true);
+            $_SESSION['br_csrf']=bin2hex(random_bytes(32));
+            echo json_encode(['ok'=>true,'redirect'=>'login.php?view=verify-registration']);
+            exit;
+        case 'resend_registration':
+            $mailer=br_mailer();
+            br_store()->resendRegistration($_SESSION['br_registration_challenge'] ?? '',$_SERVER['REMOTE_ADDR'] ?? 'local',
+                fn(string $recipient,string $code)=>br_send_registration_code($mailer,$recipient,$code));
+            echo json_encode(['ok'=>true,'redirect'=>'login.php?view=verify-registration']);
+            exit;
+        case 'verify_registration':
+            br_enter_account(br_store()->verifyRegistration($_SESSION['br_registration_challenge'] ?? '',$data['code'] ?? null));
+            unset($_SESSION['br_registration_challenge']);
+            echo json_encode(['ok'=>true,'redirect'=>'index.php']);
+            exit;
         case 'setup':
             br_enter_account(br_store()->setup($data, $_SERVER['REMOTE_ADDR'] ?? ''));
             break;

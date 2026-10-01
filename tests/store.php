@@ -74,7 +74,9 @@ try {
     denied(fn() => $store->submitGuest($report + ['website' => 'spam'], 'honeypot'), 'honeypot');
     for ($i = 0; $i < 5; $i++) denied(fn() => $store->login('updated@example.test', 'wrong', 'login-limit'), 'wrong login');
     denied(fn() => $store->login('updated@example.test', 'Staff-password-42', 'login-limit'), 'login throttle');
-    $store->updateUser($admin['id'], $staff['id'], ['role' => 'personnel', 'team' => 'Maintenance crew', 'active' => '0']);
+    $replacement = $store->createUser($admin['id'], ['name' => 'Replacement Worker', 'email' => 'replacement@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew']);
+    denied(fn() => $store->updateUser($admin['id'], $staff['id'], ['role' => 'personnel', 'team' => 'Maintenance crew', 'active' => '0']), 'active assignments require a replacement');
+    $store->updateUser($admin['id'], $staff['id'], ['role' => 'personnel', 'team' => 'Maintenance crew', 'active' => '0', 'reassignTo' => $replacement['id']]);
     check($store->actor($staff['id']) === null, 'deactivated actor denied');
     denied(fn() => $store->mutate($staff['id'], 'start', $id, [], 3), 'deactivated writes denied');
     denied(fn() => $store->mutate($admin['id'], 'assign', $id, ['personnelId' => $staff['id']], 4), 'cannot assign inactive personnel');

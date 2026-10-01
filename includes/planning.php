@@ -98,6 +98,7 @@ trait ConcernPlanning
         if (!in_array($team,ComplaintWorkflow::TEAMS,true)) throw new DomainException('Choose a responsible team.');
         $personnel=ComplaintWorkflow::text($data['personnelId'] ?? '', 'Assigned personnel',64,false);
         if ($personnel!=='') {
+            $this->db->lockedUser($personnel);
             $user=$this->actor($personnel);
             if (!$user || $user['role']!=='personnel' || $user['team']!==$team) throw new DomainException('Choose active personnel from the responsible team.');
         }
@@ -124,6 +125,7 @@ trait ConcernPlanning
                 if ($existing!==null) return $existing;
                 $id=$this->db->createActionPlan([$rule['id'],$rule['category'],$rule['concern_type'],$rule['keypoint'],$rule['action_text'],$title,$notes,$team,$personnel,$actor['id'],ConcernInsights::week()['date'],$date,'',time(),time(),hash('sha256',$actor['id'].':'.$key)]);
                 $action='weekly_action_plan_created'; $changes=['status'=>'Planned'];
+                if ($personnel) $this->db->createPlanNotification($personnel,'plan_assignment','Action plan assigned','Action plan #'.$id.' has been assigned to you.',$id,'plan:'.$id.':assigned:1');
             } else {
                 $before=$this->db->actionPlan($id);
                 $version=filter_var($data['version'] ?? null,FILTER_VALIDATE_INT);
@@ -135,6 +137,12 @@ trait ConcernPlanning
                 $this->db->updateActionPlan($id,[$title,$notes,$team,$personnel,$date,$status,$completed,$outcome,time()],$version);
                 $action='weekly_action_plan_updated';
                 $changes=['previousStatus'=>$before['status'],'status'=>$status,'previousTeam'=>$before['team'],'team'=>$team,'previousPersonnel'=>$before['assigned_user_id'],'personnel'=>$personnel,'targetDate'=>$date];
+                if ($before['assigned_user_id'] && $before['assigned_user_id']!==$personnel) {
+                    $this->db->createPlanNotification($before['assigned_user_id'],'plan_reassigned','Action plan reassigned','Action plan #'.$id.' is no longer assigned to you.',$id,'plan:'.$id.':reassigned:'.$version);
+                }
+                if ($personnel && ($before['assigned_user_id']!==$personnel || $before['status']!==$status || $before['target_date']!==$date || $before['notes']!==$notes)) {
+                    $this->db->createPlanNotification($personnel,'plan_updated','Action plan updated','Action plan #'.$id.' has new assignment details.',$id,'plan:'.$id.':updated:'.$version);
+                }
             }
             $this->db->recordAudit($actor,$action,'action_plan',(string)$id,$title,$changes);
             return $id;
@@ -145,6 +153,66 @@ trait ConcernPlanning
     {
         $this->authorizeOfficial($officialId);
         return $this->db->actionPlan($id);
+    }
+
+    public function visibleActionPlan(string $actorId, int $id): ?array
+    {
+        $actor=$this->actor($actorId);
+        if (!$actor || $actor['must_change_password']) return null;
+        $plan=$this->db->actionPlan($id);
+        if (!$plan || ($actor['role']!=='official' && ($actor['role']!=='personnel' || $plan['assigned_user_id']!==$actorId))) return null;
+        $plan['progress']=$this->db->actionPlanProgress($id);
+        return $plan;
+    }
+
+    public function myActionPlans(string $personnelId, string $status='', int $page=1): array
+    {
+        $actor=$this->actor($personnelId);
+        if (!$actor || $actor['must_change_password'] || $actor['role']!=='personnel') throw new DomainException('Personnel account required.');
+        if ($status!=='' && !in_array($status,['Planned','Ongoing','Completed','Cancelled'],true)) throw new DomainException('Choose a valid status.');
+        return $this->db->personnelActionPlans($personnelId,$status,$page,20);
+    }
+
+    public function savePersonnelActionPlan(string $personnelId, int $id, array $data): void
+    {
+        $this->transaction(function() use($personnelId,$id,$data) {
+            $actor=$this->actor($personnelId);
+            if (!$actor || $actor['must_change_password'] || $actor['role']!=='personnel') throw new DomainException('Personnel account required.');
+            $plan=$this->db->lockedActionPlan($id);
+            if (!$plan || $plan['assigned_user_id']!==$personnelId) throw new DomainException('Action plan unavailable.');
+            $version=filter_var($data['version'] ?? null,FILTER_VALIDATE_INT);
+            if ($version!==(int)$plan['version']) throw new ConflictException('This action plan changed. Reload before saving.');
+            $step=$data['step'] ?? '';
+            $from=$plan['status'];
+            $to=match($step) {
+                'start' => $from==='Planned' ? 'Ongoing' : null,
+                'progress' => $from==='Ongoing' ? 'Ongoing' : null,
+                'complete' => $from==='Ongoing' ? 'Completed' : null,
+                default => null,
+            };
+            if ($to===null) throw new DomainException('This action plan is not ready for that update.');
+            $note=ComplaintWorkflow::text($data['note'] ?? '', 'Progress note',4000,$step!=='start');
+            if ($note==='') $note='Work started';
+            $evidence=null;
+            if (($data['photo'] ?? '')!=='') {
+                $evidence=EvidenceStorage::storeDataUri($data['photo'],$data['photoName'] ?? '');
+                $this->pendingEvidence[]=$evidence['file_path'];
+            }
+            $outcome=$step==='complete' ? $note : null;
+            if (!$this->db->updatePersonnelPlan($id,$personnelId,$from,$to,$outcome,$version)) throw new ConflictException('This action plan changed. Reload before saving.');
+            $this->db->insertPlanProgress($id,$actor,$note,$evidence);
+            $this->db->recordAudit($actor,'action_plan_'.$step,'action_plan',(string)$id,$plan['title'],['statusFrom'=>$from,'statusTo'=>$to,'evidence'=>$evidence!==null]);
+            if ($step==='complete') foreach ($this->db->officialIds() as $official) {
+                $this->db->createPlanNotification($official,'plan_completed','Action plan completed','Action plan #'.$id.' was completed by assigned personnel.',$id,'plan:'.$id.':completed:'.$version,false);
+            }
+        });
+    }
+
+    public function planEvidenceRecord(string $actorId, string $evidenceId): ?array
+    {
+        $actor=$this->actor($actorId);
+        if (!$actor || $actor['must_change_password']) return null;
+        return $this->db->planEvidence($evidenceId,$actorId) ?: null;
     }
 
     public function selectedOfficialRule(string $officialId, int $id): ?array

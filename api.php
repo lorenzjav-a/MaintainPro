@@ -8,7 +8,7 @@ function payload(): array
     return [
         'mode' => 'account', 'actor' => $actor,
         'cases' => br_store()->recentConcerns($actor['id'], 50),
-        'users' => $actor['role'] === 'official' ? br_store()->users($actor['id']) : [],
+        'users' => $actor['is_system_admin'] ? br_store()->users($actor['id']) : [],
         'categories' => array_values(array_unique(array_merge(array_keys(ConcernCatalog::TYPES), ComplaintWorkflow::CATEGORIES))), 'teams' => ComplaintWorkflow::TEAMS,
         'statuses' => ComplaintWorkflow::STATUSES, 'priorities' => ComplaintWorkflow::PRIORITIES,
         'submissionAllowance' => br_store()->submissionAllowance($actor['id']),
@@ -105,6 +105,9 @@ try {
     } elseif (in_array($action,['create_action_plan','update_action_plan'],true)) {
         if ($action==='update_action_plan' && !preg_match('/\A[1-9][0-9]{0,17}\z/',$id)) throw new DomainException('Invalid action plan.');
         $id=(string)br_store()->saveActionPlan($actor['id'],$action==='create_action_plan'?0:(int)$id,$data);
+    } elseif ($action==='personnel_action_plan') {
+        if (!preg_match('/\A[1-9][0-9]{0,17}\z/',$id)) throw new DomainException('Invalid action plan.');
+        br_store()->savePersonnelActionPlan($actor['id'],(int)$id,$data);
     } elseif ($action==='dismiss_duplicate') {
         br_store()->dismissDuplicate($actor['id'],$id,$data);
     } elseif ($action==='submit_feedback') {

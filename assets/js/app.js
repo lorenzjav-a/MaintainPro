@@ -145,11 +145,12 @@
           : action === 'update_user' ? 'users.php'
           : action === 'save_official_rules' ? 'official-solutions.php'
           : ['create_action_plan','update_action_plan'].includes(action) ? 'action-plans.php'
+          : action === 'personnel_action_plan' ? 'my-action-plans.php'
           : ['save_rule', 'reset_rule'].includes(action) ? 'solutions.php'
           : ['create_location', 'update_location', 'toggle_location'].includes(action) ? 'settings.php'
           : 'complaint.php';
         var query = new URLSearchParams({saved: action});
-        if (destination === 'complaint.php' || destination === 'action-plans.php') query.set('id', result.id || id);
+        if (destination === 'complaint.php' || destination === 'action-plans.php' || destination === 'my-action-plans.php') query.set('id', result.id || id);
         if (action === 'save_official_rules') { query.set('category',data.category); query.set('type',data.concernType); query.set('keypoint',data.keypoint); }
         navigating = true;
         window.location.assign(destination + '?' + query.toString());
@@ -231,6 +232,8 @@
     if (role) {
       document.getElementById('user-team-wrap').hidden = role.value !== 'personnel';
       document.getElementById('user-team').required = role.value === 'personnel';
+      document.getElementById('user-admin-wrap').hidden = role.value !== 'official';
+      document.getElementById('user-admin').disabled = role.value !== 'official' || document.getElementById('user-admin').dataset.self === '1';
     }
   }
   document.addEventListener('change', function (event) {

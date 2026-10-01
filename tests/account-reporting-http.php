@@ -1,9 +1,11 @@
 <?php
 declare(strict_types=1);
 if (!isset($testDatabase, $adminJar)) throw new RuntimeException('Run through tests/http.php.');
-$reporterJar = jar(); $reporterCsrf = token($reporterJar, 'login.php?view=register');
+require_once dirname(__DIR__).'/includes/store.php';
+$reporterJar = jar(); $reporterCsrf = token($reporterJar, 'login.php');
 $newResident = ['name' => 'Reporting Resident HTTP', 'email' => 'reporter@example.test', 'password' => $password, 'confirm_password' => $password, 'role' => 'official'];
-httpCheck(auth($reporterJar, 'register', $newResident, $reporterCsrf)['status'] === 200, 'resident registration restored');
+(new ComplaintStore($testDatabase->connect()))->register($newResident);
+httpCheck(auth($reporterJar,'login',$newResident,$reporterCsrf)['status']===200,'existing resident signs in for reporting');
 $reporterCsrf = token($reporterJar);
 $reporter = req($reporterJar, 'api.php')['json']['actor'];
 httpCheck($reporter['role'] === 'resident', 'registration ignores forged role');

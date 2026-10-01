@@ -7,16 +7,19 @@ if ($page === 'complaints' && ($scope ?? '') === 'mine' && $actor['role'] !== 'r
 if ($actor['role'] === 'official') $links[] = ['assessment', 'complaints.php?tab=assessment', 'Needs assessment', 'clipboard', $metrics['assessment']];
 $records = [['history', 'history.php', 'Resolution history', 'clock', null]];
 $records[] = ['notifications', 'notifications.php', 'Notifications', 'bell', null];
+if ($actor['role'] === 'personnel') $records[] = ['my-action-plans', 'my-action-plans.php', 'My action plans', 'clipboard', null];
 if ($actor['role'] === 'official') {
-    $records[] = ['admin', 'admin.php', 'Administration', 'shield', null];
+    if ($actor['is_system_admin']) $records[] = ['admin', 'admin.php', 'Administration', 'shield', null];
     $records[] = ['reports', 'reports.php', 'Reports & insights', 'chart', null];
     $records[] = ['solutions', 'solutions.php', 'Solution library', 'book', null];
     $records[] = ['official-solutions', 'official-solutions.php', 'Official action library', 'book', null];
     $records[] = ['action-plans', 'action-plans.php', 'Weekly action plans', 'clipboard', null];
-    $records[] = ['users', 'users.php', 'User management', 'users', null];
+    if ($actor['is_system_admin']) $records[] = ['users', 'users.php', 'User management', 'users', null];
     $records[] = ['blocked', 'blocked.php', 'Blocked work', 'tool', null];
-    $records[] = ['settings', 'settings.php', 'Workspace settings', 'building', null];
-    $records[] = ['audit', 'audit.php', 'Audit history', 'clock', null];
+    if ($actor['is_system_admin']) {
+        $records[] = ['settings', 'settings.php', 'Workspace settings', 'building', null];
+        $records[] = ['audit', 'audit.php', 'Audit history', 'clock', null];
+    }
 }
 ?>
 <aside class="sidebar" id="workspace-sidebar" aria-label="Main navigation">

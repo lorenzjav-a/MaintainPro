@@ -2,7 +2,7 @@
 declare(strict_types=1);
 require __DIR__.'/includes/page.php';
 $context=br_page('action-plans',['official']); extract($context);
-$plan=br_query('id')!=='' ? br_store()->actionPlan($actor['id'],(int)br_query('id')) : null;
+$plan=br_query('id')!=='' ? br_store()->visibleActionPlan($actor['id'],(int)br_query('id')) : null;
 if (br_query('id')!=='' && !$plan) br_page_error($context,404,'Action plan unavailable','Choose a saved action plan.');
 $rule=br_query('rule')!=='' ? br_store()->selectedOfficialRule($actor['id'],(int)br_query('rule')) : null;
 if (br_query('rule')!=='' && (!$rule || !$rule['active'])) br_page_error($context,422,'Suggested action unavailable','Choose an active action from Weekly Top Concerns.');
@@ -26,6 +26,10 @@ $selected=$plan ?? $rule;
 <?php if($plan): ?><label class="form-label">Result / outcome notes (required when completed)<textarea class="form-control" name="outcome" maxlength="4000" rows="3"><?= h($plan['outcome']) ?></textarea></label><p class="form-text">Created <?= h(date('M j, Y',(int)$plan['created_at'])) ?><?= $plan['completed_at']?' · Completed '.h(date('M j, Y',(int)$plan['completed_at'])):'' ?></p><?php endif ?>
 <button type="submit" class="btn btn-primary"><?= $plan?'Save action plan':'Create planned action' ?></button>
 </form></div></section><?php endif ?>
+<?php if ($plan): ?><section class="panel mb-4"><div class="panel-header"><h2 class="panel-title">Personnel progress</h2></div><div class="panel-body">
+<?php foreach ($plan['progress'] as $update): ?><div class="activity-item"><div><strong><?= h($update['actor_name']) ?></strong><p class="form-text"><?= h(date('M j, Y g:i A',(int)$update['created_at'])) ?></p><p><?= nl2br(h($update['note'])) ?></p><?php if ($update['evidence_id']): ?><a href="<?= h(br_url('evidence.php',['id'=>$update['evidence_id']])) ?>" target="_blank" rel="noopener">View work evidence</a><?php endif ?></div></div><?php endforeach ?>
+<?php if (!$plan['progress']): ?><p class="form-text">No personnel updates yet.</p><?php endif ?>
+</div></section><?php endif ?>
 <section class="panel"><div class="panel-header"><h2 class="panel-title">Action plan history</h2></div><div class="panel-body">
 <form method="get" class="row g-3 align-items-end mb-3"><div class="col-md-4"><label class="form-label">Status<select class="form-select" name="status"><?php br_options(['Planned','Ongoing','Completed','Cancelled'],br_query('status'),'All statuses'); ?></select></label></div><div class="col-md-4"><label class="form-label">Week beginning<input type="date" class="form-control" name="week" value="<?= h(br_query('week')) ?>"></label></div><div class="col-md-4"><button class="btn btn-light" type="submit">Apply filters</button></div></form>
 <?php require __DIR__.'/includes/components/action-plan-list.php'; br_pagination('action-plans.php',$plans,['status'=>br_query('status'),'week'=>br_query('week')]); ?>

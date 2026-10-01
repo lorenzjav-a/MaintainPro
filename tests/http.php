@@ -89,7 +89,21 @@ try {
         return; // The finally block still removes the disposable database/server.
     }
     $guestCsrf = token($guestJar, 'report-concern.php');
-    httpCheck(auth($guestJar, 'register', $adminData, $guestCsrf)['status'] === 422, 'resident registration rejects duplicate email');
+    $duplicateJar=jar();
+    $mailBefore=count($mailServer->messages());
+    $duplicate=auth($duplicateJar,'register',$adminData,token($duplicateJar,'login.php?view=register'));
+    httpCheck($duplicate['status']===200 && $duplicate['json']['redirect']==='login.php?view=verify-registration'
+        && count($mailServer->messages())===$mailBefore,'duplicate email receives generic registration response without mail');
+    $verificationJar=jar();
+    $registrationData=['name'=>'Email Verified Resident','email'=>'verified@example.test','password'=>$password,'confirm_password'=>$password];
+    httpCheck(auth($verificationJar,'register',$registrationData,token($verificationJar,'login.php?view=register'))['status']===200,'resident registration creates pending account');
+    httpCheck(req($verificationJar,'api.php')['status']===401,'pending resident has no account session');
+    httpCheck(auth($verificationJar,'login',$registrationData,token($verificationJar,'login.php'))['status']===422,'pending resident cannot sign in');
+    $verificationMail=$mailServer->messages();
+    preg_match('/\b([0-9]{6})\b/',end($verificationMail)['body'] ?? '',$verificationMatch);
+    httpCheck(auth($verificationJar,'verify_registration',['code'=>'000000'],token($verificationJar,'login.php?view=verify-registration'))['status']===422,'wrong registration code refused');
+    httpCheck(auth($verificationJar,'verify_registration',['code'=>$verificationMatch[1] ?? ''],token($verificationJar,'login.php?view=verify-registration'))['status']===200
+        && req($verificationJar,'api.php')['json']['actor']['role']==='resident','verified resident gains account access');
     httpCheck(req($guestJar, 'api.php')['status'] === 401, 'anonymous private API denied');
     httpCheck(req($guestJar, 'public-api.php')['status'] === 405, 'public API POST only');
     $public = fn(string $action, array $data, ?string $csrf = null) => req($guestJar, 'public-api.php', ['action' => $action, 'data' => $data], $csrf ?? $guestCsrf);
@@ -133,8 +147,9 @@ try {
     $assignment = post($adminJar, 'assign', ['personnelId' => $staffId], $adminCsrf, $id, 2);
     httpCheck($assignment['status'] === 200 && $assignment['json']['notification_sent'] === true, 'assignment email success');
     $mail = $mailServer->messages();
-    httpCheck(count($mail) === 1 && str_contains($mail[0]['recipient'], 'staff@example.test') && str_contains($mail[0]['body'], $id), 'SMTP recipient and reference');
-    httpCheck(!str_contains($mail[0]['body'], 'PRIVATE') && !str_contains($mail[0]['body'], 'INTERNAL'), 'assignment mail minimizes private data');
+    $assignmentMail=end($mail);
+    httpCheck(count($mail) === 2 && str_contains($assignmentMail['recipient'], 'staff@example.test') && str_contains($assignmentMail['body'], $id), 'SMTP recipient and reference');
+    httpCheck(!str_contains($assignmentMail['body'], 'PRIVATE') && !str_contains($assignmentMail['body'], 'INTERNAL'), 'assignment mail minimizes private data');
     httpCheck(count(req($staffJar, 'api.php')['json']['cases']) === 1 && count(req($otherJar, 'api.php')['json']['cases']) === 0, 'same-team isolation');
     $png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=';
     $work = ['workStatus' => 'Inspection completed', 'actions' => ['Inspection'], 'photo' => $png];
@@ -192,12 +207,18 @@ try {
     // Exercise the preserved OTP recovery through the real local SMTP path.
     $resetJar = jar(); $resetCsrf = token($resetJar, 'login.php?view=forgot');
     httpCheck(auth($resetJar, 'request_reset', ['email' => 'staff@example.test'], $resetCsrf)['status'] === 200, 'reset request SMTP');
+    $verifyScreen = req($resetJar, 'login.php?view=verify');
+    httpCheck(str_contains($verifyScreen['body'], 'Verify your email') && preg_match('/id="resend-code"[^>]*data-seconds="[0-9]+"[^>]*disabled/', $verifyScreen['body']) === 1, 'verification page displays disabled resend countdown');
+    httpCheck(auth($resetJar, 'request_reset', [], token($resetJar, 'login.php?view=verify'))['status'] === 422, 'direct resend cannot bypass server cooldown');
     $mail = $mailServer->messages();
+    httpCheck(str_contains(end($mail)['body'] ?? '', 'MaintainPro Password Reset Code'), 'PHPMailer sends recovery subject through SMTP');
     preg_match('/\b([0-9]{6})\b/', end($mail)['body'], $match); $otp = $match[1] ?? '';
     httpCheck(strlen($otp) === 6, 'OTP received');
     $resetCsrf = token($resetJar, 'login.php?view=verify');
     httpCheck(auth($resetJar, 'verify_reset', ['code' => $otp], $resetCsrf)['status'] === 200, 'OTP verified');
     httpCheck(auth($resetJar, 'reset_password', ['password' => 'Recovered-password-42', 'confirm_password' => 'Recovered-password-42'], token($resetJar, 'login.php?view=reset'))['status'] === 200, 'password reset');
+    $replay = auth($resetJar, 'reset_password', ['password' => 'Another-password-42', 'confirm_password' => 'Another-password-42'], token($resetJar, 'login.php'));
+    httpCheck($replay['status'] === 200 && $replay['json']['redirect'] === 'login.php?view=forgot', 'used browser reset grant redirects to recovery');
     httpCheck(req($staffJar, 'api.php')['status'] === 401, 'reset revokes sessions');
     httpCheck(auth($resetJar, 'login', ['email' => 'staff@example.test', 'password' => 'Recovered-password-42'], token($resetJar, 'login.php'))['status'] === 200, 'recovered staff login');
     httpCheck(post($adminJar, 'reopen', ['feedback' => 'Needs further work'], $adminCsrf, $id, 7)['status'] === 200, 'official reopens');
@@ -210,6 +231,16 @@ try {
     require __DIR__ . '/extended-http.php';
     require __DIR__ . '/account-reporting-http.php';
     require __DIR__ . '/system-upgrade-http.php';
+    $limitedOfficial = post($adminJar, 'create_user', ['name' => 'Limited Official', 'email' => 'limited-official@example.test', 'role' => 'official'], $adminCsrf)['json']['created_account'];
+    $limitedJar = jar();
+    httpCheck(auth($limitedJar, 'login', ['email' => $limitedOfficial['email'], 'password' => $limitedOfficial['temporary_password']], token($limitedJar, 'login.php'))['status'] === 200, 'standard official signs in');
+    httpCheck(auth($limitedJar, 'change_password', ['current_password' => $limitedOfficial['temporary_password'], 'password' => $password, 'confirm_password' => $password], token($limitedJar, 'login.php'))['status'] === 200, 'standard official finishes onboarding');
+    $limitedCsrf = token($limitedJar);
+    foreach (['admin.php', 'users.php', 'user-create.php', 'settings.php', 'audit.php'] as $restricted) httpCheck(req($limitedJar, $restricted)['status'] === 403, 'standard official blocked from ' . $restricted);
+    httpCheck(req($limitedJar, 'reports.php')['status'] === 200, 'standard official keeps operational analytics');
+    httpCheck(req($limitedJar, 'api.php')['json']['users'] === [], 'standard official API does not disclose account directory');
+    httpCheck(post($limitedJar, 'create_user', ['name' => 'Denied', 'email' => 'denied@example.test', 'role' => 'resident'], $limitedCsrf)['status'] === 422, 'standard official cannot create accounts through API');
+    httpCheck(req($limitedJar, 'backup.php')['status'] === 403, 'standard official blocked from backup endpoint');
     foreach (['.data/before-anonymous-20260921.sql', 'includes/store.php', 'config/mail.local.php', 'database/migrations/20260921_anonymous_concerns.sql', 'vendor/phpmailer/src/PHPMailer.php', 'tests/store.php', 'tools/check-mail.php', '%63onfig/mail.local.php'] as $path) httpCheck(req($guestJar, $path)['status'] === 404, 'private path ' . $path);
     $testDatabase->assertHealthyLog();
     httpCheck(!preg_match('/(?:Fatal error|Warning|Notice):/', file_get_contents($serverLog)), 'no PHP runtime diagnostics');

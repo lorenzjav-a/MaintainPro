@@ -8,6 +8,7 @@ $id = $_GET['id'] ?? '';
 if (!is_string($id) || !preg_match('/\A[a-f0-9]{32}\z/', $id)) { http_response_code(404); exit; }
 $store = br_store();
 $record = method_exists($store, 'evidenceRecord') ? $store->evidenceRecord($actor['id'], $id) : null;
+if (!$record) $record=$store->planEvidenceRecord($actor['id'],$id);
 if (is_array($record)) {
     $file = EvidenceStorage::storedFile(is_string($record['file_path'] ?? null) ? $record['file_path'] : '');
     if ($file === null || (!empty($record['mime_type']) && $record['mime_type'] !== $file['mime_type'])) {

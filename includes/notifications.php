@@ -89,5 +89,23 @@ final class ConcernNotifications
             $this->db->createNotification($row['assigned_user_id'],$type,$title,$message,$row['id'],$key);
             if ($overdue) $this->officials($row,$type,$title,$message,$key);
         }
+        $today=date('Y-m-d');
+        $through=date('Y-m-d',time()+$hours*3600);
+        $afterId=0;
+        do {
+        $batch=$this->db->dueActionPlans($through,$afterId);
+        foreach ($batch as $plan) {
+            $afterId=(int)$plan['id'];
+            $overdue=$plan['target_date']<$today;
+            $type=$overdue?'plan_overdue':'plan_due_soon';
+            $title=$overdue?'Action plan overdue':'Action plan due soon';
+            $message='Action plan #'.$plan['id'].($overdue?' is past its target date.':' is approaching its target date.');
+            $key='plan:'.$plan['id'].':'.$plan['target_date'].':'.$plan['assigned_user_id'].':'.$type;
+            $this->db->createPlanNotification($plan['assigned_user_id'],$type,$title,$message,(int)$plan['id'],$key);
+            if ($overdue) foreach ($this->db->officialIds() as $official) {
+                $this->db->createPlanNotification($official,$type,$title,$message,(int)$plan['id'],$key,false);
+            }
+        }
+        } while (count($batch)===500);
     }
 }

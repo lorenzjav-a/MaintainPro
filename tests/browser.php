@@ -28,6 +28,7 @@ try {
     if (!is_file($runtime)) throw new RuntimeException('Set BR_TEST_NODE to Node.js 22+ (or a compatible Electron executable).');
     $environment = getenv();
     $environment['BR_TEST_URL'] = 'http://' . $address;
+    $environment['BR_TEST_MAILBOX'] = $mailServer->inboxPath();
     $environment['ELECTRON_RUN_AS_NODE'] = '1';
     $environment['BR_TEST_ACCOUNTS_ONLY'] = in_array('--accounts-only', array_slice($argv, 1), true) ? '1' : '0';
     $runner = proc_open([$runtime, __DIR__ . '/browser.cjs'], [0 => ['pipe', 'r'], 1 => STDOUT, 2 => STDERR], $runnerPipes, dirname(__DIR__), $environment, ['bypass_shell' => true, 'create_no_window' => true]);

@@ -16,6 +16,10 @@ function resetDenied(callable $call, string $label): void {
     try { $call(); } catch (DomainException $e) { resetCheck(true, $label); return; }
     throw new RuntimeException('FAIL: expected rejection: ' . $label);
 }
+function resetDeniedWith(callable $call, string $expected, string $label): void {
+    try { $call(); } catch (DomainException $e) { resetCheck(str_contains($e->getMessage(), $expected), $label); return; }
+    throw new RuntimeException('FAIL: expected rejection: ' . $label);
+}
 $messages = [];
 $send = function (string $email, string $code) use (&$messages) { $messages[] = compact('email', 'code'); };
 $old = 'Original-password-42';
@@ -52,15 +56,16 @@ try {
     $fixtures->clearResetRate();
     $id = $store->requestPasswordReset($user['email'], 'five-attempts', $send);
     $code = end($messages)['code'];
-    for ($i = 0; $i < 5; $i++) resetDenied(fn() => $store->verifyPasswordReset($id, '000000'), 'incorrect OTP attempt');
-    resetDenied(fn() => $store->verifyPasswordReset($id, $code), 'correct OTP rejected after five failures');
+    for ($i = 0; $i < 4; $i++) resetDenied(fn() => $store->verifyPasswordReset($id, '000000'), 'incorrect OTP attempt');
+    resetDeniedWith(fn() => $store->verifyPasswordReset($id, '000000'), 'Too many incorrect attempts', 'fifth wrong code explains lockout');
+    resetDeniedWith(fn() => $store->verifyPasswordReset($id, $code), 'Too many incorrect attempts', 'correct OTP rejected after five failures');
     resetCheck((int)$fixtures->reset($id)['attempts'] === 5, 'attempt cap persists');
 
     $fixtures->clearResetRate();
     $id = $store->requestPasswordReset($user['email'], 'expiry', $send);
     $code = end($messages)['code'];
     $fixtures->expireResetCodes();
-    resetDenied(fn() => $store->verifyPasswordReset($id, $code), 'expired OTP rejected');
+    resetDeniedWith(fn() => $store->verifyPasswordReset($id, $code), 'expired', 'expired OTP rejected with recovery guidance');
     $fixtures->clearResetRate();
     $id = $store->requestPasswordReset($user['email'], 'grant-expiry', $send);
     $token = $store->verifyPasswordReset($id, end($messages)['code']);

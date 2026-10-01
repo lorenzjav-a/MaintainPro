@@ -20,6 +20,7 @@ function br_page(string $page, array $roles = []): array
         'complaints' => match ($actor['role']) {'official' => 'All concerns', 'resident' => 'My concerns', default => 'Work queue'},
         'history' => 'Resolution history', 'reports' => 'Reports & insights', 'solutions' => 'Solution library',
         'admin' => 'Administration', 'official-solutions' => 'Official action library', 'action-plans' => 'Weekly action plans',
+        'my-action-plans' => 'My action plans',
         'users' => 'User management', 'profile' => 'My profile', 'complaint' => 'Concern details',
         'notifications' => 'Notifications',
         'settings' => 'Workspace settings', 'audit' => 'Audit history', 'blocked' => 'Blocked work',
@@ -27,6 +28,7 @@ function br_page(string $page, array $roles = []): array
     ];
     $context = ['actor' => $actor, 'page' => $page, 'pageTitle' => $titles[$page], 'titles' => $titles];
     if ($roles && !in_array($actor['role'], $roles, true)) br_page_error($context, 403, 'Access denied', 'Your account does not have access to this page.');
+    if (in_array($page, ['admin','users','user-create','user-edit','settings','audit'], true) && !$actor['is_system_admin']) br_page_error($context, 403, 'Access denied', 'System administrator access is required.');
     // Apply the same individual-assignment rules as the API.
     $lightweight = !in_array($page, ['reports','solutions'], true);
     $context['cases'] = $lightweight ? [] : br_store()->visibleConcerns($actor['id']);

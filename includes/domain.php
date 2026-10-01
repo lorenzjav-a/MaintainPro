@@ -69,6 +69,18 @@ final class ComplaintWorkflow
         $c['updatedAt'] = $date;
     }
 
+    public static function reassignActiveWork(array $c, array $official, array $replacement): array
+    {
+        self::guard($official['role']==='official' && $replacement['role']==='personnel' && $replacement['active']
+            && in_array($c['status'],['Assigned','In Progress'],true),'Choose an active personnel account for assigned work.');
+        $c['assignedUserId']=$replacement['id'];
+        $c['assignedName']=$replacement['name'];
+        $c['team']=$replacement['team'];
+        $c['version']++;
+        self::event($c,$official,'Personnel assignment updated','Account management reassigned this work to '.$replacement['name'].' / '.$replacement['team'].'.');
+        return $c;
+    }
+
     public static function submit(array &$state, array $actor, array $data): string
     {
         if (!in_array($actor['role'], ['guest', 'resident', 'official', 'personnel'], true)) throw new DomainException('Sign in to report a concern.');
