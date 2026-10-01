@@ -106,6 +106,89 @@
     });
   }
   var followup = document.getElementById('public-followup'), followupPanel = document.getElementById('followup-panel');
+  var guestPanel = document.getElementById('guest-conversation'), guestThread = document.getElementById('guest-message-thread');
+  var guestForm = document.getElementById('guest-message-form'), guestLast = 0, guestBusy = false, guestOpen = false, guestPanelOpen = false;
+  var guestLauncher = document.getElementById('guest-chat-launcher'), guestBadge = document.getElementById('guest-chat-badge');
+  async function loadGuestStatus() {
+    if (!guestOpen || document.visibilityState !== 'visible') return;
+    try {
+      var status = (await send('chat_status', values(track))).status;
+      guestBadge.textContent = String(status.unread);
+      guestBadge.hidden = !status.unread;
+      document.getElementById('guest-chat-hint').hidden = !status.unread || guestPanelOpen;
+      guestLauncher.setAttribute('aria-label', status.unread ? 'Open concern conversation, ' + status.unread + ' new messages available' : 'Open concern conversation');
+      guestLauncher.hidden = false;
+      if (!guestPanelOpen) document.getElementById('guest-conversation-heading').textContent = status.unread ? 'Conversation · New messages available' : 'Conversation';
+    } catch (error) { /* The verified tracking form can be tried again. */ }
+  }
+  function guestHide(reset) {
+    guestPanelOpen = false; guestPanel.hidden = true; guestLauncher.setAttribute('aria-expanded', 'false');
+    document.getElementById('guest-chat-hint').hidden = guestBadge.hidden;
+    if (reset) { guestThread.replaceChildren(); guestLast = 0; }
+  }
+  if (guestLauncher) guestLauncher.addEventListener('click', function () {
+    if (!guestOpen) return;
+    if (guestPanelOpen) guestHide(false);
+    else { guestPanelOpen = true; guestPanel.hidden = false; guestLauncher.setAttribute('aria-expanded', 'true'); document.getElementById('guest-chat-hint').hidden = true; loadGuestMessages(); }
+  });
+  var minimizeGuest = document.getElementById('guest-chat-minimize'), closeGuest = document.getElementById('guest-chat-close');
+  if (minimizeGuest) minimizeGuest.addEventListener('click', function () { guestHide(false); });
+  if (closeGuest) closeGuest.addEventListener('click', function () { guestHide(true); });
+  function appendGuestMessage(message, older) {
+    if (guestThread.querySelector('[data-message-id="' + Number(message.id) + '"]')) return;
+    var card = node('article', '', 'message-entry'); card.dataset.messageId = Number(message.id);
+    var meta = node('div', '', 'message-meta');
+    meta.append(node('strong', message.sender_name), node('span', message.sender_role, 'role-pill'), node('time', new Date(Number(message.created_at) * 1000).toLocaleString()));
+    card.append(meta, node('p', message.body));
+    var empty = guestThread.querySelector('.message-empty'); if (empty) empty.remove();
+    if (older) guestThread.prepend(card);
+    else { guestThread.append(card); guestLast = Math.max(guestLast, Number(message.id)); guestThread.scrollTop = guestThread.scrollHeight; }
+  }
+  async function loadGuestMessages() {
+    if (!guestOpen || !guestPanelOpen || guestBusy || document.visibilityState !== 'visible') return;
+    guestBusy = true;
+    try {
+      var result = (await send('conversation', Object.assign({}, values(track), {after: guestLast}))).conversation;
+      (result.items || []).forEach(function (message) { appendGuestMessage(message, false); });
+      if (guestLast && guestThread.querySelectorAll('[data-message-id]').length === result.items.length) document.getElementById('guest-load-older').hidden = result.items.length < 50;
+      if (!guestLast && !result.items.length) guestThread.append(node('p', 'No messages yet. Start the conversation by sending an update.', 'form-text message-empty'));
+      guestForm.hidden = !result.canSend;
+      document.getElementById('guest-message-closed').hidden = result.canSend;
+      var heading = document.getElementById('guest-conversation-heading');
+      heading.textContent = 'Conversation' + (result.unread ? ' (' + result.unread + ' new)' : '');
+      document.getElementById('guest-message-error').hidden = true;
+      guestPanel.hidden = false;
+      guestBadge.textContent = String(result.remainingUnread || 0);
+      guestBadge.hidden = !result.remainingUnread;
+      document.getElementById('guest-chat-hint').hidden = true;
+    } catch (error) {
+      var box = document.getElementById('guest-message-error'); box.textContent = error.message; box.hidden = false;
+      guestPanel.hidden = false;
+      guestForm.hidden = true;
+    } finally { guestBusy = false; }
+  }
+  var guestOlder = document.getElementById('guest-load-older');
+  if (guestOlder) guestOlder.addEventListener('click', async function () {
+    var first = guestThread.querySelector('[data-message-id]'); if (!first) return;
+    guestOlder.disabled = true;
+    try {
+      var result = (await send('older_messages', Object.assign({}, values(track), {before: Number(first.dataset.messageId)}))).conversation;
+      (result.items || []).forEach(function (message) { appendGuestMessage(message, true); });
+      guestOlder.hidden = result.items.length < 50;
+    } catch (error) { var box = document.getElementById('guest-message-error'); box.textContent = error.message; box.hidden = false; }
+    finally { guestOlder.disabled = false; }
+  });
+  if (guestForm) guestForm.addEventListener('submit', async function (event) {
+    event.preventDefault(); if (guestBusy || !guestOpen) return;
+    guestBusy = true; var button = guestForm.querySelector('button[type=submit]'); button.disabled = true;
+    var error = document.getElementById('guest-message-error'); error.hidden = true;
+    try { await send('send_message', Object.assign({}, values(track), {body: guestForm.elements.body.value})); guestForm.reset(); }
+    catch (cause) { error.textContent = cause.message; error.hidden = false; }
+    finally { guestBusy = false; button.disabled = false; }
+    await loadGuestMessages();
+  });
+  setInterval(function () { if (guestPanelOpen) loadGuestMessages(); else loadGuestStatus(); }, 15000);
+  document.addEventListener('visibilitychange', function () { if (guestPanelOpen) loadGuestMessages(); else loadGuestStatus(); });
   function renderTracking(result) {
     var panel = document.getElementById('tracking-result');
     panel.replaceChildren();
@@ -140,10 +223,12 @@
     event.preventDefault(); if (busy) return; busy = true;
     var errorBox = document.getElementById('public-error'), panel = document.getElementById('tracking-result'), button = track.querySelector('button');
     errorBox.hidden = true; panel.hidden = true; panel.replaceChildren(); button.disabled = true;
+    if (guestPanel) { guestHide(true); guestLauncher.hidden = true; document.getElementById('guest-chat-hint').hidden = true; guestOpen = false; document.getElementById('guest-load-older').hidden = true; }
     if (followupPanel) followupPanel.hidden = true;
     try {
       var result = (await send('track', values(track))).concern;
       renderTracking(result);
+      if (guestPanel) { guestOpen = true; await loadGuestStatus(); }
     } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
     finally { busy = false; button.disabled = false; }
   });

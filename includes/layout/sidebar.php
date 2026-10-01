@@ -7,6 +7,7 @@ if ($page === 'complaints' && ($scope ?? '') === 'mine' && $actor['role'] !== 'r
 if ($actor['role'] === 'official') $links[] = ['assessment', 'complaints.php?tab=assessment', 'Needs assessment', 'clipboard', $metrics['assessment']];
 $records = [['history', 'history.php', 'Resolution history', 'clock', null]];
 $records[] = ['notifications', 'notifications.php', 'Notifications', 'bell', null];
+if ($actor['role'] !== 'resident') $records[] = ['messages', 'messages.php', 'Messages', 'inbox', $messageCounts['staff'] ?? 0];
 if ($actor['role'] === 'personnel') $records[] = ['my-action-plans', 'my-action-plans.php', 'My action plans', 'clipboard', null];
 if ($actor['role'] === 'official') {
     if ($actor['is_system_admin']) $records[] = ['admin', 'admin.php', 'Administration', 'shield', null];

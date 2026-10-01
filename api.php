@@ -37,6 +37,27 @@ try {
             echo json_encode(br_store()->notifications($actor['id']), JSON_THROW_ON_ERROR);
             exit;
         }
+        if (($_GET['view'] ?? '') === 'chat_overview') {
+            $query=is_string($_GET['q'] ?? null)?$_GET['q']:'';
+            echo json_encode(br_store()->chatOverview($actor['id'],$query),JSON_THROW_ON_ERROR);
+            exit;
+        }
+        if (($_GET['view'] ?? '') === 'concern_messages') {
+            $id=is_string($_GET['id'] ?? null)?$_GET['id']:'';
+            $after=filter_var($_GET['after'] ?? 0,FILTER_VALIDATE_INT);
+            $before=isset($_GET['before'])?filter_var($_GET['before'],FILTER_VALIDATE_INT):null;
+            if (!preg_match('/\ACON-[0-9]{4}-[0-9]{6,}\z/',$id) || $after===false || $after<0 || ($before!==null && ($before===false || $before<1))) throw new DomainException('Invalid conversation request.');
+            echo json_encode($before===null?br_store()->concernConversation($actor['id'],$id,$after):br_store()->olderConcernConversation($actor['id'],$id,$before),JSON_THROW_ON_ERROR);
+            exit;
+        }
+        if (($_GET['view'] ?? '') === 'staff_messages') {
+            $id=filter_var($_GET['id'] ?? null,FILTER_VALIDATE_INT);
+            $after=filter_var($_GET['after'] ?? 0,FILTER_VALIDATE_INT);
+            $before=isset($_GET['before'])?filter_var($_GET['before'],FILTER_VALIDATE_INT):null;
+            if (!$id || $id<1 || $after===false || $after<0 || ($before!==null && ($before===false || $before<1))) throw new DomainException('Invalid conversation request.');
+            echo json_encode($before===null?br_store()->staffConversationPage($actor['id'],$id,$after):br_store()->olderStaffConversation($actor['id'],$id,$before),JSON_THROW_ON_ERROR);
+            exit;
+        }
         if (($_GET['view'] ?? '') === 'weekly') {
             if ($actor['role'] !== 'official') { http_response_code(403); throw new DomainException('Only barangay officials can view weekly analytics.'); }
             echo json_encode(br_store()->weeklyConcerns($actor['id']), JSON_THROW_ON_ERROR);
@@ -108,6 +129,21 @@ try {
     } elseif ($action==='personnel_action_plan') {
         if (!preg_match('/\A[1-9][0-9]{0,17}\z/',$id)) throw new DomainException('Invalid action plan.');
         br_store()->savePersonnelActionPlan($actor['id'],(int)$id,$data);
+    } elseif ($action==='send_concern_message') {
+        if (!preg_match('/\ACON-[0-9]{4}-[0-9]{6,}\z/',$id)) throw new DomainException('Invalid concern.');
+        $message=br_store()->sendConcernMessage($actor['id'],$id,$data);
+        echo json_encode(['ok'=>true]+$message,JSON_THROW_ON_ERROR);
+        exit;
+    } elseif ($action==='create_staff_conversation') {
+        $conversationId=br_store()->createStaffConversation($actor['id'],$data);
+        echo json_encode(['ok'=>true,'id'=>$conversationId,'redirect'=>'messages.php?id='.$conversationId],JSON_THROW_ON_ERROR);
+        exit;
+    } elseif ($action==='send_staff_message') {
+        $conversationId=filter_var($id,FILTER_VALIDATE_INT);
+        if (!$conversationId || $conversationId<1) throw new DomainException('Invalid staff conversation.');
+        $message=br_store()->sendStaffMessage($actor['id'],$conversationId,$data);
+        echo json_encode(['ok'=>true]+$message,JSON_THROW_ON_ERROR);
+        exit;
     } elseif ($action==='dismiss_duplicate') {
         br_store()->dismissDuplicate($actor['id'],$id,$data);
     } elseif ($action==='submit_feedback') {

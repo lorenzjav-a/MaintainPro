@@ -29,6 +29,8 @@
         });
       });
   }
+  window.MaintainProNotifications = {read: read, update: update};
+  document.addEventListener('maintainpro:notifications', function (event) { if (event.detail) update(event.detail); });
   document.addEventListener('click', function (event) {
     var link = event.target.closest('[data-notification-link]');
     var button = event.target.closest('[data-notification-read], [data-notification-read-all]');
@@ -44,7 +46,9 @@
     event.preventDefault();
     var id = link ? link.dataset.notificationLink : button.dataset.notificationRead;
     if (button) button.disabled = true;
-    read(id).then(function () { if (link) window.location.assign(link.href); })
+    var chatUrl = link ? new URL(link.href, location.href) : null;
+    var destination = chatUrl && (chatUrl.searchParams.get('open_chat') === '1' || chatUrl.hash === '#conversation') && window.MaintainProChat ? window.MaintainProChat.target({target_url: link.href}) : null;
+    read(id).then(function () { if (link) { if (destination) window.MaintainProChat.open(destination.kind,destination.id); else window.location.assign(link.href); } })
       .catch(function (error) { Swal.fire({icon:'error', title:'Unable to update notification', text:error.message}); })
       .finally(function () { if (button) button.disabled = false; });
   });

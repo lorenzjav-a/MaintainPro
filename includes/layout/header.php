@@ -16,6 +16,8 @@
   <script src="assets/js/app.js?v=<?= filemtime(__DIR__ . '/../../assets/js/app.js') ?>" defer></script>
   <script src="assets/js/public.js?v=<?= filemtime(__DIR__ . '/../../assets/js/public.js') ?>" defer></script>
   <script src="assets/js/notifications.js?v=<?= filemtime(__DIR__ . '/../../assets/js/notifications.js') ?>" defer></script>
+  <script src="assets/js/messages.js?v=<?= filemtime(__DIR__ . '/../../assets/js/messages.js') ?>" defer></script>
+  <script src="assets/js/chat-widget.js?v=<?= filemtime(__DIR__ . '/../../assets/js/chat-widget.js') ?>" defer></script>
 </head>
 <body data-page="<?= h($page) ?>">
 <a class="visually-hidden-focusable skip-link" href="#main-content">Skip to main content</a>

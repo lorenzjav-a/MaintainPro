@@ -12,7 +12,7 @@ $files = [];
 // Explicit entry points keep future development scripts out of releases.
 $entrypoints = ['action-plans','admin','api','audit','auth','backup','blocked','complaint',
     'complaints','concern','concerns','evidence','history','index','landing','login',
-    'my-action-plans','new-complaint','notifications','official-solutions','profile',
+    'messages','my-action-plans','new-complaint','notifications','official-solutions','profile',
     'public-api','report-concern','reports','router','settings','solutions','track',
     'transparency','user-create','user-edit','users'];
 foreach ($entrypoints as $entrypoint) {

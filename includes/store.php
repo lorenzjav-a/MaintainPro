@@ -5,12 +5,14 @@ require_once dirname(__DIR__) . '/database/database.php';
 require_once __DIR__ . '/notifications.php';
 require_once __DIR__ . '/evidence-storage.php';
 require_once __DIR__ . '/planning.php';
+require_once __DIR__ . '/messaging.php';
 
 final class ConflictException extends DomainException {}
 
 final class ComplaintStore
 {
     use ConcernPlanning;
+    use ConcernMessaging;
     private MaintainProDatabase $db;
     private array $pendingEvidence = [];
 
@@ -782,6 +784,7 @@ final class ComplaintStore
             // Link and blocked-work metadata already live in this concern and its audit timeline.
             // Save them atomically instead of maintaining a second, inconsistent copy.
             $this->db->updateComplaint($c, $before['version']);
+            if ($action === 'reopen') $this->db->insertConcernMessage($id,null,'system','MaintainPro','reporter','Concern reopened.');
             (new ConcernNotifications($this->db))->changed($c, $before, $action);
             if (in_array($action,['assess','edit'],true)) $this->notifyDuplicateSuggestions($c);
             if (($before['dueAt'] ?? null)!==($c['dueAt'] ?? null)) $this->db->recordAudit($actor,'target_date_changed','concern',$id,$id,['before'=>$before['dueAt'] ?? null,'after'=>$c['dueAt'] ?? null]);
@@ -886,7 +889,9 @@ final class ComplaintStore
     public function publicLimit(string $purpose, string $client): void
     {
         $reporting = in_array($purpose, ['report', 'followup', 'setup'], true);
-        $allowed = $this->transaction(fn() => $this->db->recordPublicAttempt(hash('sha256', $purpose . '|' . $client), $reporting ? 5 : 40, $reporting ? 3600 : 900));
+        $limit = match ($purpose) {'guest_message' => 12, 'staff_message' => 30, 'message_poll' => 100, default => $reporting ? 5 : 40};
+        $window = in_array($purpose,['staff_message'],true) ? 60 : ($reporting ? 3600 : 900);
+        $allowed = $this->transaction(fn() => $this->db->recordPublicAttempt(hash('sha256', $purpose . '|' . $client), $limit, $window));
         if (!$allowed) throw new DomainException('Too many requests. Please try again later.');
     }
 

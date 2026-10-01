@@ -25,6 +25,10 @@ try {
         'submit' => ['receipt' => br_store()->submitGuest($data, $client)],
         'track' => ['concern' => br_store()->track($data['reference'] ?? '', $data['trackingCode'] ?? '', $client)],
         'followup' => ['concern' => br_store()->submitFollowup($data, $client)],
+        'conversation' => ['conversation' => br_store()->guestConversation($data['reference'] ?? null,$data['trackingCode'] ?? null,$client,filter_var($data['after'] ?? 0,FILTER_VALIDATE_INT) ?: 0)],
+        'chat_status' => ['status' => br_store()->guestChatStatus($data['reference'] ?? null,$data['trackingCode'] ?? null,$client)],
+        'older_messages' => ['conversation' => br_store()->olderGuestConversation($data['reference'] ?? null,$data['trackingCode'] ?? null,$client,filter_var($data['before'] ?? null,FILTER_VALIDATE_INT) ?: 0)],
+        'send_message' => ['message' => br_store()->sendGuestMessage($data,$client)],
         default => throw new DomainException('Unknown public action.'),
     };
     echo json_encode(['ok' => true] + $result, JSON_THROW_ON_ERROR);

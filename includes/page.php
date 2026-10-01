@@ -21,6 +21,7 @@ function br_page(string $page, array $roles = []): array
         'history' => 'Resolution history', 'reports' => 'Reports & insights', 'solutions' => 'Solution library',
         'admin' => 'Administration', 'official-solutions' => 'Official action library', 'action-plans' => 'Weekly action plans',
         'my-action-plans' => 'My action plans',
+        'messages' => 'Staff messages',
         'users' => 'User management', 'profile' => 'My profile', 'complaint' => 'Concern details',
         'notifications' => 'Notifications',
         'settings' => 'Workspace settings', 'audit' => 'Audit history', 'blocked' => 'Blocked work',
@@ -48,6 +49,7 @@ function br_page(string $page, array $roles = []): array
     }
     $context['metrics'] = br_metrics($context['cases']);
     if ($lightweight) $context['metrics'] = br_store()->metrics($actor['id'],$context['scope']==='mine');
+    $context['messageCounts'] = br_store()->messageCounts($actor['id']);
     return $context;
 }
 

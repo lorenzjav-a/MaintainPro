@@ -337,7 +337,7 @@ final class MaintainProDatabase
             WHERE n.user_id=? AND (?=0 OR n.id<?) ORDER BY n.id DESC LIMIT 30', [$actor['id'],$before,$before])->fetchAll();
         foreach ($rows as &$row) {
             // A historical assignment message does not restore access after reassignment.
-            if ($actor['role'] !== 'official' && $row['assigned_user_id'] !== $actor['id'] && $row['resident_id'] !== $actor['id']) $row['target_url'] = 'concerns.php';
+            if ($row['related_concern_id'] !== null && $actor['role'] !== 'official' && $row['assigned_user_id'] !== $actor['id'] && $row['resident_id'] !== $actor['id']) $row['target_url'] = 'concerns.php';
             unset($row['assigned_user_id'],$row['resident_id']);
         }
         unset($row);
@@ -461,6 +461,197 @@ final class MaintainProDatabase
     public function insertUser(string $id, string $name, string $email, string $hash, string $role, string $team, string $createdAt, bool $isAdmin = false): void
     {
         $this->run('INSERT INTO users(id,name,email,password_hash,role,team,created_at,is_system_admin) VALUES(?,?,?,?,?,?,?,?)', [$id, $name, $email, $hash, $role, $team, $createdAt,(int)$isAdmin]);
+    }
+
+    public function markChatNotificationsRead(string $user, string $kind, string $id): void
+    {
+        if ($kind==='concern') {
+            $this->run("UPDATE notifications SET is_read=1,read_at=COALESCE(read_at,?) WHERE user_id=? AND type='concern_message' AND related_concern_id=? AND is_read=0",[time(),$user,$id]);
+        } else {
+            $this->run("UPDATE notifications SET is_read=1,read_at=COALESCE(read_at,?) WHERE user_id=? AND type='staff_message' AND target_url IN (?,?) AND is_read=0",[time(),$user,'messages.php?id='.$id.'&open_chat=1','messages.php?id='.$id]);
+        }
+    }
+
+    public function createMessageNotification(string $user, string $type, string $title, string $message, string $target, string $event, ?string $concern = null): void
+    {
+        $this->run("INSERT INTO notifications(user_id,type,title,message,related_concern_id,target_url,event_key,created_at)
+            SELECT id,?,?,?,?,?,?,? FROM users WHERE id=? AND active=1 AND email_verified=1
+            ON DUPLICATE KEY UPDATE notifications.id=notifications.id",
+            [$type,$title,$message,$concern,$target,hash('sha256',$event),time(),$user]);
+    }
+
+    public function concernMessages(string $id, bool $staff, int $after = 0, int $limit = 50): array
+    {
+        $where='complaint_id=? AND id>?'.($staff?'':" AND visibility='reporter'");
+        $rows=$this->run('SELECT id,complaint_id,sender_role,sender_name,visibility,body,created_at FROM concern_messages WHERE '.$where.
+            ' ORDER BY id '.($after>0?'ASC':'DESC').' LIMIT '.min(100,max(1,$limit)),[$id,$after])->fetchAll();
+        return $after>0?$rows:array_reverse($rows);
+    }
+
+    public function olderConcernMessages(string $id, bool $staff, int $before): array
+    {
+        $rows=$this->run('SELECT id,complaint_id,sender_role,sender_name,visibility,body,created_at FROM concern_messages
+            WHERE complaint_id=? AND id<?'.($staff?'':" AND visibility='reporter'").' ORDER BY id DESC LIMIT 50',[$id,$before])->fetchAll();
+        return array_reverse($rows);
+    }
+
+    public function insertConcernMessage(string $id, ?string $sender, string $role, string $name, string $visibility, string $body): int
+    {
+        $this->run('INSERT INTO concern_messages(complaint_id,sender_user_id,sender_role,sender_name,visibility,body,created_at) VALUES(?,?,?,?,?,?,?)',
+            [$id,$sender,$role,$name,$visibility,$body,time()]);
+        return (int)$this->connection->lastInsertId();
+    }
+
+    public function concernUnread(string $id, string $readerKey, bool $staff, ?string $readerId, bool $guest = false): int
+    {
+        return (int)$this->run("SELECT COUNT(*) FROM concern_messages m
+            LEFT JOIN concern_message_reads r ON r.complaint_id=m.complaint_id AND r.reader_key=?
+            WHERE m.complaint_id=? AND m.id>COALESCE(r.last_read_message_id,0)"
+            .($staff?'':" AND m.visibility='reporter'")
+            .($guest?" AND m.sender_role<>'guest'":" AND (m.sender_user_id IS NULL OR m.sender_user_id<>?)"),
+            $guest?[$readerKey,$id]:[$readerKey,$id,$readerId])->fetchColumn();
+    }
+
+    public function markConcernRead(string $id, string $readerKey, int $lastId): void
+    {
+        $this->run('INSERT INTO concern_message_reads(complaint_id,reader_key,last_read_message_id,read_at) VALUES(?,?,?,?)
+            ON DUPLICATE KEY UPDATE last_read_message_id=GREATEST(last_read_message_id,VALUES(last_read_message_id)),read_at=VALUES(read_at)',
+            [$id,$readerKey,$lastId,time()]);
+    }
+
+    public function concernUnreadTotal(array $actor): int
+    {
+        $staff=$actor['role']!=='resident';
+        $access=$actor['role']==='official'?'1=1':($actor['role']==='personnel'?"(c.assigned_user_id=? OR (c.resident_id=? AND m.visibility='reporter'))":'c.resident_id=?');
+        $values=['user:'.$actor['id']];
+        if ($actor['role']!=='official') $values[]=$actor['id'];
+        if ($actor['role']==='personnel') $values[]=$actor['id'];
+        $values[]=$actor['id'];
+        return (int)$this->run("SELECT COUNT(*) FROM concern_messages m JOIN complaints c ON c.id=m.complaint_id
+            LEFT JOIN concern_message_reads r ON r.complaint_id=m.complaint_id AND r.reader_key=?
+            WHERE $access AND m.id>COALESCE(r.last_read_message_id,0)"
+            .($staff?'':" AND m.visibility='reporter'")." AND (m.sender_user_id IS NULL OR m.sender_user_id<>?)",$values)->fetchColumn();
+    }
+
+    public function concernChatList(array $actor, string $query = ''): array
+    {
+        $official=$actor['role']==='official';
+        $personnel=$actor['role']==='personnel';
+        $visibility=$official?"1=1":($personnel?"(c.assigned_user_id=? OR cm.visibility='reporter')":"cm.visibility='reporter'");
+        $access=$official?'1=1':($personnel?'(c.assigned_user_id=? OR c.resident_id=?)':'c.resident_id=?');
+        $values=$personnel?[$actor['id'],$actor['id'],'user:'.$actor['id'],$actor['id'],$actor['id'],$actor['id']]:($official?[$actor['id'],'user:'.$actor['id']]:[$actor['id'],'user:'.$actor['id'],$actor['id']]);
+        $values[]=$query; $values[]=$query;
+        return $this->run("SELECT c.id,c.status,c.assigned_user_id,c.resident_id,c.updated_at,
+            m.id AS last_message_id,m.body AS last_body,m.sender_name AS last_sender,m.sender_role AS last_sender_role,m.visibility AS last_visibility,m.created_at AS last_message_at,
+            (SELECT COUNT(*) FROM concern_messages new_m WHERE new_m.complaint_id=c.id AND new_m.id>COALESCE(r.last_read_message_id,0)
+                AND (new_m.sender_user_id IS NULL OR new_m.sender_user_id<>?)"
+                .($official?'':($personnel?" AND (c.assigned_user_id=? OR new_m.visibility='reporter')":" AND new_m.visibility='reporter'")).") AS unread
+            FROM complaints c
+            LEFT JOIN concern_message_reads r ON r.complaint_id=c.id AND r.reader_key=?
+            LEFT JOIN concern_messages m ON m.id=(SELECT cm.id FROM concern_messages cm WHERE cm.complaint_id=c.id AND $visibility ORDER BY cm.id DESC LIMIT 1)
+            WHERE $access AND (?='' OR LOCATE(LOWER(?),LOWER(c.id))>0)
+            ORDER BY m.id DESC,c.updated_at DESC LIMIT ".($query===''?30:100),$values)->fetchAll();
+    }
+
+    public function staffUsers(array $actor, string $query = ''): array
+    {
+        $sql="SELECT id,name,role,team FROM users WHERE active=1 AND email_verified=1 AND must_change_password=0 AND role IN ('official','personnel')
+            AND id<>? AND (?='official' OR role='official' OR team=?)
+            AND (?='' OR LOCATE(LOWER(?),LOWER(name))>0 OR LOCATE(LOWER(?),LOWER(COALESCE(team,'')))>0)
+            ORDER BY role,name";
+        if ($query!=='') $sql.=' LIMIT 20';
+        return $this->run($sql,[$actor['id'],$actor['role'],$actor['team'],$query,$query,$query])->fetchAll();
+    }
+
+    public function directStaffConversation(string $first, string $second): ?int
+    {
+        $id=$this->run("SELECT c.id FROM staff_conversations c
+            JOIN staff_conversation_members a ON a.conversation_id=c.id AND a.user_id=? AND a.active=1
+            JOIN staff_conversation_members b ON b.conversation_id=c.id AND b.user_id=? AND b.active=1
+            WHERE c.context_type='direct' ORDER BY c.updated_at DESC,c.id DESC LIMIT 1",[$first,$second])->fetchColumn();
+        return $id===false?null:(int)$id;
+    }
+
+    public function createStaffConversation(string $type, ?string $concern, ?int $plan, string $title, string $creator): int
+    {
+        $now=time();
+        $this->run('INSERT INTO staff_conversations(context_type,related_concern_id,related_action_plan_id,title,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',
+            [$type,$concern,$plan,$title,$creator,$now,$now]);
+        return (int)$this->connection->lastInsertId();
+    }
+
+    public function addStaffMember(int $conversation, string $user): void
+    {
+        $this->run('INSERT INTO staff_conversation_members(conversation_id,user_id,joined_at) VALUES(?,?,?)',[$conversation,$user,time()]);
+    }
+
+    public function staffConversation(int $id, string $member): array|false
+    {
+        return $this->run('SELECT c.* FROM staff_conversations c JOIN staff_conversation_members m ON m.conversation_id=c.id
+            WHERE c.id=? AND m.user_id=? AND m.active=1',[$id,$member])->fetch();
+    }
+
+    public function staffConversationMembers(int $id): array
+    {
+        return $this->run("SELECT u.id,u.name,u.role,u.team,u.active FROM staff_conversation_members m JOIN users u ON u.id=m.user_id WHERE m.conversation_id=? AND m.active=1 ORDER BY u.role,u.name",[$id])->fetchAll();
+    }
+
+    public function staffConversations(string $member, string $role, string $query = ''): array
+    {
+        return $this->run('SELECT c.id,c.context_type,c.related_concern_id,c.related_action_plan_id,c.title,c.updated_at,
+            (SELECT GROUP_CONCAT(u.name ORDER BY u.name SEPARATOR ", ") FROM staff_conversation_members x JOIN users u ON u.id=x.user_id WHERE x.conversation_id=c.id AND x.active=1) AS participants,
+            (SELECT body FROM staff_messages s WHERE s.conversation_id=c.id ORDER BY s.id DESC LIMIT 1) AS last_body,
+            (SELECT COUNT(*) FROM staff_messages s WHERE s.conversation_id=c.id AND s.id>m.last_read_message_id AND (s.sender_user_id IS NULL OR s.sender_user_id<>?)) AS unread
+            FROM staff_conversation_members m JOIN staff_conversations c ON c.id=m.conversation_id
+            LEFT JOIN complaints concern ON concern.id=c.related_concern_id
+            LEFT JOIN weekly_action_plans plan ON plan.id=c.related_action_plan_id
+            WHERE m.user_id=? AND m.active=1
+            AND (c.related_concern_id IS NULL OR ?="official" OR concern.assigned_user_id=?)
+            AND (c.related_action_plan_id IS NULL OR ?="official" OR plan.assigned_user_id=?)
+            AND (?="" OR LOCATE(LOWER(?),LOWER(c.title))>0 OR LOCATE(LOWER(?),LOWER(COALESCE(c.related_concern_id,"")))>0
+                OR LOCATE(LOWER(?),LOWER(COALESCE(CAST(c.related_action_plan_id AS CHAR),"")))>0
+                OR EXISTS (SELECT 1 FROM staff_conversation_members x JOIN users u ON u.id=x.user_id WHERE x.conversation_id=c.id AND x.active=1 AND LOCATE(LOWER(?),LOWER(u.name))>0))
+            ORDER BY c.updated_at DESC,c.id DESC LIMIT '.($query===''?50:100),[$member,$member,$role,$member,$role,$member,$query,$query,$query,$query,$query])->fetchAll();
+    }
+
+    public function staffMessages(int $conversation, int $after = 0): array
+    {
+        $rows=$this->run('SELECT id,sender_name,sender_role,body,created_at FROM staff_messages WHERE conversation_id=? AND id>?
+            ORDER BY id '.($after>0?'ASC':'DESC').' LIMIT 50',[$conversation,$after])->fetchAll();
+        return $after>0?$rows:array_reverse($rows);
+    }
+
+    public function olderStaffMessages(int $conversation, int $before): array
+    {
+        return array_reverse($this->run('SELECT id,sender_name,sender_role,body,created_at FROM staff_messages
+            WHERE conversation_id=? AND id<? ORDER BY id DESC LIMIT 50',[$conversation,$before])->fetchAll());
+    }
+
+    public function insertStaffMessage(int $conversation, array $actor, string $body): int
+    {
+        $this->run('INSERT INTO staff_messages(conversation_id,sender_user_id,sender_name,sender_role,body,created_at) VALUES(?,?,?,?,?,?)',
+            [$conversation,$actor['id'],$actor['name'],$actor['role'],$body,time()]);
+        $id=(int)$this->connection->lastInsertId();
+        $this->run('UPDATE staff_conversations SET updated_at=? WHERE id=?',[time(),$conversation]);
+        return $id;
+    }
+
+    public function markStaffRead(int $conversation, string $member, int $lastId): void
+    {
+        $this->run('UPDATE staff_conversation_members SET last_read_message_id=GREATEST(last_read_message_id,?) WHERE conversation_id=? AND user_id=? AND active=1',
+            [$lastId,$conversation,$member]);
+    }
+
+    public function staffUnreadTotal(string $member, string $role): int
+    {
+        return (int)$this->run('SELECT COUNT(*) FROM staff_messages s JOIN staff_conversation_members m ON m.conversation_id=s.conversation_id
+            JOIN staff_conversations c ON c.id=s.conversation_id
+            LEFT JOIN complaints concern ON concern.id=c.related_concern_id
+            LEFT JOIN weekly_action_plans plan ON plan.id=c.related_action_plan_id
+            WHERE m.user_id=? AND m.active=1 AND s.id>m.last_read_message_id AND (s.sender_user_id IS NULL OR s.sender_user_id<>?)
+            AND (c.related_concern_id IS NULL OR ?="official" OR concern.assigned_user_id=?)
+            AND (c.related_action_plan_id IS NULL OR ?="official" OR plan.assigned_user_id=?)',
+            [$member,$member,$role,$member,$role,$member])->fetchColumn();
     }
 
     public function lockedUser(string $id): array|false

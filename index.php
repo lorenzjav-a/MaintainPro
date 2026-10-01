@@ -31,6 +31,7 @@ require __DIR__ . '/includes/components/banner.php';
     <?php endif ?>
   </div>
   <aside class="side-stack">
+    <section class="panel"><div class="panel-header"><h2 class="panel-title">Unread messages</h2></div><div class="panel-body"><p class="mb-2"><?= (int)$messageCounts['concerns'] ?> new concern <?= (int)$messageCounts['concerns']===1?'message':'messages' ?></p><?php if ($actor['role']!=='resident'): ?><p class="mb-2"><?= (int)$messageCounts['staff'] ?> new staff <?= (int)$messageCounts['staff']===1?'message':'messages' ?></p><a class="link-button" href="messages.php">Open staff messages <?= br_icon('arrow') ?></a><?php else: ?><a class="link-button" href="complaints.php?scope=mine">Open my concerns <?= br_icon('arrow') ?></a><?php endif ?></div></section>
     <?php if ($actor['role'] === 'official'): ?><section class="panel"><div class="panel-header"><h2 class="panel-title">Concerns by category</h2></div><?php br_chart($cases,false,$dashboardGroups['categories']); ?><div class="chart-note">Top categories · <?= $metrics['total'] ?> total reports</div></section><?php endif ?>
     <?php require __DIR__ . '/includes/components/activity.php'; ?>
     <section class="workflow-card">
