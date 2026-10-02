@@ -5,8 +5,8 @@ return [
     'host' => 'smtp.gmail.com',
     'port' => 587,
     'encryption' => 'tls',
-    'username' => '',
-    'password' => '',
+    'username' => 'maintainpro.system2026@gmail.com',
+    'password' => 'acdz ppuv kqxb jzlj',
     'from_email' => '', // Leave blank to use the username.
     'from_name' => 'MaintainPro',
 ];
