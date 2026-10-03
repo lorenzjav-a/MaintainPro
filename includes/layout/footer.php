@@ -1,4 +1,4 @@
-    <footer class="main-footer"><span>MaintainPro · Community Concern & Resolution Management</span><span>Saved account workspace</span></footer>
+    <footer class="main-footer"><span>MaintainPro · Community Concern &amp; Resolution Management</span><a href="user-guide.php">User Guide</a></footer>
   </main>
   <?php require __DIR__ . '/mobile.php'; ?>
 </div>

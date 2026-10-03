@@ -9,7 +9,7 @@ function payload(): array
         'mode' => 'account', 'actor' => $actor,
         'cases' => br_store()->recentConcerns($actor['id'], 50),
         'users' => $actor['is_system_admin'] ? br_store()->users($actor['id']) : [],
-        'categories' => array_values(array_unique(array_merge(array_keys(ConcernCatalog::TYPES), ComplaintWorkflow::CATEGORIES))), 'teams' => ComplaintWorkflow::TEAMS,
+        'categories' => array_keys(ConcernCatalog::TYPES), 'legacyCategories' => ComplaintWorkflow::CATEGORIES, 'teams' => ComplaintWorkflow::TEAMS,
         'statuses' => ComplaintWorkflow::STATUSES, 'priorities' => ComplaintWorkflow::PRIORITIES,
         'submissionAllowance' => br_store()->submissionAllowance($actor['id']),
     ];

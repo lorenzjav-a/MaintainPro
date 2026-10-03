@@ -31,7 +31,7 @@ C:\xampp\php\php.exe -S 127.0.0.1:8080 router.php
 - **Barangay officials** can open **Administration** to access every system area. They assess, edit, prioritize, recommend, assign/reassign individual personnel, manage the Solution Library and accounts, configure the workspace, review reports and audit history, create backups, and review/close/reopen completed work.
 - **Personnel** see only individually assigned concerns, choose structured work updates and attach required image evidence. Accounts require a name, valid email and team.
 
-The normal journey is **Submitted → Under Review → Assigned → In Progress → Resolved → Closed / reviewed**. The final state retains the internal `Verified` value for compatibility. Officials can request more information; the reporter responds using the original reference and tracking code. Rejection, referral, reopening, history, reports and CSV export remain available.
+The normal journey is **Submitted → Under Review → Assigned → In Progress → Resolved → Closed**. The final state retains the internal `Verified` value for compatibility. Officials can request more information; the reporter responds using the original reference and tracking code. Rejection, referral, reopening, history, reports and CSV export remain available.
 
 Personnel can report blocked work and receive official instructions. Officials can link reports describing the same issue, manage Purok/Sitio choices in **Workspace settings**, review **Audit history**, and download a database backup. Linked reports retain their original tracking codes and follow the primary concern's progress.
 

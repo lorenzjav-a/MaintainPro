@@ -93,7 +93,8 @@
     try {
       var data = {body: form.elements.body.value};
       if (concern && form.elements.visibility) data.visibility = form.elements.visibility.value;
-      await post(concern ? 'send_concern_message' : 'send_staff_message', concern ? panel.dataset.concernId : panel.dataset.conversationId, data);
+      var sent = await post(concern ? 'send_concern_message' : 'send_staff_message', concern ? panel.dataset.concernId : panel.dataset.conversationId, data);
+      appendMessage(sent, false);
       if (staff) {
         var active = document.querySelector('.staff-conversation-link.active');
         if (active) { var preview = active.querySelector('.staff-message-preview'), time = active.querySelector('time'); if (preview) preview.textContent = data.body.slice(0, 90); if (time) time.textContent = new Date().toLocaleString(); }

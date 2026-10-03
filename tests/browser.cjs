@@ -99,7 +99,7 @@ async function tab() {
     await official.go('login.php');
     await official.auth('setup', {name: 'Browser Official', email: 'official@example.test', password, confirm_password: password, setup_key: process.env.APP_SETUP_KEY});
     await official.ready('/index.php');
-    check(await official.evaluate('document.querySelector("h1").textContent === "Administrative dashboard"'), 'official dashboard');
+    check(await official.evaluate('document.querySelector("h1").textContent === "Official dashboard"'), 'official dashboard');
     await official.go('user-create.php');
     await official.submit('create_user', {name: 'Browser Personnel', email: 'personnel@example.test', role: 'personnel', team: 'Maintenance crew'});
     const temporary = await official.evaluate('document.getElementById("created-password").value');
@@ -119,7 +119,7 @@ async function tab() {
         await guest.go('login.php'); await guest.screenshot('account-login-'+width);
         await guest.go('landing.php'); await guest.screenshot('account-landing-'+width);
         await personnel.go('index.php');
-        check(await personnel.evaluate('document.querySelector("h1").textContent === "Personnel dashboard" && document.documentElement.scrollWidth<=innerWidth'), 'personnel dashboard after onboarding at '+width);
+        check(await personnel.evaluate('document.querySelector("h1").textContent === "My work dashboard" && document.documentElement.scrollWidth<=innerWidth'), 'personnel dashboard after onboarding at '+width);
       }
       await official.fill('#user-name','Duplicate Account'); await official.fill('#user-email','personnel@example.test'); await official.fill('#user-team','Maintenance crew');
       await official.click('form[data-action=create_user] button[type=submit]');
@@ -163,7 +163,7 @@ async function tab() {
       return;
     }
     const staffId = await personnel.evaluate('(async()=>{const r=await fetch("api.php"); return (await r.json()).actor.id;})()');
-    check(await personnel.evaluate('document.querySelector("h1").textContent === "Personnel dashboard"'), 'personnel dashboard');
+    check(await personnel.evaluate('document.querySelector("h1").textContent === "My work dashboard"'), 'personnel dashboard');
     await guest.go('landing.php');
     check(await guest.evaluate('!!document.querySelector("a[href=\\"report-concern.php\\"]")'), 'public landing action');
     await guest.screenshot('landing-desktop');
@@ -385,7 +385,7 @@ async function tab() {
     await until(()=>resident.evaluate('!!document.querySelector(".shell,.swal2-html-container")'),'resident verification result');
     const verificationError=await resident.evaluate('document.querySelector(".swal2-html-container")?.textContent || ""');
     if (verificationError) throw new Error('Resident verification failed: '+verificationError);
-    check(await resident.evaluate('document.querySelector("h1").textContent === "Resident dashboard"'), 'resident dashboard restored');
+    check(await resident.evaluate('document.querySelector("h1").textContent === "My dashboard"'), 'resident dashboard restored');
     for (const [client, role] of [[resident,'resident'],[personnel,'personnel'],[official,'official']]) {
       await client.go('report-concern.php');
       check(await client.evaluate('!!document.querySelector(".shell") && document.querySelector("#public-report").dataset.action === "submit" && document.body.textContent.includes("0 of 3 concern submissions used today.")'), role+' shared report form and allowance');
@@ -402,7 +402,7 @@ async function tab() {
     }
     await personnel.go('complaints.php');
     check(await personnel.evaluate('!document.querySelector("main").textContent.includes("Uncollected garbage")'), 'personnel reports stay separate from assigned queue');
-    await official.go('index.php');
+    await official.go('reports.php');
     await official.evaluate('document.getElementById("weekly-concerns").scrollIntoView({block:"start"})');
     check(await official.evaluate('document.getElementById("weekly-concerns").textContent.includes("Uncollected garbage") && document.getElementById("weekly-concerns").textContent.includes("Common keypoints") && document.getElementById("weekly-concerns").textContent.includes("Suggested solutions") && document.querySelectorAll("#weekly-concerns .weekly-concern:first-of-type > ol > li").length === 3'), 'weekly concerns and three keypoint solutions shown');
     await official.screenshot('weekly-concerns-desktop');
@@ -429,7 +429,7 @@ async function tab() {
     await until(()=>official.evaluate('location.search.includes("saved=save_official_rules") && document.readyState === "complete"'),'official library saves through UI');
     check(await official.evaluate('document.querySelector("[name=action2]").value === '+JSON.stringify(firstRuleText)),'official action order persists');
     await official.screenshot('official-solutions-desktop');
-    await official.go('index.php');
+    await official.go('reports.php');
     await official.click('#weekly-concerns a[href*="Uncollected"]'); await official.ready('/complaints.php');
     check(await official.evaluate('document.querySelectorAll(".complaint-table tbody tr").length === 3 && document.querySelector(".complaint-table").textContent.includes("Anonymous")'), 'weekly related link includes all three anonymous role reports');
     for (let i=0;i<2;i++) {
@@ -445,11 +445,11 @@ async function tab() {
       check(await client.evaluate('document.documentElement.scrollWidth<=innerWidth && getComputedStyle(document.querySelector(".form-label")).fontSize === "14px" && getComputedStyle(document.body).fontFamily.includes("Segoe UI")'), role+' report mobile typography and layout');
       await client.screenshot(role+'-report-mobile');
     }
-    await official.go('index.php');
+    await official.go('reports.php');
     await official.evaluate('document.getElementById("weekly-concerns").scrollIntoView({block:"start"})');
-    check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth && getComputedStyle(document.querySelector("#weekly-concerns .panel-title")).fontSize === getComputedStyle(document.querySelector(".overview-grid .panel-title")).fontSize'), 'weekly panel matches shared mobile panel typography and fits');
+    check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth && getComputedStyle(document.querySelector("#weekly-concerns .panel-title")).fontSize === getComputedStyle(document.querySelector(".report-grid .panel-title")).fontSize'), 'weekly panel matches shared mobile panel typography and fits');
     await official.screenshot('weekly-concerns-mobile');
-    for (const page of ['landing.php','report-concern.php','track.php','transparency.php','login.php','login.php?view=forgot']) {
+    for (const page of ['landing.php','report-concern.php','track.php','transparency.php','user-guide.php','login.php','login.php?view=forgot']) {
       await guest.go(page); check(await guest.evaluate('document.documentElement.scrollWidth <= innerWidth'), page + ' fits mobile');
       if (page === 'report-concern.php') {
         await guest.fill('[name=category]', 'Waste Management');
@@ -466,11 +466,14 @@ async function tab() {
     await official.click('.mobile-dock button[data-menu]'); check(await official.evaluate('document.querySelector(".sidebar").classList.contains("mobile-open")'), 'mobile menu'); await official.click('.sidebar-scrim');
     await official.send('Emulation.setDeviceMetricsOverride', {width:390,height:500,deviceScaleFactor:1,mobile:true});
     await official.click('.mobile-dock button[data-menu]');
-    check(await official.evaluate('(()=>{const side=document.querySelector(".sidebar"),last=side.querySelector(".sidebar-footer");side.scrollTop=side.scrollHeight;return getComputedStyle(side).overflowY==="auto" && side.scrollTop>0 && last.getBoundingClientRect().bottom<=side.getBoundingClientRect().bottom+1})()'), 'short mobile sidebar scrolls to its footer');
+    check(await official.evaluate('(()=>{const side=document.querySelector(".sidebar"),last=side.querySelector(".sidebar-signout");side.scrollTop=side.scrollHeight;return getComputedStyle(side).overflowY==="auto" && side.scrollTop>0 && last.getBoundingClientRect().bottom<=side.getBoundingClientRect().bottom+1})()'), 'short mobile sidebar scrolls to its sign-out button');
     await official.click('.sidebar-scrim');
     await official.send('Emulation.setDeviceMetricsOverride', {width:1024,height:500,deviceScaleFactor:1,mobile:false});
-    check(await official.evaluate('(()=>{const side=document.querySelector(".sidebar"),last=side.querySelector(".sidebar-footer");side.scrollTop=side.scrollHeight;return getComputedStyle(side).overflowY==="auto" && side.scrollTop>0 && last.getBoundingClientRect().bottom<=side.getBoundingClientRect().bottom+1})()'), 'short desktop sidebar scrolls to its footer');
+    check(await official.evaluate('(()=>{const side=document.querySelector(".sidebar"),last=side.querySelector(".sidebar-signout");side.scrollTop=side.scrollHeight;return getComputedStyle(side).overflowY==="auto" && side.scrollTop>0 && last.getBoundingClientRect().bottom<=side.getBoundingClientRect().bottom+1})()'), 'short desktop sidebar scrolls to its sign-out button');
     await official.send('Emulation.setDeviceMetricsOverride', {width:390,height:844,deviceScaleFactor:1,mobile:true});
+    for (const [client,role] of [[official,'official'],[personnel,'personnel'],[resident,'resident']]) {
+      check(await client.evaluate('(()=>{const button=document.querySelector(".sidebar-signout[data-logout]");return !!button && button.textContent.trim()==="Sign Out" && getComputedStyle(button).backgroundColor==="rgb(220, 53, 69)"})()'), role+' has red sidebar sign-out button');
+    }
     await official.screenshot('dashboard-mobile');
     await official.go('messages.php'); check(await official.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'mobile messages fit'); await official.screenshot('messages-mobile');
     await official.click('#chat-widget-launcher');
@@ -495,6 +498,7 @@ async function tab() {
     check(await official.evaluate('document.querySelector(".notification-dropdown").getBoundingClientRect().left>=0 && document.querySelector(".notification-dropdown").getBoundingClientRect().right<=innerWidth'),'mobile notification dropdown fits');
     await official.screenshot('notifications-mobile');
     await personnel.go('complaints.php'); check(await personnel.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'mobile work queue fits');
+    await official.go('user-guide.php'); check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth && document.querySelector("#officials").textContent.includes("Assign")'), 'signed-in user guide fits mobile and includes role instructions'); await official.screenshot('user-guide-mobile');
     for (const page of ['admin.php','settings.php','audit.php','blocked.php','official-solutions.php','action-plans.php']) { await official.go(page); check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth'), page+' fits mobile'); await official.screenshot(page.replace('.php','')+'-mobile'); }
     await guest.go('login.php?view=forgot');
     await guest.fill('#auth-form [name=email]','official@example.test');

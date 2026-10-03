@@ -2,7 +2,7 @@
 $compact = $compact ?? false;
 $listPage = $page === 'history' ? 'history.php' : ($compact ? 'index.php' : 'complaints.php');
 $tab = br_query('tab', 'all');
-$tabLabels = ['all' => 'All concerns', 'pending' => 'Needs action', 'verified' => 'Closed', 'assessment' => 'Assessment', 'progress' => 'In progress', 'resolved' => 'For review', 'urgent' => 'Urgent', 'reopened' => 'Ever reopened', 'submitted' => 'New reports', 'assigned' => 'New assignments', 'work' => 'Active work', 'reopened_now' => 'Reopened'];
+$tabLabels = ['all' => 'All concerns', 'pending' => 'Needs action', 'verified' => 'Closed', 'assessment' => 'Under review', 'progress' => 'In progress', 'resolved' => 'For review', 'urgent' => 'Urgent', 'overdue'=>'Overdue', 'due_soon'=>'Due soon', 'blocked'=>'Blocked', 'reopened' => 'Ever reopened', 'submitted' => 'New concerns', 'assigned' => 'New assignments', 'work' => 'Active work', 'reopened_now' => 'Reopened'];
 if (!isset($tabLabels[$tab])) $tab = 'all';
 $filters = ['tab' => $tab, 'search' => br_query('search'), 'category' => br_query('category'), 'priority' => br_query('priority'), 'status' => br_query('status')];
 $filters += ['scope' => ($scope ?? 'work'), 'week' => br_query('week'), 'type' => br_query('type')];
@@ -28,10 +28,10 @@ if (!in_array($tab, $shownTabs, true)) $shownTabs[] = $tab;
     <?php foreach (['scope', 'week', 'type'] as $key): ?><input type="hidden" name="<?= $key ?>" value="<?= h($filters[$key]) ?>"><?php endforeach ?>
     <div class="search-field"><?= br_icon('search') ?><input id="case-search" name="search" type="search" aria-label="Search concerns by ID, title, location, category, resident, or team" placeholder="Search concerns…" value="<?= h($filters['search']) ?>"></div>
     <?php if (!$compact): ?>
-    <select class="form-select form-select-sm" name="category" aria-label="Filter by category"><?php br_options(array_values(array_unique(array_merge(array_keys(ConcernCatalog::TYPES), ComplaintWorkflow::CATEGORIES))), $filters['category'], 'All categories'); ?></select>
+    <select class="form-select form-select-sm" name="category" aria-label="Filter by category"><?php br_options(array_keys(ConcernCatalog::TYPES), $filters['category'], 'All current categories'); ?></select>
     <select class="form-select form-select-sm" name="priority" aria-label="Filter by priority"><?php br_options(ComplaintWorkflow::PRIORITIES, $filters['priority'], 'All priorities'); ?></select>
     <select class="form-select form-select-sm" name="status" aria-label="Filter by status"><?php br_options(ComplaintWorkflow::STATUSES, $filters['status'], 'All statuses'); ?></select>
-    <?php if ($actor['role']==='official'): ?><select class="form-select form-select-sm" name="team" aria-label="Filter by team"><?php br_options(ComplaintWorkflow::TEAMS,$filters['team'],'All teams'); ?></select><select class="form-select form-select-sm" name="personnel" aria-label="Filter by personnel"><option value="">All personnel</option><?php foreach(br_store()->workloads($actor['id']) as $worker): ?><option value="<?= h($worker['id']) ?>"<?= $filters['personnel']===$worker['id']?' selected':'' ?>><?= h($worker['name']) ?></option><?php endforeach ?></select><?php endif ?>
+    <?php if ($actor['role']==='official'): ?><details class="more-filters"><summary>More Filters</summary><div><select class="form-select form-select-sm" name="team" aria-label="Filter by team"><?php br_options(ComplaintWorkflow::TEAMS,$filters['team'],'All teams'); ?></select><select class="form-select form-select-sm" name="personnel" aria-label="Filter by personnel"><option value="">All personnel</option><?php foreach(br_store()->workloads($actor['id']) as $worker): ?><option value="<?= h($worker['id']) ?>"<?= $filters['personnel']===$worker['id']?' selected':'' ?>><?= h($worker['name']) ?></option><?php endforeach ?></select></div></details><?php endif ?>
     <?php endif ?>
     <button class="btn btn-light btn-sm" type="submit">Apply filters</button>
   </form>

@@ -1,48 +1,25 @@
 <?php
 declare(strict_types=1);
-require __DIR__ . '/includes/page.php';
+require __DIR__.'/includes/page.php';
 if (!br_actor()) { header('Location: landing.php'); exit; }
 extract(br_page('overview'));
-require __DIR__ . '/includes/layout/header.php';
-$description = $actor['role'] === 'official'
-    ? 'Assess new reports, coordinate teams, and follow reopened concerns.'
-    : ($actor['role'] === 'resident' ? 'Follow your reported concerns and community updates.' : 'Track assignments and completed work for ' . $actor['team'] . '.');
-br_heading($pageTitle, $description, ($actor['role'] === 'official' ? br_export() : '') . br_primary($actor));
-require __DIR__ . '/includes/components/submission-allowance.php';
-require __DIR__ . '/includes/components/stats.php';
-require __DIR__ . '/includes/components/banner.php';
+require __DIR__.'/includes/layout/header.php';
+$description=match($actor['role']) {
+    'official'=>'Review what needs attention, assign work, and close completed concerns.',
+    'resident'=>'Report a concern and follow the latest updates from the barangay.',
+    default=>'See your assignments, continue work, and submit completion evidence.',
+};
+br_heading($pageTitle,$description,br_primary($actor));
+require __DIR__.'/includes/components/submission-allowance.php';
+require __DIR__.'/includes/components/stats.php';
+require __DIR__.'/includes/components/banner.php';
 ?>
-<div class="overview-grid">
-  <div>
-    <?php $compact = true; require __DIR__ . '/includes/components/complaint-table.php'; ?>
-    <?php if ($actor['role'] === 'official'):
-        $dashboardGroups=br_store()->dashboardGroups($actor['id']); $teams=$dashboardGroups['teams'];
-        $ratio = $metrics['total'] ? (int)round($metrics['verified'] / $metrics['total'] * 100) : 0;
-    ?>
-    <div class="bottom-panels">
-      <section class="panel"><div class="panel-header"><h2 class="panel-title">Team workload</h2><span class="count-pill">ACTIVE WORK</span></div><div class="team-list">
-        <?php foreach (array_slice($teams, 0, 3) as $team): ?><div class="team-row"><span class="team-icon"><?= br_icon('users') ?></span><span class="team-name"><?= h($team['label']) ?></span><span class="team-badge"><?= $team['count'] ?> open</span></div><?php endforeach ?>
-        <?php if (!$teams): ?><p class="text-muted small">No active team assignments.</p><?php endif ?>
-      </div></section>
-      <section class="panel"><div class="panel-header"><h2 class="panel-title">Closing the loop</h2><?= br_icon('checkCircle') ?></div><div class="resolution-summary"><div class="completion-ring" style="--pct:<?= $ratio ?>%" role="img" aria-label="<?= $ratio ?> percent of concerns closed after official review"><span><?= $ratio ?>%</span></div><div class="resolution-copy"><strong><?= $metrics['verified'] ?> of <?= $metrics['total'] ?> reports closed after official review</strong><p><?= $metrics['resolved'] ?> resolved and awaiting official review.<br>An official reviews the evidence before closing the concern.</p><a class="link-button" href="history.php">View resolution history <?= br_icon('arrow') ?></a></div></div></section>
-    </div>
-    <?php require __DIR__ . '/includes/components/recurring-issues.php'; ?>
-    <?php require __DIR__ . '/includes/components/weekly-concerns.php'; ?>
-    <?php endif ?>
-  </div>
+<div class="overview-grid dashboard-focus">
+  <div><?php $compact=true; require __DIR__.'/includes/components/complaint-table.php'; ?></div>
   <aside class="side-stack">
-    <section class="panel"><div class="panel-header"><h2 class="panel-title">Unread messages</h2></div><div class="panel-body"><p class="mb-2"><?= (int)$messageCounts['concerns'] ?> new concern <?= (int)$messageCounts['concerns']===1?'message':'messages' ?></p><?php if ($actor['role']!=='resident'): ?><p class="mb-2"><?= (int)$messageCounts['staff'] ?> new staff <?= (int)$messageCounts['staff']===1?'message':'messages' ?></p><a class="link-button" href="messages.php">Open staff messages <?= br_icon('arrow') ?></a><?php else: ?><a class="link-button" href="complaints.php?scope=mine">Open my concerns <?= br_icon('arrow') ?></a><?php endif ?></div></section>
-    <?php if ($actor['role'] === 'official'): ?><section class="panel"><div class="panel-header"><h2 class="panel-title">Concerns by category</h2></div><?php br_chart($cases,false,$dashboardGroups['categories']); ?><div class="chart-note">Top categories · <?= $metrics['total'] ?> total reports</div></section><?php endif ?>
-    <?php require __DIR__ . '/includes/components/activity.php'; ?>
-    <section class="workflow-card">
-    <?php if ($actor['role'] === 'official'): ?>
-      <?= br_icon('users') ?><h3>Manage community accounts.</h3><p>Create resident, barangay official, and personnel accounts, assign teams, and manage access.</p><a class="link-button" href="users.php">User management <?= br_icon('arrow') ?></a>
-    <?php elseif ($actor['role'] === 'resident'): ?>
-      <?= br_icon('inbox') ?><h3>Stay informed about your concern.</h3><p>Open your reported concerns to follow progress and respond when the barangay requests more information.</p><a class="link-button" href="complaints.php?scope=mine">My reported concerns <?= br_icon('arrow') ?></a>
-    <?php else: ?>
-      <?= br_icon('tool') ?><h3>Record the work as it happens.</h3><p>Start assigned work, add progress notes, and submit the resolution for official review.</p><button class="link-button" type="button" data-help>How the process works <?= br_icon('arrow') ?></button>
-    <?php endif ?>
-    </section>
+    <section class="panel"><div class="panel-header"><h2 class="panel-title">Messages needing attention</h2></div><div class="panel-body"><p class="mb-2"><strong><?= (int)$messageCounts['concerns'] ?></strong> new concern <?= (int)$messageCounts['concerns']===1?'message':'messages' ?></p><?php if($actor['role']!=='resident'): ?><p class="mb-3"><strong><?= (int)$messageCounts['staff'] ?></strong> new staff <?= (int)$messageCounts['staff']===1?'message':'messages' ?></p><a class="btn btn-light btn-sm" href="messages.php">Open Messages</a><?php else: ?><a class="btn btn-light btn-sm" href="complaints.php?scope=mine">Open My Concerns</a><?php endif ?></div></section>
+    <section class="workflow-card"><?php if($actor['role']==='official'): ?><?= br_icon('clipboard') ?><h3>Review the next concern.</h3><p>Start with submitted or reopened concerns, then assign personnel after assessment.</p><a class="link-button" href="complaints.php?tab=assessment">Open review queue <?= br_icon('arrow') ?></a><?php elseif($actor['role']==='personnel'): ?><?= br_icon('tool') ?><h3>Continue your assigned work.</h3><p>Start new assignments, add evidence, or report a delay when work cannot continue.</p><a class="link-button" href="complaints.php?tab=work">Open My Work <?= br_icon('arrow') ?></a><?php else: ?><?= br_icon('inbox') ?><h3>Keep track of your concerns.</h3><p>Your status, latest update, and barangay replies are available from My Concerns.</p><a class="link-button" href="complaints.php?scope=mine">Open My Concerns <?= br_icon('arrow') ?></a><?php endif ?></section>
+    <section class="panel"><div class="panel-header"><h2 class="panel-title">Need help?</h2></div><div class="panel-body"><p class="form-text">The User Guide explains the complete process for each role.</p><a class="link-button" href="user-guide.php">Open User Guide <?= br_icon('arrow') ?></a></div></section>
   </aside>
 </div>
-<?php require __DIR__ . '/includes/layout/footer.php'; ?>
+<?php require __DIR__.'/includes/layout/footer.php'; ?>

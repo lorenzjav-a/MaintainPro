@@ -31,11 +31,11 @@ $sections = [
         'description' => 'Use concern trends, weekly priorities, and saved guidance to support barangay decisions.',
         'links' => [
             ['Reports and insights', 'reports.php'],
-            ['Weekly top concerns', 'index.php#weekly-concerns'],
+            ['Weekly concern analysis', 'reports.php'],
             ['Solution library', 'solutions.php'],
             ['Official action library', 'official-solutions.php'],
             ['Weekly action plans', 'action-plans.php'],
-            ['Administrative dashboard', 'index.php'],
+            ['Official dashboard', 'index.php'],
         ],
     ],
     [

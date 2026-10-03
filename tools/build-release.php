@@ -14,7 +14,7 @@ $entrypoints = ['action-plans','admin','api','audit','auth','backup','blocked','
     'complaints','concern','concerns','evidence','history','index','landing','login',
     'messages','my-action-plans','new-complaint','notifications','official-solutions','profile',
     'public-api','report-concern','reports','router','settings','solutions','track',
-    'transparency','user-create','user-edit','users'];
+    'transparency','user-create','user-edit','user-guide','users'];
 foreach ($entrypoints as $entrypoint) {
     $path = $root . '/' . $entrypoint . '.php';
     if (!is_file($path)) throw new RuntimeException('Missing production page: ' . $entrypoint);
@@ -31,6 +31,7 @@ foreach (['.htaccess', 'uploads/.htaccess', 'config/app.php', 'config/database.p
     if (!is_file($path)) throw new RuntimeException('Missing production file: ' . $relative);
     $files[] = $path;
 }
+$files[]=$root.'/docs/SYSTEM_DEMO_GUIDE.md';
 sort($files, SORT_STRING);
 foreach (array_unique($files) as $path) {
     $relative = str_replace('\\', '/', substr($path, strlen($root) + 1));

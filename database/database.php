@@ -181,6 +181,9 @@ final class MaintainProDatabase
         if (in_array($tab,['pending','urgent'],true)) $where[]="status NOT IN ('Verified','Rejected','Referred to Another Office','Linked to Primary')";
         if ($tab==='urgent') $where[]="JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority'))='Urgent'";
         if ($tab==='reopened') $where[]="JSON_EXTRACT(payload,'$.reopenCount')>0";
+        if ($tab==='overdue') $where[]="status IN ('Assigned','In Progress') AND due_at IS NOT NULL AND due_at<UNIX_TIMESTAMP()";
+        if ($tab==='due_soon') $where[]="status IN ('Assigned','In Progress') AND due_at BETWEEN UNIX_TIMESTAMP() AND UNIX_TIMESTAMP()+259200";
+        if ($tab==='blocked') $where[]="status IN ('Assigned','In Progress') AND JSON_TYPE(JSON_EXTRACT(payload,'$.blocked'))='OBJECT'";
         $statuses=['progress'=>'In Progress','assigned'=>'Assigned','submitted'=>'Submitted','reopened_now'=>'Reopened'];
         if (isset($statuses[$tab])) { $where[]='status=?'; $values[]=$statuses[$tab]; }
         if ($tab==='resolved') $where[]="status='Resolved'";
@@ -218,7 +221,10 @@ final class MaintainProDatabase
         $active="status NOT IN ('Verified','Rejected','Referred to Another Office','Linked to Primary')";
         $expressions=['total'=>'COUNT(*)','assessment'=>"SUM(status IN ('Submitted','Under Review','Reopened'))",'pending'=>'SUM('.$active.')',
             'urgent'=>"SUM(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority'))='Urgent' AND ".$active.')',
-            'reopened'=>"SUM(JSON_EXTRACT(payload,'$.reopenCount')>0)"];
+            'reopened'=>"SUM(JSON_EXTRACT(payload,'$.reopenCount')>0)",
+            'overdue'=>"SUM(status IN ('Assigned','In Progress') AND due_at IS NOT NULL AND due_at<UNIX_TIMESTAMP())",
+            'due_soon'=>"SUM(status IN ('Assigned','In Progress') AND due_at BETWEEN UNIX_TIMESTAMP() AND UNIX_TIMESTAMP()+259200)",
+            'blocked'=>"SUM(status IN ('Assigned','In Progress') AND JSON_TYPE(JSON_EXTRACT(payload,'$.blocked'))='OBJECT')"];
         foreach(['progress'=>'In Progress','resolved'=>'Resolved','verified'=>'Verified','assigned'=>'Assigned','submitted'=>'Submitted','reopened_now'=>'Reopened'] as $name=>$status) $expressions[$name]="SUM(status='".$status."')";
         $select=[];
         foreach($expressions as $name=>$expression) $select[]='COALESCE('.$expression.',0) AS '.$name;

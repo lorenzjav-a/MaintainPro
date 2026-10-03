@@ -7,14 +7,15 @@ extract($context);
 if ($actor['role'] === 'official') $c = array_replace($c, br_store()->concernLinks($actor['id'], $c['id']));
 $pageTitle = $c['id'] . ' · ' . $c['title'];
 require __DIR__ . '/includes/layout/header.php';
-br_heading($c['title'], 'Concern ' . $c['id'] . ' · ' . $c['category'], '<a class="btn btn-light" href="concerns.php">Back to concerns</a>');
-$steps = ['Submitted' => 'Report', 'Under Review' => 'Assess & recommend', 'Assigned' => 'Assign', 'In Progress' => 'Take action', 'Resolved' => 'Resolve', 'Verified' => 'Close'];
+br_heading($c['title'], 'Concern ' . $c['id'] . ' · ' . $c['category'] . (!empty($c['concernType'])?' · '.$c['concernType']:''), '<a class="btn btn-light" href="concerns.php">Back to concerns</a>');
+$steps = ['Submitted' => 'Submitted', 'Under Review' => 'Under Review', 'Assigned' => 'Assigned', 'In Progress' => 'In Progress', 'Resolved' => 'Resolved', 'Verified' => 'Closed'];
 $stepIndex = $c['status'] === 'Reopened' ? 1 : array_search($c['status'], array_keys($steps), true);
 ?>
 <article class="panel detail-page" data-case-id="<?= h($c['id']) ?>" data-version="<?= (int)$c['version'] ?>">
   <div class="case-summary">
     <div class="summary-item"><span class="label">Current status</span><?= br_status($c) ?></div>
     <div class="summary-item"><span class="label">Priority</span><?= br_priority($c) ?></div>
+    <div class="summary-item"><span class="label">Concern type</span><strong><?= h($c['concernType'] ?: $c['category']) ?></strong></div>
     <div class="summary-item"><span class="label">Reported by</span><strong><?= h($c['resident']) ?></strong><?php if (!empty($c['submitterRole'])): ?><span class="form-text"><?= h(br_role($c['submitterRole'])) ?></span><?php endif ?></div>
     <div class="summary-item"><span class="label">Submitted</span><strong><?= h(br_date($c['createdAt'], true)) ?></strong></div>
     <div class="summary-item"><span class="label">Assigned team</span><strong><?= h($c['team'] ?: 'Not yet assigned') ?></strong></div>
@@ -26,10 +27,12 @@ $stepIndex = $c['status'] === 'Reopened' ? 1 : array_search($c['status'], array_
   </div>
   <div class="case-layout"><div class="case-main">
     <?php if (in_array($c['status'], ['Reopened', 'Returned for Information', 'Rejected', 'Referred to Another Office'], true)): ?><div class="status-note"><strong><?= h(br_status_label($c['status'])) ?></strong><br><?= h($c['timeline'][count($c['timeline']) - 1]['note']) ?></div><?php endif ?>
-    <section class="case-section"><h3><?= br_icon('inbox') ?>Reported concern</h3><p class="case-description"><?= h($c['description']) ?></p><p><?= br_icon('pin') ?> <?= h($c['location']) ?></p></section>
-    <section class="case-section"><h3>Key Points</h3><div class="d-flex flex-wrap gap-2"><?php foreach ($c['keyPoints'] ?? [] as $point): ?><span class="status status-assigned"><?= h($point) ?></span><?php endforeach ?></div><?php if (empty($c['keyPoints'])): ?><p class="text-muted">No key points selected / legacy record.</p><?php endif ?><p class="mt-3">Assigned personnel: <strong><?= h($c['assignedName'] ?? 'Awaiting individual assignment') ?></strong></p><p class="form-text">Location and photos on this page are private to the reporter and authorized staff.</p></section>
+    <section class="case-section"><h3><?= br_icon('pin') ?>Location</h3><p><?= h($c['location']) ?></p><p class="form-text">Visible only to the reporter and authorized staff.</p></section>
+    <section class="case-section"><h3><?= br_icon('inbox') ?>Reported details</h3><p class="case-description"><?= h($c['description'] ?: 'No additional description was provided.') ?></p><div class="d-flex flex-wrap gap-2"><?php foreach ($c['keyPoints'] ?? [] as $point): ?><span class="status status-assigned"><?= h($point) ?></span><?php endforeach ?></div><?php if (empty($c['keyPoints'])): ?><p class="text-muted">No key points selected for this record.</p><?php endif ?><p class="mt-3">Reported by: <strong><?= h($c['resident']) ?></strong></p></section>
+    <?php require __DIR__ . '/includes/components/evidence.php'; ?>
+    <section class="case-section"><h3><?= br_icon('users') ?>Current assignment</h3><p>Assigned personnel: <strong><?= h($c['assignedName'] ?? 'Not yet assigned') ?></strong></p><p>Team: <strong><?= h($c['team'] ?: 'Not yet assigned') ?></strong></p></section>
+    <?php if (!empty($c['dueAt'])): ?><p class="info-callout">Target completion: <strong><?= h(br_date($c['dueAt'])) ?></strong></p><?php endif ?>
     <?php require __DIR__ . '/includes/components/resident-followups.php'; require __DIR__ . '/includes/components/linked-concerns.php'; ?>
-    <?php $conversation=br_store()->concernConversation($actor['id'],$c['id'],0,false); require __DIR__ . '/includes/components/concern-conversation.php'; ?>
     <?php if (!empty($c['residentGuidance'])): ?><details class="case-section suggestion-box"><summary>Temporary guidance shared with the resident</summary><p class="form-text mt-3">Reference only: these steps were generated for the resident at submission while waiting for help. Staff follow the official action plan below. This does not indicate that the resident performed these steps.</p><ol class="resident-guidance-list"><?php foreach ($c['residentGuidance'] as $step): ?><li><?= h($step) ?></li><?php endforeach ?></ol></details><?php endif ?>
     <?php if (!empty($c['suggestions']) || !empty($c['suggestion'])): ?><details class="case-section suggestion-box"><summary>Earlier suggestions (legacy record)</summary><p class="form-text mt-3">Preserved from the earlier reporting form for historical reference. These are not the temporary resident guidance introduced in the updated form.</p><?php if (!empty($c['suggestions'])): ?><ol><?php foreach ($c['suggestions'] as $i => $suggestion): ?><li><?= h($suggestion) ?><?= ($c['selectedSuggestion'] ?? null) === $i ? ' (preference recorded on the earlier form)' : '' ?></li><?php endforeach ?></ol><?php else: ?><p><?= h($c['suggestion']) ?></p><?php endif ?></details><?php endif ?>
     <section class="case-section recommendation-box"><h3><?= br_icon('shield') ?>Barangay recommended action</h3><p><?= h($c['recommendation'] ?: 'The barangay has not recorded an official recommendation yet.') ?></p><?php if ($c['recommendation']): ?><div class="recommendation-author">Official assessment · <?= h($c['assessment'] ?: 'No additional notes') ?></div><?php endif ?></section>
@@ -44,7 +47,10 @@ $stepIndex = $c['status'] === 'Reopened' ? 1 : array_search($c['status'], array_
       <p class="form-text mb-0 mt-2">Category match only. Review applicability before saving the official action.</p>
     </div>
     <?php endif ?>
-    <?php require __DIR__ . '/includes/components/possible-duplicates.php'; require __DIR__ . '/includes/components/resolution-feedback.php'; require __DIR__ . '/includes/components/concern-insights.php'; require __DIR__ . '/includes/components/evidence.php'; require __DIR__ . '/includes/components/complaint-actions.php'; ?>
+    <?php require __DIR__ . '/includes/components/complaint-actions.php'; ?>
+    <?php $conversation=br_store()->concernConversation($actor['id'],$c['id'],0,false); require __DIR__ . '/includes/components/concern-conversation.php'; ?>
+    <?php require __DIR__ . '/includes/components/resolution-feedback.php'; ?>
+    <?php if($actor['role']==='official'): ?><details class="case-section advanced-review"><summary>More review tools</summary><div class="mt-3"><?php require __DIR__ . '/includes/components/possible-duplicates.php'; require __DIR__ . '/includes/components/concern-insights.php'; ?></div></details><?php endif ?>
   </div><aside class="case-timeline"><h3><?= br_icon('clock') ?>Activity timeline</h3>
     <?php foreach (array_reverse($c['timeline']) as $event): ?><div class="timeline-entry"><strong><?= h(($event['title'] ?? '') === 'Returned for Information' ? 'Information requested from reporter' : $event['title']) ?></strong><span class="timeline-date"><?= h(br_date($event['date'], true)) ?><br><?= h($event['actor']) ?></span><p><?= h($event['note']) ?></p>
     <?php if (!empty($event['priorityDecision'])): ?><p class="form-text">System priority: <?= h($event['priorityDecision']['recommended']) ?> · Official priority: <?= h($event['priorityDecision']['priority']) ?> (<?= $event['priorityDecision']['overridden'] ? 'overridden' : 'accepted' ?>)</p><?php endif ?>

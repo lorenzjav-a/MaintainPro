@@ -14,7 +14,7 @@ $evidenceUrl = fn($entry) => !empty($entry['evidenceId']) ? br_url('evidence.php
 <?php endforeach ?>
 </div>
 <?php if ($completionEvidence && !in_array($c['status'],['Resolved','Verified'],true)): ?><p class="form-text">The completion image is from an earlier attempt. This concern is still open.</p><?php endif ?>
-<details class="mt-3" open><summary>Evidence timeline · <?= count($evidenceEntries) ?> images</summary><div class="evidence-gallery mt-3">
+<details class="mt-3"><summary>Evidence timeline · <?= count($evidenceEntries) ?> images</summary><div class="evidence-gallery mt-3">
 <?php foreach ($evidenceEntries as $entry): ?><figure class="evidence-card"><figcaption><strong><?= h($entry['evidenceType']) ?></strong><span><?= h($entry['workStatus'] ?? '') ?></span></figcaption><a href="<?= h($evidenceUrl($entry)) ?>" target="_blank" rel="noopener"><img src="<?= h($evidenceUrl($entry)) ?>" alt="<?= h($entry['evidenceType']) ?>" loading="lazy"></a><p><?= h($entry['actor']) ?> · <?= h(br_date($entry['date'],true)) ?></p><?php if (!empty($entry['note'])): ?><p class="evidence-note"><?= h($entry['note']) ?></p><?php endif ?></figure><?php endforeach ?>
 <?php if (!$evidenceEntries): ?><p class="text-muted">No image evidence yet.</p><?php endif ?>
 </div></details></section>

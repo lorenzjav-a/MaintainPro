@@ -6,6 +6,7 @@ require __DIR__ . '/includes/layout/header.php';
 br_heading($pageTitle, 'Use concern history to understand recurring concerns and community needs.', br_export());
 $locations = br_group($cases, fn($c) => $c['locationDetails']['purok'] ?? (preg_match('/Purok \d+/i', $c['location'], $match) ? $match[0] : $c['location']));
 ?>
+<?php require __DIR__ . '/includes/components/weekly-concerns.php'; ?>
 <div class="stats-grid">
   <?php br_stat('Official-closed', $metrics['verified'], 'Outcomes closed after review', 'checkCircle', 'green', 'verified');
   br_stat('Awaiting official review', $metrics['resolved'], 'Work marked resolved by personnel', 'clock', 'blue', 'resolved');

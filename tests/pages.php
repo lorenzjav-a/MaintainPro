@@ -20,16 +20,17 @@ function pageDocument(string $jar, string $path, int $expected = 200): DOMXPath
     return $xpath;
 }
 function pageHas(DOMXPath $doc, string $query, string $label): void { httpCheck($doc->query($query)->length > 0, $label); }
-foreach (['landing.php', 'index.php', 'report-concern.php', 'new-complaint.php', 'track.php', 'login.php'] as $path) pageDocument($guestJar, $path);
+foreach (['landing.php', 'index.php', 'report-concern.php', 'new-complaint.php', 'track.php', 'login.php', 'user-guide.php'] as $path) pageDocument($guestJar, $path);
 $form = pageDocument($guestJar, 'report-concern.php');
 httpCheck($form->query('//input[@name="name" or @name="email" or @name="password" or @name="title"]')->length === 0, 'no identity/title fields');
 pageHas($form, '//select[@name="category" and @required]', 'category choice');
+pageHas(pageDocument($guestJar,'report-concern.php?category=Street%20Lighting'),'//select[@name="category"]/option[@selected and @value="Street Lighting"]','landing category preselects report form');
 pageHas($form, '//select[@name="concernType" and @required]', 'dependent type');
 pageHas($form, '//*[@data-key-points]', 'key point section');
 pageHas($form, '//input[@name="exactArea" and @required]', 'required exact area');
 httpCheck($form->query('//textarea[@name="description" and @required]')->length === 0, 'description optional');
 pageHas($form, '//*[@id="suggestions"]', 'suggestions preview');
-pageHas($form, '//*[@id="guidance-heading" and contains(., "While you wait")]', 'guidance is addressed to residents');
+pageHas($form, '//*[@id="guidance-heading" and contains(., "Safety guidance")]', 'guidance is addressed to residents');
 httpCheck($form->query('//*[@name="selectedSuggestion"]')->length === 0, 'no proposed-solution choice on public form');
 pageHas($form, '//*[@id="receipt-guidance"]', 'receipt has resident guidance section');
 foreach (['complaints.php', 'concerns.php', 'history.php', 'admin.php', 'reports.php', 'solutions.php', 'users.php', 'profile.php', 'user-create.php', 'user-edit.php?id=' . $staffId, 'complaint.php?id=' . $id] as $path) {

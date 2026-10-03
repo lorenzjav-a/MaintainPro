@@ -33,7 +33,7 @@ function br_role(string $role): string
 function br_status_label(string $status): string
 {
     return match ($status) {
-        'Verified' => 'Closed / reviewed',
+        'Verified' => 'Closed',
         'Returned for Information' => 'Needs More Information',
         default => $status,
     };

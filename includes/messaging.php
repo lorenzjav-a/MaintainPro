@@ -119,7 +119,14 @@ trait ConcernMessaging
             if ($visibility==='staff') $this->db->recordAudit($actor,'concern_internal_note_created','concern',$id,$id,['messageId'=>$messageId]);
             $this->notifyConcernMessage($concern,$messageId,$actor['id'],$visibility,!$staff);
             $this->db->markConcernRead($id,'user:'.$actor['id'],$messageId);
-            return ['id'=>$messageId];
+            return [
+                'id'=>$messageId,
+                'sender_name'=>$name,
+                'sender_role'=>$actor['role'],
+                'visibility'=>$visibility,
+                'body'=>$body,
+                'created_at'=>time(),
+            ];
         });
     }
 
@@ -133,7 +140,14 @@ trait ConcernMessaging
             $id=$this->db->insertConcernMessage($concern['id'],null,'guest','Guest reporter','reporter',$body);
             $this->notifyConcernMessage($concern,$id,null,'reporter',true);
             $this->db->markConcernRead($concern['id'],'guest',$id);
-            return ['id'=>$id];
+            return [
+                'id'=>$id,
+                'sender_name'=>'Guest reporter',
+                'sender_role'=>'guest',
+                'visibility'=>'reporter',
+                'body'=>$body,
+                'created_at'=>time(),
+            ];
         });
     }
 
@@ -259,7 +273,14 @@ trait ConcernMessaging
                 if ($member['id']===$userId || !$member['active']) continue;
                 $this->db->createMessageNotification($member['id'],'staff_message','New message from '.$actor['name'],'You received a new staff message.','messages.php?id='.$conversationId.'&open_chat=1','staff-message:'.$id.':'.$member['id'],$conversation['related_concern_id']);
             }
-            return ['id'=>$id];
+            return [
+                'id'=>$id,
+                'sender_name'=>$actor['name'],
+                'sender_role'=>$actor['role'],
+                'visibility'=>'staff',
+                'body'=>$body,
+                'created_at'=>time(),
+            ];
         });
     }
 }

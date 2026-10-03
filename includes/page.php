@@ -16,14 +16,14 @@ function br_page(string $page, array $roles = []): array
         exit;
     }
     $titles = [
-        'overview' => match ($actor['role']) {'official' => 'Administrative dashboard', 'resident' => 'Resident dashboard', default => 'Personnel dashboard'},
+        'overview' => match ($actor['role']) {'official' => 'Official dashboard', 'resident' => 'My dashboard', default => 'My work dashboard'},
         'complaints' => match ($actor['role']) {'official' => 'All concerns', 'resident' => 'My concerns', default => 'Work queue'},
         'history' => 'Resolution history', 'reports' => 'Reports & insights', 'solutions' => 'Solution library',
         'admin' => 'Administration', 'official-solutions' => 'Official action library', 'action-plans' => 'Weekly action plans',
         'my-action-plans' => 'My action plans',
         'messages' => 'Staff messages',
         'users' => 'User management', 'profile' => 'My profile', 'complaint' => 'Concern details',
-        'notifications' => 'Notifications',
+        'notifications' => 'Notifications', 'user-guide' => 'User Guide',
         'settings' => 'Workspace settings', 'audit' => 'Audit history', 'blocked' => 'Blocked work',
         'new-complaint' => 'Report a community concern', 'user-create' => 'Create a workspace account', 'user-edit' => 'Manage account',
     ];
