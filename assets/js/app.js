@@ -3,6 +3,73 @@
   var csrf = document.querySelector('meta[name="csrf-token"]').content;
   var busy = false, navigating = false;
   var Toast = Swal.mixin({toast: true, position: 'top-end', showConfirmButton: false, timer: 3800, timerProgressBar: true});
+  var workflowPositionKey = 'maintainpro:concern-workflow-position';
+
+  function rememberWorkflowPosition(concernId, action, form) {
+    var record = document.querySelector('[data-case-id]');
+    if (!record || !concernId || record.dataset.caseId !== concernId) return;
+    var section = form.closest('[data-workflow-section]');
+    try {
+      sessionStorage.setItem(workflowPositionKey, JSON.stringify({
+        concernId: concernId,
+        action: action,
+        section: section ? section.dataset.workflowSection : '',
+        scrollY: Math.max(0, Math.round(window.scrollY)),
+        savedAt: Date.now()
+      }));
+    } catch (error) {
+      // Scroll restoration is optional when tab storage is unavailable.
+    }
+  }
+
+  function restoreWorkflowPosition() {
+    var record = document.querySelector('[data-case-id]');
+    if (!record) return;
+    var saved;
+    try { saved = JSON.parse(sessionStorage.getItem(workflowPositionKey) || 'null'); }
+    catch (error) { sessionStorage.removeItem(workflowPositionKey); return; }
+    if (!saved) return;
+    var queryAction = new URLSearchParams(window.location.search).get('saved');
+    if (saved.concernId !== record.dataset.caseId || saved.action !== queryAction || Date.now() - Number(saved.savedAt) > 120000) {
+      sessionStorage.removeItem(workflowPositionKey);
+      return;
+    }
+    sessionStorage.removeItem(workflowPositionKey);
+    var mapped = {
+      assess: ['assignment', 'assessment', 'barangay-assessment'],
+      assign: ['assignment', 'current-assignment'],
+      start: ['work-progress', 'current-assignment'],
+      note: ['work-progress'],
+      resolve: ['resolution-review', 'work-result'],
+      block: ['blocked-status', 'blocked-management'],
+      manage_block: ['blocked-management', 'work-progress', 'blocked-status'],
+      request_information: ['waiting-information'],
+      exception: ['reopen', 'barangay-assessment'],
+      reopen: ['assessment'],
+      verify: ['reopen', 'work-result'],
+      information: ['reported-information'],
+      link_concern: ['link-concern', 'current-assignment']
+    };
+    var names = (mapped[saved.action] || []).concat(saved.section || '');
+    var target = null;
+    names.some(function (name) {
+      if (!/^[a-z-]+$/.test(name)) return false;
+      target = document.querySelector('[data-workflow-section="' + name + '"]');
+      return !!target;
+    });
+    var restore = function () {
+      if (target) {
+        if (target.tagName === 'DETAILS') target.open = true;
+        target.scrollIntoView({block: 'center', behavior: 'auto'});
+      } else {
+        window.scrollTo({top: Math.min(Number(saved.scrollY) || 0, Math.max(0, document.documentElement.scrollHeight - window.innerHeight)), behavior: 'auto'});
+      }
+    };
+    if (document.readyState === 'complete') requestAnimationFrame(restore);
+    else window.addEventListener('load', function () { requestAnimationFrame(restore); }, {once: true});
+  }
+
+  restoreWorkflowPosition();
 
   function request(endpoint, action, data, id) {
     var record = document.querySelector('[data-case-id]');
@@ -152,6 +219,7 @@
         var query = new URLSearchParams({saved: action});
         if (destination === 'complaint.php' || destination === 'action-plans.php' || destination === 'my-action-plans.php') query.set('id', result.id || id);
         if (action === 'save_official_rules') { query.set('category',data.category); query.set('type',data.concernType); query.set('keypoint',data.keypoint); }
+        if (destination === 'complaint.php') rememberWorkflowPosition(result.id || id, action, form);
         navigating = true;
         window.location.assign(destination + '?' + query.toString());
       });

@@ -67,13 +67,4 @@
     var menu = document.querySelector('.notification-menu');
     if (event.key === 'Escape' && menu && menu.open) { menu.open = false; menu.querySelector('summary').focus(); }
   });
-  document.addEventListener('change', function (event) {
-    var form = event.target.closest('form[data-action="edit"]');
-    if (!form || ['category','concernType','keyPoints'].indexOf(event.target.name) < 0) return;
-    var accept = form.querySelector('[data-accept-priority]');
-    if (accept) {
-      accept.disabled = true;
-      form.querySelector('[data-priority-feedback]').textContent = 'Selections changed. Save the concern information to calculate a fresh recommendation, then review the priority again.';
-    }
-  });
 })();

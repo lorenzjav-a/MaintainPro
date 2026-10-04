@@ -1468,6 +1468,21 @@ button.stat-card:hover {
   margin-bottom: 28px;
 }
 
+.record-note {
+  margin: 0 0 18px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--green);
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
+  line-height: 1.6;
+}
+
+.reported-record {
+  padding-left: 14px;
+  border-left: 1px solid var(--surface-border);
+}
+
 .case-section:last-child {
   margin-bottom: 0;
 }
@@ -1703,6 +1718,7 @@ button.stat-card:hover {
   border-top: 1px solid var(--line);
   padding-top: 23px;
   margin-top: 24px;
+  scroll-margin-top: 24px;
 }
 
 .action-panel h3 {
@@ -1720,11 +1736,38 @@ button.stat-card:hover {
 }
 
 .action-panel .form-label {
+  display: block;
+  width: 100%;
   font-size: var(--font-size-body);
   color: var(--text-secondary);
   font-weight: var(--weight-label);
   margin-bottom: 7px;
   line-height: 1.5;
+}
+
+.action-panel form {
+  display: grid;
+  gap: 14px;
+}
+
+.action-panel form > .form-label,
+.action-panel form > .form-text,
+.action-panel form > fieldset {
+  margin: 0;
+}
+
+.action-panel .form-label > .form-control,
+.action-panel .form-label > .form-select {
+  margin-top: 7px;
+}
+
+.action-panel form > .btn {
+  justify-self: start;
+}
+
+.action-panel > details,
+.action-panel details > form {
+  margin-top: 16px;
 }
 
 .form-control,.form-select {
@@ -1754,7 +1797,7 @@ button.stat-card:hover {
 }
 
 .action-panel textarea {
-  font-size: 13px;
+  font-size: var(--font-size-body);
   line-height: 1.75;
   min-height: 90px;
 }
@@ -2077,7 +2120,15 @@ button.stat-card:hover {
   }
 
   .case-layout {
-    grid-template-columns: minmax(0,1fr) 235px;
+    grid-template-columns: 1fr;
+  }
+
+  .case-main {
+    border-right: 0;
+  }
+
+  .case-timeline {
+    border-top: 1px solid var(--line);
   }
 
   .topbar {
@@ -2567,17 +2618,6 @@ button.stat-card:hover {
   font-size: var(--font-size-small);
   color: var(--muted);
   line-height: 1.7;
-}
-
-.action-panel .form-label {
-  font-size: var(--font-size-body);
-  font-weight: var(--weight-label);
-  color: var(--text-secondary);
-  line-height: 1.5;
-}
-
-.action-panel textarea {
-  font-size: 14px;
 }
 
 .summary-item strong {
@@ -3331,8 +3371,48 @@ button.stat-card:hover {
 .public-page { background: var(--bg); min-height: 100vh; font-family: var(--bs-body-font-family); }
 .public-header { background: var(--nav); padding: 22px max(5vw, 20px); display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .public-header .brand { margin: 0; padding: 0; }
-.public-header nav { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; }
-.public-header nav > a:not(.btn) { color: #e4eeee; font-size: 14px; }
+.public-header nav { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.public-header .public-nav-link {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 13px;
+  border: 1px solid rgba(228, 238, 238, .3);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, .05);
+  color: #eef7f4;
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .2s ease, border-color .2s ease, transform .2s ease;
+}
+.public-header .public-nav-link:hover {
+  border-color: rgba(255, 255, 255, .55);
+  background: rgba(255, 255, 255, .12);
+  color: #fff;
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+.public-header .public-nav-link:focus-visible {
+  outline: 3px solid #74bdaa;
+  outline-offset: 2px;
+}
+.public-header .public-nav-cta {
+  border-color: var(--surface-border);
+  background: var(--surface);
+  color: var(--green-dark);
+  font-weight: 700;
+}
+.public-header .public-nav-cta:hover {
+  border-color: #a9cfc1;
+  background: var(--surface-soft);
+  color: var(--green-dark);
+}
 .public-main { max-width: 1180px; padding: 36px 24px 60px; margin: auto; }
 .public-hero { display: grid; grid-template-columns: 1.7fr 1fr; align-items: center; gap: 40px; padding: 40px 0 55px; }
 .public-hero h1 { font-size: clamp(32px, 4vw, 52px); letter-spacing: -1.5px; line-height: 1.12; margin: 18px 0; }
@@ -3344,7 +3424,7 @@ button.stat-card:hover {
 .public-footer { padding: 24px; text-align: center; font-size: var(--font-size-small); color: var(--muted); border-top: 1px solid #dce5e3;
   line-height: 1.7;
 }
-.public-main .form-label, .public-form-panel .form-label, .action-panel .form-label, form[data-action=save_rule] .form-label, form[data-action=reset_rule] .form-label { display: block; width: 100%; margin-bottom: 14px; }
+.public-main .form-label, .public-form-panel .form-label, form[data-action=save_rule] .form-label, form[data-action=reset_rule] .form-label { display: block; width: 100%; margin-bottom: 14px; }
 .public-main .form-label { font-family: inherit; font-size: var(--font-size-body); font-weight: var(--weight-label); line-height: 1.5; color: var(--text-secondary); }
 .public-main .form-label > .text-muted { font-weight: 400; }
 .public-main .form-control,
@@ -3365,9 +3445,14 @@ button.stat-card:hover {
 .spam-field { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 .tracking-code,.public-main .tracking-code { font-family: var(--font-mono); font-size: var(--font-size-body); }
 .case-timeline, .case-main, .insight-row > span { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 850px) {
+  .public-header { align-items: flex-start; flex-direction: column; }
+  .public-header nav { width: 100%; }
+}
 @media (max-width: 650px) {
   .public-header { align-items: flex-start; flex-direction: column; padding: 20px; }
-  .public-header nav { gap: 14px; }
+  .public-header nav { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .public-header .public-nav-link { width: 100%; padding-inline: 10px; white-space: normal; }
   .public-main { padding: 24px 16px 40px; }
   .public-hero { grid-template-columns: 1fr; padding: 10px 0 30px; gap: 24px; }
   .hero-emblem { padding: 24px; }

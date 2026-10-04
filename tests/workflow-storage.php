@@ -115,10 +115,12 @@ try {
     $store->updateLocation($admin['id'], $locationId, [], true);
     check($store->locations() === [] && count($store->locations($admin['id'])) === 1 && $store->hasLocations(), 'inactive list private; no fallback when registry inactive');
     denied(fn() => $store->submitGuest($report + ['locationId' => $locationId], 'inactive-area'), 'inactive location cannot receive new report');
-    $c = $mutate($admin, $id, 'edit', $report + ['priority' => 'High', 'description' => '', 'recommendation' => 'Preserved plan']);
-    check($c['locationDetails']['purok'] === 'Original area', 'historical free-text location can be retained during editing');
-    $c = $mutate($admin, $managed['reference'], 'edit', $report + ['locationId' => $locationId, 'priority' => 'Low', 'recommendation' => 'Inspect']);
-    check($c['locationDetails']['purok'] === 'Purok Five', 'official can edit historical inactive location');
+    $freeTextBefore = $find($id);
+    denied(fn() => $mutate($admin, $id, 'edit', $report + ['priority' => 'High', 'description' => '', 'recommendation' => 'Forged plan']), 'historical free-text report cannot be edited');
+    check($find($id)['locationDetails'] === $freeTextBefore['locationDetails'], 'historical free-text location remains its submitted snapshot');
+    $managedBefore = $find($managed['reference']);
+    denied(fn() => $mutate($admin, $managed['reference'], 'edit', $report + ['locationId' => $locationId, 'priority' => 'Low', 'recommendation' => 'Forged plan']), 'managed-location report cannot be edited');
+    check($find($managed['reference'])['locationDetails'] === $managedBefore['locationDetails'] && $managedBefore['locationDetails']['purok'] === 'Purok 5', 'managed location remains the original submission snapshot after registry changes');
     $audit = $store->auditLogs($admin['id']);
     check($audit['total'] > 10 && !str_contains(json_encode($audit), 'Storage-password') && !str_contains(json_encode($audit), 'password_hash'), 'audit saved without credentials');
     check($store->auditLogs($admin['id'], ['action' => 'location_deactivated'])['total'] === 1, 'audit action filter');

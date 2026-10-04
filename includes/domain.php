@@ -136,7 +136,6 @@ final class ComplaintWorkflow
             case 'assess':
                 self::guard($official && $assessment, 'This concern cannot be assessed at this stage.');
                 $c['recommendation'] = self::text($data['recommendation'] ?? '', 'Barangay recommended action');
-                // Category/type are edited together in the concern information form.
                 $c['priority'] = self::choice($data['priority'] ?? '', self::PRIORITIES, 'priority');
                 $c['assessment'] = self::text($data['assessment'] ?? '', 'Assessment notes', 3000, false);
                 $c['status'] = 'Under Review';
@@ -213,38 +212,7 @@ final class ComplaintWorkflow
                 self::event($c, $actor, $c['status'], ($office ? 'Receiving office: ' . $office . "\n" : '') . $note);
                 break;
             case 'edit':
-                self::guard($official, 'Only an official can edit concern information.');
-                $before = array_intersect_key($c, array_flip(['priority', 'category', 'concernType', 'keyPoints', 'location', 'description', 'recommendation']));
-                $oldPriority = $c['priority'];
-                $c['priority'] = self::choice($data['priority'] ?? '', self::PRIORITIES, 'priority');
-                $c['recommendation'] = self::text($data['recommendation'] ?? '', 'Official recommendation', 4000, false);
-                $c['description'] = self::text($data['description'] ?? '', 'Additional details', 4000, false);
-                if (!empty($c['concernType'])) {
-                    [$category, $type, $points] = ConcernCatalog::selections($data);
-                    // Keep the guidance shown at submission and any legacy suggestion as historical snapshots.
-                    [$c['category'], $c['concernType'], $c['keyPoints']] = [$category, $type, $points];
-                    $c['title'] = $c['concernType'] . ' Concern';
-                    $managedLocation = $data['_location'] ?? null;
-                    if (is_array($managedLocation)) {
-                        $c['locationDetails']['purokId'] = (int)$managedLocation['id'];
-                        $c['locationDetails']['purok'] = self::text($managedLocation['name'] ?? '', 'Purok / Sitio', 120);
-                    } else {
-                        // Compatibility for direct domain tests and historical edits. Runtime forms resolve a managed location first.
-                        $c['locationDetails']['purokId'] = $c['locationDetails']['purokId'] ?? null;
-                        $c['locationDetails']['purok'] = self::text($data['purok'] ?? ($c['locationDetails']['purok'] ?? ''), 'Purok / Sitio', 120);
-                    }
-                    foreach (['street', 'exactArea', 'landmark'] as $field) $c['locationDetails'][$field] = self::text($data[$field] ?? '', ucfirst($field), 120, $field !== 'landmark');
-                    $c['location'] = implode(', ', array_filter([
-                        $c['locationDetails']['purok'], $c['locationDetails']['street'],
-                        $c['locationDetails']['exactArea'], $c['locationDetails']['landmark'],
-                    ]));
-                } else {
-                    $c['category'] = self::choice($data['category'] ?? $c['category'], self::CATEGORIES, 'category');
-                    $c['location'] = self::text($data['location'] ?? '', 'Location', 500);
-                }
-                self::event($c, $actor, 'Concern information updated', 'Priority: ' . $oldPriority . ' → ' . $c['priority'] . '. Information and official recommendation reviewed.');
-                $c['timeline'][array_key_last($c['timeline'])]['changes'] = ['before' => $before, 'after' => array_intersect_key($c, $before)];
-                break;
+                throw new DomainException('Submitted concern details cannot be edited.');
             case 'link_concern':
                 self::guard($official && !in_array($c['status'], ['Linked to Primary', 'Verified'], true), 'This concern cannot be linked at its current stage.');
                 $primary = $data['_primary'] ?? null;
@@ -300,7 +268,7 @@ final class ComplaintWorkflow
             default:
                 throw new DomainException('Unknown action.');
         }
-        if (in_array($action, ['assess', 'edit'], true)) {
+        if ($action === 'assess') {
             $c['priorityRecommendation'] = ConcernInsights::priority($c);
             $c['priorityDecision'] = ['priority' => $c['priority'], 'recommended' => $c['priorityRecommendation']['priority'],
                 'overridden' => $c['priority'] !== $c['priorityRecommendation']['priority'], 'actorId' => $actor['id'], 'date' => date(DATE_ATOM)];

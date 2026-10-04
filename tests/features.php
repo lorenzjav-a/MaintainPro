@@ -48,11 +48,13 @@ try {
     denied(fn()=>$store->recurrenceGroups($a['id']),'personnel cannot list recurring private locations');
     denied(fn()=>$store->relatedConcerns($a['id'],$id),'personnel cannot enumerate related concerns');
     denied(fn()=>$store->workloads($a['id']),'personnel cannot enumerate other personnel workloads');
+    $immutableFields=['category','concernType','keyPoints','description','location','locationDetails','resident','residentId','isAnonymous','photo','createdAt','residentGuidance'];
+    $originalReport=array_intersect_key($c,array_flip($immutableFields));
     $c=$mutate($admin,$id,'assess',['priority'=>'Urgent','recommendation'=>'Qualified inspection']);
     check(!$c['priorityDecision']['overridden'],'official accepts recommended priority');
-    $edit=$report+['priority'=>'Low','description'=>'','recommendation'=>'Updated private instructions'];
-    $c=$mutate($admin,$id,'edit',$edit);
-    check($c['priority']==='Low' && $c['priorityDecision']['overridden'] && $c['priorityDecision']['recommended']==='Urgent','official override recorded separately');
+    $dueAt=date('Y-m-d\TH:i',time()+7200);
+    $c=$mutate($admin,$id,'assess',['priority'=>'Low','recommendation'=>'Updated private instructions','assessment'=>'Official assessment notes','dueAt'=>$dueAt]);
+    check($c['priority']==='Low' && $c['assessment']==='Official assessment notes' && !empty($c['dueAt']) && $c['priorityDecision']['overridden'] && $c['priorityDecision']['recommended']==='Urgent','official assessment fields remain editable and override is recorded separately');
     $workloads=$store->workloads($admin['id']);
     check(ConcernInsights::recommendPersonnel($workloads,$c)['id']===$a['id'],'active matching team lowest load deterministic tie');
     // Manual choice of Beta is allowed even while Alpha is recommended.
@@ -68,8 +70,11 @@ try {
     check((int)$loads[$b['id']]['active_work']===1 && (int)$loads[$a['id']]['active_work']===0,'active assignment exact owner counts');
     check(ConcernInsights::recommendPersonnel(array_values($loads),$c)['id']===$a['id'],'less busy matching team recommended');
     foreach ([0=>'Available',2=>'Available',3=>'Moderate',5=>'Moderate',6=>'High Workload'] as $n=>$label) check(ConcernInsights::workloadLabel($n)===$label,'workload threshold '.$n);
-    $c=$mutate($admin,$id,'edit',array_replace($edit,['priority'=>'High','recommendation'=>'New instructions']));
-    check(count($notices($b,'priority'))===1 && count($notices($b,'instructions'))===1,'priority and instructions changed notifications');
+    $forgedEdit=array_replace($report,['priority'=>'High','recommendation'=>'New instructions','description'=>'Rewritten report','exactArea'=>'Changed gate']);
+    denied(fn()=>$mutate($admin,$id,'edit',$forgedEdit),'official forged edit rejected after assignment');
+    $c=$find($id);
+    check(array_intersect_key($c,array_flip($immutableFields))===$originalReport && $c['priority']==='Low' && $c['recommendation']==='Updated private instructions','workflow preserves original report while retaining official assessment');
+    check(count($notices($b,'priority'))===0 && count($notices($b,'instructions'))===0,'rejected edit sends no misleading personnel notifications');
     $foreign=$notices($b,'assignment')[0]['id'];
     denied(fn()=>$store->readNotifications($a['id'],(int)$foreign),'notification ownership protects read action');
     denied(fn()=>$store->notifications('unknown'),'unknown user inbox rejected');

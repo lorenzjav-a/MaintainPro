@@ -734,6 +734,7 @@ final class ComplaintStore
             $actor = $this->actor($userId);
             if (!$actor) throw new DomainException('Your account is inactive. Please sign in again.');
             if ($actor['must_change_password']) throw new DomainException('Change your temporary password before accessing concerns.');
+            if ($action === 'edit') throw new DomainException('Submitted concern details cannot be edited.');
             $before = $this->concern($id, true);
             if (!$before || !ComplaintWorkflow::canSee($before, $actor)) throw new DomainException('Concern not found or unavailable to your account.');
             if (!is_int($expectedVersion) || $expectedVersion !== $before['version']) throw new ConflictException('Another user updated this concern. Refresh the page to load the latest record before saving.');
@@ -759,12 +760,6 @@ final class ComplaintStore
                 if (!$assigned || !$assigned['active'] || $assigned['role'] !== 'personnel' || !filter_var($assigned['email'], FILTER_VALIDATE_EMAIL)) throw new DomainException('Choose active personnel with a valid email address.');
                 $data['_assignee'] = $assigned;
             }
-            if ($action === 'edit' && !empty($before['concernType'])) {
-                // An older free-text location may be retained after locations are configured.
-                $retainingLegacy = empty($before['locationDetails']['purokId']) && empty($data['locationId']) && empty($data['purokId'])
-                    && ($data['purok'] ?? '') === ($before['locationDetails']['purok'] ?? '');
-                $data['_location'] = $retainingLegacy ? null : $this->managedLocation($data, true);
-            }
             if ($action === 'link_concern') {
                 if ($actor['role'] !== 'official') throw new DomainException('Only a barangay official can link reports.');
                 $primaryId = is_string($data['primaryConcernId'] ?? null) ? $data['primaryConcernId'] : '';
@@ -786,7 +781,7 @@ final class ComplaintStore
             $this->db->updateComplaint($c, $before['version']);
             if ($action === 'reopen') $this->db->insertConcernMessage($id,null,'system','MaintainPro','reporter','Concern reopened.');
             (new ConcernNotifications($this->db))->changed($c, $before, $action);
-            if (in_array($action,['assess','edit'],true)) $this->notifyDuplicateSuggestions($c);
+            if ($action === 'assess') $this->notifyDuplicateSuggestions($c);
             if (($before['dueAt'] ?? null)!==($c['dueAt'] ?? null)) $this->db->recordAudit($actor,'target_date_changed','concern',$id,$id,['before'=>$before['dueAt'] ?? null,'after'=>$c['dueAt'] ?? null]);
             $audit = match ($action) {
                 'assign' => 'assignment_changed', 'verify' => 'concern_manually_closed', 'reopen' => 'concern_reopened',

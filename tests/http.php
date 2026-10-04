@@ -140,6 +140,14 @@ try {
     $otherCsrf = token($otherJar);
     httpCheck(req($staffJar, 'concern.php?id=' . $id)['status'] === 404, 'unassigned staff denied private detail');
     httpCheck(post($staffJar, 'assess', [], $staffCsrf, $id, 1)['status'] === 422, 'personnel assessment denied');
+    $beforeForgedEdit = httpCase(req($adminJar, 'api.php'), $id);
+    $forgedEdit = ['category'=>'Safety','concernType'=>'Other safety concern','keyPoints'=>['Immediate danger'],'description'=>'Rewritten','purok'=>'Changed','street'=>'Changed','exactArea'=>'Changed','priority'=>'Urgent','recommendation'=>'Forged'];
+    $officialEdit = post($adminJar, 'edit', $forgedEdit, $adminCsrf, $id, 1);
+    $personnelEdit = post($staffJar, 'edit', $forgedEdit, $staffCsrf, $id, 1);
+    httpCheck($officialEdit['status'] === 422 && $personnelEdit['status'] === 422 && str_contains($officialEdit['body'], 'Submitted concern details cannot be edited.'), 'forged official and personnel edit requests rejected');
+    $afterForgedEdit = httpCase(req($adminJar, 'api.php'), $id);
+    $immutableFields = ['category','concernType','keyPoints','description','location','locationDetails','resident','residentId','isAnonymous','photo','createdAt','residentGuidance'];
+    httpCheck(array_intersect_key($afterForgedEdit,array_flip($immutableFields)) === array_intersect_key($beforeForgedEdit,array_flip($immutableFields)) && $afterForgedEdit['version'] === 1, 'forged edit leaves submitted payload and version unchanged');
     $assessment = ['priority' => 'High', 'recommendation' => 'INTERNAL-RECOMMENDATION', 'assessment' => 'INTERNAL-NOTE'];
     httpCheck(post($adminJar, 'assess', $assessment, '', $id, 1)['status'] === 403, 'staff write CSRF');
     httpCheck(post($adminJar, 'assess', $assessment, $adminCsrf, $id, 1)['status'] === 200, 'official assesses');
@@ -201,7 +209,7 @@ try {
     $detailDocument=pageDocument($adminJar,'concern.php?id='.$id);
     pageHas($detailDocument,'//*[@id="evidence"]','before after section');
     pageHas($detailDocument,'//*[@id="recurrence"]','recurrence section');
-    pageHas($detailDocument,'//*[@data-accept-priority]','priority recommendation control');
+    httpCheck($detailDocument->query('//*[@data-accept-priority]')->length === 0, 'closed concern has no stale priority recommendation control');
     httpCheck(str_contains(req($adminJar,'reports.php')['body'],'Recommended and official priorities'),'priority comparison report');
     httpCheck(str_contains(req($adminJar,'users.php')['body'],'Personnel workload'),'account workload table');
     // Exercise the preserved OTP recovery through the real local SMTP path.

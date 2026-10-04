@@ -54,11 +54,11 @@ final class ConcernNotifications
             if ($previous) $this->db->createNotification($previous,'reassignment','Report linked to a primary concern',$id . ' no longer needs a separate work assignment.',$id,$key,true);
             $this->officials($c,'link','Same-issue reports linked',$id . ' now follows its primary concern.',$key);
         }
-        if ($before && $assigned && in_array($action,['assess','edit'],true)) {
+        if ($before && $assigned && $action === 'assess') {
             if ($before['priority'] !== $c['priority']) $this->db->createNotification($assigned,'priority','Priority changed',$id . ' priority is now ' . $c['priority'] . '.',$id,$key . ':priority');
             if ($before['recommendation'] !== $c['recommendation']) $this->db->createNotification($assigned,'instructions','Work instructions updated',$id . ' has updated official instructions. Open the concern before continuing work.',$id,$key . ':instructions');
         }
-        if (in_array($action,['submit','edit'],true)) $this->recurrence($c);
+        if ($action === 'submit') $this->recurrence($c);
     }
 
     private function recurrence(array $c): void
