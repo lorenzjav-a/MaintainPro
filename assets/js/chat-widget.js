@@ -18,6 +18,15 @@
     if (className) item.className = className;
     return item;
   }
+  function initials(value) {
+    return value.trim().split(/\s+/).slice(0, 2).map(function (part) { return part.charAt(0); }).join('').toUpperCase() || '?';
+  }
+  function listDate(value) {
+    if (!value) return '';
+    var date = new Date(value), today = new Date();
+    if (date.toDateString() === today.toDateString()) return date.toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'});
+    return date.toLocaleDateString([], {month: 'short', day: 'numeric'});
+  }
   function fail(error) { errorBox.textContent = error.message || 'Unable to load messages.'; errorBox.hidden = false; }
   function target(notice) {
     try {
@@ -55,10 +64,20 @@
     rows.sort(function (a, b) { return Number(b.kind === 'person') - Number(a.kind === 'person') || b.date - a.date; });
     rows.slice(0, visibleRows).forEach(function (row) {
       var button = make('button', '', 'chat-widget-list-item' + (row.kind === 'person' ? ' chat-widget-person' : '')); button.type = 'button';
-      var heading = make('strong', row.title), context = make('small', row.subtitle), preview = make('small', row.preview.slice(0, 100));
-      button.append(heading, context, preview);
-      if (row.date) button.append(make('small', new Date(row.date).toLocaleString()));
-      if (row.unread) button.append(make('span', row.unread + ' new', 'count-pill'));
+      button.dataset.kind = row.kind;
+      button.setAttribute('aria-label', 'Open ' + row.title + '. ' + row.preview.slice(0, 100));
+      var avatar = make('span', row.kind === 'concern' ? '#' : initials(row.title), 'chat-widget-avatar');
+      var content = make('span', '', 'chat-widget-row-content'), headingRow = make('span', '', 'chat-widget-row-heading');
+      var heading = make('strong', row.title), context = make('small', row.subtitle, 'chat-widget-row-context'), preview = make('small', row.preview.slice(0, 100), 'chat-widget-row-preview');
+      headingRow.append(heading);
+      if (row.date) {
+        var time = make('time', listDate(row.date));
+        time.dateTime = new Date(row.date).toISOString();
+        headingRow.append(time);
+      }
+      content.append(headingRow, context, preview);
+      button.append(avatar, content);
+      if (row.unread) button.append(make('span', String(row.unread), 'chat-widget-row-unread'));
       button.addEventListener('click', function () { if (row.kind === 'person') startContact(row.id, button); else open(row.kind, row.id); });
       list.append(button);
     });
@@ -74,7 +93,7 @@
       });
       list.append(more);
     }
-    if (!rows.length) list.append(make('p', search.value.trim() ? 'No matching conversations or staff.' : 'No conversations yet. Open a concern to start one.', 'form-text p-3'));
+    if (!rows.length) list.append(make('p', search.value.trim() ? 'No matching conversations or staff.' : 'No conversations yet. Open a concern to start one.', 'chat-widget-empty'));
     list.scrollTop = previousTop;
   }
   async function startContact(id, button) {
@@ -137,7 +156,7 @@
       if (!response.ok) throw new Error(result.error || 'Conversation unavailable.');
       if (initial) { messages.replaceChildren(); last = 0; }
       (result.items || []).forEach(function (message) { appendMessage(message, false); });
-      if (initial && !result.items.length) messages.append(make('p', 'No messages yet. Start the conversation by sending an update.', 'form-text p-3 message-empty'));
+      if (initial && !result.items.length) messages.append(make('p', 'No messages yet. Start the conversation by sending an update.', 'chat-widget-empty message-empty'));
       if (initial) older.hidden = result.items.length < 50;
       var canSend = selected.kind === 'staff' || !!result.canSend;
       form.hidden = !canSend;
@@ -149,11 +168,12 @@
     } catch (error) { fail(error); }
     finally { busy = false; }
   }
-  function setOpen(open) { panel.hidden = !open; launcher.setAttribute('aria-expanded', open ? 'true' : 'false'); if (open) launcher.focus(); }
+  function setOpen(open) { panel.hidden = !open; launcher.setAttribute('aria-expanded', open ? 'true' : 'false'); if (!open) launcher.focus(); }
   function showList() {
     selected = null; last = 0; title.textContent = 'Messages'; subtitle.textContent = 'Recent conversations';
     panel.classList.remove('has-active');
     back.hidden = true; searchWrap.hidden = false; list.hidden = false; activeArea.hidden = true; errorBox.hidden = true; renderList();
+    if (!panel.hidden) requestAnimationFrame(function () { search.focus(); });
   }
   function open(kind, id) {
     setOpen(true);
@@ -166,6 +186,7 @@
     subtitle.textContent = kind === 'concern' ? 'Concern ' + id : (row && row.participants || 'Staff coordination');
     back.hidden = false; searchWrap.hidden = true; list.hidden = true; activeArea.hidden = false; errorBox.hidden = true;
     messages.replaceChildren(); last = 0; older.hidden = true; form.hidden = true;
+    requestAnimationFrame(function () { back.focus(); });
     fetchThread(true);
   }
   window.MaintainProChat = {open: open, target: target};
@@ -175,6 +196,9 @@
   back.addEventListener('click', showList);
   document.getElementById('chat-widget-minimize').addEventListener('click', function () { setOpen(false); });
   document.getElementById('chat-widget-close').addEventListener('click', function () { showList(); setOpen(false); });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && !panel.hidden) setOpen(false);
+  });
   older.addEventListener('click', async function () {
     var first = messages.querySelector('[data-message-id]'); if (!first || !selected) return;
     older.disabled = true;

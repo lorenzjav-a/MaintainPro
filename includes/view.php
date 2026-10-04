@@ -39,9 +39,10 @@ function br_status_label(string $status): string
     };
 }
 
-function br_date(string $value, bool $full = false): string
+function br_date(string|int $value, bool $full = false): string
 {
-    return date($full ? 'M j, Y · g:i A' : 'M j, Y', strtotime($value));
+    $timestamp = is_int($value) || ctype_digit($value) ? (int)$value : strtotime($value);
+    return $timestamp === false ? '' : date($full ? 'M j, Y · g:i A' : 'M j, Y', $timestamp);
 }
 
 function br_initials(string $name): string

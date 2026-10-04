@@ -98,6 +98,20 @@ async function tab() {
       const box = section.getBoundingClientRect();
       return scrollY > 0 && box.top < innerHeight && box.bottom > 0 && !sessionStorage.getItem('maintainpro:concern-workflow-position');
     })()`);
+    const disclosureStyled = (client, selector) => client.evaluate(`(() => {
+      const summary = document.querySelector(${JSON.stringify(selector)});
+      if (!summary) return false;
+      const control = getComputedStyle(summary), marker = getComputedStyle(summary, '::before'), container = getComputedStyle(summary.parentElement);
+      return control.display === 'flex' && summary.getBoundingClientRect().height >= 44 && control.cursor === 'pointer' && marker.content.includes('▶') && container.borderTopStyle === 'solid' && container.borderRadius !== '0px';
+    })()`);
+    const actionPanelInset = (client, action, minimum = 18) => client.evaluate(`(() => {
+      const form = document.querySelector('form[data-action="${action}"]');
+      if (!form) return false;
+      const panel = form.closest('.action-panel'), control = form.querySelector('.form-control,.form-select,.choice-grid');
+      if (!panel || !control) return false;
+      const panelBox = panel.getBoundingClientRect(), controlBox = control.getBoundingClientRect(), style = getComputedStyle(panel);
+      return controlBox.left - panelBox.left >= ${minimum} && panelBox.right - controlBox.right >= ${minimum} && style.borderLeftStyle === 'solid' && style.borderRadius !== '0px';
+    })()`);
     const password = 'Browser-test-password-42';
     const photo = async (client, selector) => client.evaluate('(() => {const bytes=Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII="),c=>c.charCodeAt(0));const transfer=new DataTransfer();transfer.items.add(new File([bytes],"evidence.png",{type:"image/png"}));const input=document.querySelector(' + JSON.stringify(selector) + ');input.files=transfer.files;input.dispatchEvent(new Event("change",{bubbles:true}));})()');
     // A known valid one-pixel PNG; file type and contents are both checked server-side.
@@ -182,6 +196,7 @@ async function tab() {
     await guest.screenshot('landing-tablet');
     await guest.send('Emulation.setDeviceMetricsOverride', {width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     await guest.go('report-concern.php');
+    check(await disclosureStyled(guest, '.resident-guidance > summary'), 'public guidance uses the shared disclosure control');
     check(await guest.evaluate('!document.querySelector("[name=title],[name=email],[name=password],[name=name]")'), 'anonymous form no account or title');
     await guest.fill('[name=category]', 'Street Lighting');
     check(await guest.evaluate('Array.from(document.querySelector("[name=concernType]").options).some(o=>o.value==="Light not working")'), 'dependent concern choices');
@@ -222,7 +237,11 @@ async function tab() {
     await guest.click('#guest-chat-minimize');
     check(await guest.evaluate('document.getElementById("guest-conversation").hidden && !document.getElementById("guest-chat-launcher").hidden'), 'guest chat minimizes without leaving tracking');
     await guest.screenshot('tracking-desktop');
+    await official.go('complaints.php');
+    check(await disclosureStyled(official, '.more-filters > summary'), 'concern filters use the shared disclosure control');
     await official.go(detail);
+    check(await disclosureStyled(official, '[data-workflow-section="link-concern"] > summary'), 'concern workflow options use the shared disclosure control');
+    check(await actionPanelInset(official, 'assess'), 'official assessment form has balanced action-panel spacing');
     check(await official.evaluate('document.getElementById("concern-message-thread")?.textContent.includes("Guest browser reply")'), 'official sees guest message');
     await official.fill('#concern-message-body', 'Staff-only browser note'); await official.fill('#concern-message-visibility', 'staff'); await official.click('#concern-message-form button');
     await until(() => official.evaluate('document.getElementById("concern-message-thread").textContent.includes("Staff-only browser note")'), 'staff-only note appears');
@@ -244,6 +263,7 @@ async function tab() {
     var personnelPageBeforeToast = await personnel.evaluate('location.pathname');
     await personnel.click('#chat-toast-view');
     await until(() => personnel.evaluate('!document.getElementById("chat-widget-panel").hidden && document.getElementById("chat-widget-messages").textContent.includes("Please inspect the fixture")'), 'toast opens staff conversation');
+    check(await personnel.evaluate('(()=>{const panel=document.getElementById("chat-widget-panel"),message=panel.querySelector(".message-entry"),controls=panel.querySelectorAll(".chat-widget-icon-button svg");return panel.getAttribute("role")==="dialog" && controls.length===3 && getComputedStyle(message).borderRadius!=="0px" && getComputedStyle(message).backgroundColor!=="rgba(0, 0, 0, 0)"})()'), 'active chat uses compact accessible controls and message cards');
     await personnel.screenshot('staff-chat-widget-desktop');
     await until(() => personnel.evaluate('document.getElementById("chat-widget-badge").hidden'), 'chat unread clears when thread is viewed');
     check(await personnel.evaluate('location.pathname === ' + JSON.stringify(personnelPageBeforeToast)), 'toast opens chat without leaving the current page');
@@ -290,6 +310,7 @@ async function tab() {
     check(await workflowSectionVisible(official, 'assignment'), 'assignment reload keeps the assignment context visible');
     check(await official.evaluate('document.body.textContent.includes("Personnel email sent")'), 'assignment mail notice');
     await personnel.go('complaints.php'); await personnel.click('.open-case-btn'); await personnel.ready('/complaint.php');
+    check(await actionPanelInset(personnel, 'start'), 'personnel work form has balanced action-panel spacing');
     check(await personnel.evaluate('document.querySelector("form[data-action=start] input[type=file]").required'), 'start evidence input required');
     await setPhoto(personnel, '#start-photo'); await personnel.click('form[data-action=start] [name=actions][value=Inspection]');
     await personnel.submit('start', {workStatus:'Arrived at location'});
@@ -427,6 +448,8 @@ async function tab() {
     await personnel.go('complaints.php');
     check(await personnel.evaluate('!document.querySelector("main").textContent.includes("Uncollected garbage")'), 'personnel reports stay separate from assigned queue');
     await official.go('reports.php');
+    check(await official.evaluate('document.querySelector(".report-section .reports-stats-grid") && document.querySelectorAll(".report-ranking-row progress").length > 0 && document.querySelector(".reports-stats-grid").getBoundingClientRect().top < document.getElementById("weekly-concerns").getBoundingClientRect().top'), 'reports lead with outcome summary and visual comparisons');
+    await official.screenshot('reports-overview-desktop');
     await official.evaluate('document.getElementById("weekly-concerns").scrollIntoView({block:"start"})');
     check(await official.evaluate('document.getElementById("weekly-concerns").textContent.includes("Uncollected garbage") && document.getElementById("weekly-concerns").textContent.includes("Common keypoints") && document.getElementById("weekly-concerns").textContent.includes("Suggested solutions") && document.querySelectorAll("#weekly-concerns .weekly-concern:first-of-type > ol > li").length === 3'), 'weekly concerns and three keypoint solutions shown');
     await official.screenshot('weekly-concerns-desktop');
@@ -472,6 +495,8 @@ async function tab() {
       await client.screenshot(role+'-report-mobile');
     }
     await official.go('reports.php');
+    check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth && getComputedStyle(document.querySelector(".report-section-heading > p")).textAlign === "left" && getComputedStyle(document.querySelector(".report-quality-grid")).gridTemplateColumns.split(" ").length === 1'), 'reports stack cleanly on mobile without overflow');
+    await official.screenshot('reports-overview-mobile');
     await official.evaluate('document.getElementById("weekly-concerns").scrollIntoView({block:"start"})');
     check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth && getComputedStyle(document.querySelector("#weekly-concerns .panel-title")).fontSize === getComputedStyle(document.querySelector(".report-grid .panel-title")).fontSize'), 'weekly panel matches shared mobile panel typography and fits');
     await official.screenshot('weekly-concerns-mobile');
@@ -505,6 +530,8 @@ async function tab() {
     await official.go('messages.php'); check(await official.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'mobile messages fit'); await official.screenshot('messages-mobile');
     await official.click('#chat-widget-launcher');
     check(await official.evaluate('(()=>{const box=document.getElementById("chat-widget-panel").getBoundingClientRect();return box.left>=0&&box.right<=innerWidth&&box.top>=0&&box.bottom<=innerHeight})()'), 'floating chat fits mobile viewport');
+    await until(() => official.evaluate('document.activeElement === document.getElementById("chat-widget-search")'), 'chat opens with search ready for keyboard input');
+    check(await official.evaluate('(()=>{const row=document.querySelector("#chat-widget-list .chat-widget-list-item"),style=getComputedStyle(row);return style.display==="grid" && !!row.querySelector(".chat-widget-avatar") && !!row.querySelector(".chat-widget-row-content") && !!row.querySelector(".chat-widget-row-heading") && document.querySelectorAll(".chat-widget-window-actions .chat-widget-icon-button").length===2})()'), 'chat list has structured conversation rows and compact window controls');
     await official.screenshot('chat-widget-mobile');
     check(await official.evaluate('document.querySelectorAll("#chat-widget-list .chat-widget-list-item").length <= 6 && !!document.querySelector("#chat-widget-list .chat-widget-more")'), 'floating list initially limits conversations');
     await official.click('#chat-widget-list .chat-widget-more');
@@ -515,7 +542,11 @@ async function tab() {
     await until(() => official.evaluate('!!document.querySelector("#chat-widget-list .chat-widget-person") && document.querySelector("#chat-widget-list .chat-widget-person").textContent.includes("Updated Personnel")'), 'floating search finds staff contact');
     await official.click('#chat-widget-list .chat-widget-person');
     await until(() => official.evaluate('!document.getElementById("chat-widget-active").hidden && document.getElementById("chat-widget-title").textContent.includes("Browser work chat")'), 'selecting contact reopens direct chat');
-    await official.go(detail); check(await official.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'mobile concern fits'); await official.screenshot('concern-mobile');
+    await official.evaluate('document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+    check(await official.evaluate('document.getElementById("chat-widget-panel").hidden && document.activeElement===document.getElementById("chat-widget-launcher")'), 'Escape minimizes chat and returns focus to launcher');
+    await official.go(detail); check(await official.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'mobile concern fits');
+    check(await actionPanelInset(official, 'reopen', 14), 'mobile workflow form keeps comfortable side spacing');
+    await official.screenshot('concern-mobile');
     await official.evaluate('document.getElementById("evidence").scrollIntoView({block:"start"})');
     check(await official.evaluate('getComputedStyle(document.querySelector(".evidence-comparison")).gridTemplateColumns.split(" ").length===1'),'mobile before after stacks');
     await official.screenshot('evidence-mobile');

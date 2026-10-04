@@ -1,12 +1,14 @@
 <div class="chat-widget" id="chat-widget">
-  <section class="chat-widget-panel panel" id="chat-widget-panel" aria-label="Messages" hidden>
+  <section class="chat-widget-panel panel" id="chat-widget-panel" role="dialog" aria-modal="false" aria-labelledby="chat-widget-title" hidden>
     <div class="chat-widget-header">
-      <button class="btn btn-light btn-sm" type="button" id="chat-widget-back" hidden aria-label="Back to conversations">Back</button>
+      <button class="chat-widget-icon-button" type="button" id="chat-widget-back" hidden aria-label="Back to conversations" title="Back to conversations"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
       <div class="chat-widget-heading"><strong id="chat-widget-title">Messages</strong><small id="chat-widget-subtitle">Recent conversations</small></div>
-      <button class="btn btn-light btn-sm" type="button" id="chat-widget-minimize" aria-label="Minimize chat">Minimize</button>
-      <button class="btn btn-light btn-sm" type="button" id="chat-widget-close" aria-label="Close chat">Close</button>
+      <div class="chat-widget-window-actions">
+        <button class="chat-widget-icon-button" type="button" id="chat-widget-minimize" aria-label="Minimize chat" title="Minimize"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+        <button class="chat-widget-icon-button" type="button" id="chat-widget-close" aria-label="Close chat" title="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+      </div>
     </div>
-    <div class="chat-widget-search" id="chat-widget-search-wrap"><label class="visually-hidden" for="chat-widget-search">Search conversations<?= in_array($actor['role'],['official','personnel'],true)?' and staff':'' ?></label><input class="form-control" id="chat-widget-search" type="search" maxlength="100" placeholder="<?= in_array($actor['role'],['official','personnel'],true)?'Search concern, title, or staff':'Search concern reference' ?>" autocomplete="off"></div>
+    <div class="chat-widget-search" id="chat-widget-search-wrap"><label class="visually-hidden" for="chat-widget-search">Search conversations<?= in_array($actor['role'],['official','personnel'],true)?' and staff':'' ?></label><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input class="form-control" id="chat-widget-search" type="search" maxlength="100" placeholder="<?= in_array($actor['role'],['official','personnel'],true)?'Search concern, title, or staff':'Search concern reference' ?>" autocomplete="off"></div>
     <div class="chat-widget-list" id="chat-widget-list" aria-label="Conversations"></div>
     <div class="chat-widget-active" id="chat-widget-active" hidden>
       <button class="btn btn-light btn-sm" type="button" id="chat-widget-older" hidden>Load older messages</button>

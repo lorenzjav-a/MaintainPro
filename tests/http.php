@@ -152,7 +152,8 @@ try {
     httpCheck(post($adminJar, 'assess', $assessment, '', $id, 1)['status'] === 403, 'staff write CSRF');
     httpCheck(post($adminJar, 'assess', $assessment, $adminCsrf, $id, 1)['status'] === 200, 'official assesses');
     httpCheck(post($adminJar, 'assess', $assessment, $adminCsrf, $id, 1)['status'] === 409, 'stale edits rejected');
-    $assignment = post($adminJar, 'assign', ['personnelId' => $staffId], $adminCsrf, $id, 2);
+    $assignmentDueAt = date('Y-m-d\TH:i', time() + 86400);
+    $assignment = post($adminJar, 'assign', ['personnelId' => $staffId, 'dueAt' => $assignmentDueAt], $adminCsrf, $id, 2);
     httpCheck($assignment['status'] === 200 && $assignment['json']['notification_sent'] === true, 'assignment email success');
     $mail = $mailServer->messages();
     $assignmentMail=end($mail);
@@ -207,6 +208,7 @@ try {
         pageHas($document,'//*[contains(@class,"notification-trigger")]','header notification bell');
     }
     $detailDocument=pageDocument($adminJar,'concern.php?id='.$id);
+    httpCheck(str_contains($detailDocument->evaluate('string(//body)'), date('M j, Y', strtotime($assignmentDueAt))), 'concern detail renders an integer target-completion timestamp');
     pageHas($detailDocument,'//*[@id="evidence"]','before after section');
     pageHas($detailDocument,'//*[@id="recurrence"]','recurrence section');
     httpCheck($detailDocument->query('//*[@data-accept-priority]')->length === 0, 'closed concern has no stale priority recommendation control');
