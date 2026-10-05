@@ -120,6 +120,7 @@ async function tab() {
     await official.auth('setup', {name: 'Browser Official', email: 'official@example.test', password, confirm_password: password, setup_key: process.env.APP_SETUP_KEY});
     await official.ready('/index.php');
     check(await official.evaluate('document.querySelector("h1").textContent === "Official dashboard"'), 'official dashboard');
+    check(await official.evaluate('Array.from(document.querySelectorAll(".open-case-btn")).every(link=>{const label=link.firstChild,range=document.createRange();range.selectNodeContents(label);return range.getBoundingClientRect().height<=parseFloat(getComputedStyle(link).lineHeight)*1.25 && getComputedStyle(link).whiteSpace==="nowrap"})'), 'concern open actions keep the label on one line');
     await official.go('user-create.php');
     await official.submit('create_user', {name: 'Browser Personnel', email: 'personnel@example.test', role: 'personnel', team: 'Maintenance crew'});
     const temporary = await official.evaluate('document.getElementById("created-password").value');
@@ -186,7 +187,7 @@ async function tab() {
     check(await personnel.evaluate('document.querySelector("h1").textContent === "My work dashboard"'), 'personnel dashboard');
     await guest.go('landing.php');
     check(await guest.evaluate('!!document.querySelector("a[href=\\"report-concern.php\\"]")'), 'public landing action');
-    check(await guest.evaluate('(()=>{const links=Array.from(document.querySelectorAll(".public-header nav .public-nav-link")),heights=links.map(link=>link.getBoundingClientRect().height),tops=links.map(link=>link.getBoundingClientRect().top),secondary=getComputedStyle(links[0]),cta=getComputedStyle(links[3]);return links.length===4 && Math.max(...heights)-Math.min(...heights)<=1 && Math.max(...tops)-Math.min(...tops)<=1 && secondary.textDecorationLine==="none" && secondary.cursor==="pointer" && secondary.borderTopStyle==="solid" && secondary.minHeight==="40px" && cta.backgroundColor!==secondary.backgroundColor})()'), 'public navigation uses aligned secondary links and a distinct sign-in CTA');
+    check(await guest.evaluate('(()=>{const links=Array.from(document.querySelectorAll(".public-header nav .public-nav-link")),heights=links.map(link=>link.getBoundingClientRect().height),tops=links.map(link=>link.getBoundingClientRect().top),secondary=getComputedStyle(links[0]),cta=getComputedStyle(links[3]);return links.length===4 && Math.max(...heights)-Math.min(...heights)<=1 && Math.max(...tops)-Math.min(...tops)<=1 && secondary.textDecorationLine==="none" && secondary.cursor==="pointer" && secondary.borderTopStyle==="solid" && parseFloat(secondary.minHeight)>=44 && cta.backgroundColor!==secondary.backgroundColor})()'), 'public navigation uses aligned secondary links and a distinct sign-in CTA');
     await guest.evaluate('document.querySelector(".public-nav-link").focus()');
     check(await guest.evaluate('(()=>{const link=document.activeElement,style=getComputedStyle(link);return link.matches(".public-nav-link") && style.outlineStyle!=="none" && parseFloat(style.outlineWidth)>=3})()'), 'public navigation has a visible keyboard focus state');
     await guest.screenshot('landing-desktop');
@@ -224,6 +225,7 @@ async function tab() {
     check(await guest.evaluate('document.querySelectorAll("#tracking-result .resident-guidance-list li").length===3'), 'private tracking includes resident guidance');
     await until(() => guest.evaluate('!document.getElementById("guest-chat-launcher").hidden'), 'guest chat available after tracking');
     check(await guest.evaluate('document.getElementById("guest-conversation").hidden'), 'tracking does not mark guest chat read');
+    check(await guest.evaluate('["guest-conversation","guest-chat-launcher","guest-chat-hint","guest-message-form"].every(id=>document.querySelectorAll("#"+id).length===1)'), 'tracking chat has one instance of every control');
     await guest.click('#guest-chat-launcher');
     await until(() => guest.evaluate('!document.getElementById("guest-conversation").hidden'), 'guest opens floating conversation');
     await until(() => guest.evaluate('!!document.querySelector("#guest-message-thread .message-empty")'), 'guest conversation loads before sending');
@@ -320,6 +322,7 @@ async function tab() {
     check(await workflowSectionVisible(personnel, 'work-progress'), 'progress-note reload keeps the progress section visible');
     await personnel.submit('block', {blockReason:'Waiting for Materials', recommendedAction:'Supply replacement fixture', expectedAt:'2026-12-30'}, true);
     check(await workflowSectionVisible(personnel, 'blocked-status'), 'blocked-work reload restores the blocked status section');
+    check(await personnel.evaluate('!!document.querySelector(".workflow-step.paused[aria-current=step]") && document.querySelector(".workflow-explanation").textContent.includes("blocked or delayed")'), 'blocked stepper identifies paused work');
     check(await personnel.evaluate('document.body.textContent.includes("Work blocked / delayed") && !document.querySelector("form[data-action=manage_block]")'), 'personnel records block without official controls');
     await official.go('blocked.php');
     check(await official.evaluate('document.body.textContent.includes("Supply replacement fixture")'), 'official blocked queue shows requested action');
@@ -338,8 +341,10 @@ async function tab() {
     await setPhoto(personnel, '#resolve-photo'); await personnel.click('form[data-action=resolve] [name=actions][value=Repair]');
     await personnel.submit('resolve', {}, true);
     check(await workflowSectionVisible(personnel, 'work-result'), 'resolution reload restores the completed work result');
+    check(await personnel.evaluate('document.querySelector(".workflow-step[aria-current=step]").textContent.includes("Resolution") && document.querySelector(".workflow-explanation").textContent.includes("Official review is still required")'), 'resolved stepper keeps official review pending');
     await official.go(detail); await official.submit('verification', {}, true, 'verify');
     check(await workflowSectionVisible(official, 'reopen'), 'verification reload restores the completed-work controls');
+    check(await official.evaluate('document.querySelectorAll(".workflow-step.complete").length===6 && !document.querySelector(".workflow-step[aria-current=step]") && document.querySelector(".workflow-explanation").textContent.includes("closed")'), 'verified stepper shows closure after official review');
     check(await official.evaluate('document.querySelectorAll(".evidence-comparison img").length===2 && document.querySelector(".evidence-gallery").textContent.includes("Inspection Evidence") && document.querySelector(".evidence-gallery").textContent.includes("Progress Evidence") && document.querySelector(".evidence-gallery").textContent.includes("Completion Evidence")'), 'before after and four evidence stages');
     await until(() => official.evaluate('Array.from(document.querySelectorAll(".evidence-comparison img")).every(img => img.complete && img.naturalWidth > 0)'), 'protected evidence images load');
     check(true, 'image endpoints return real rendered images');
@@ -401,15 +406,19 @@ async function tab() {
     await official.go(followDetail);
     await official.submit('request_information', {notes:'Which side of the crossing?'}, true);
     await guest.go('track.php'); await guest.fill('[name=reference]', followRef); await guest.fill('[name=trackingCode]', followCode); await guest.click('#public-track button');
-    await until(() => guest.evaluate('document.querySelector("#public-followup")?.getClientRects().length > 0'), 'reporter followup form');
+    await until(() => guest.evaluate('document.querySelector("#public-followup")?.getClientRects().length > 0 && !document.querySelector("#public-followup button[type=submit]").disabled'), 'reporter followup form ready');
     check(await guest.evaluate('document.getElementById("tracking-result").textContent.includes("Which side of the crossing?")'), 'official information request visible on tracking');
     await guest.fill('#public-followup [name=description]', 'The east side'); await setPhoto(guest, '#followup-photo');
     await guest.click('#public-followup button[type=submit]');
-    await until(() => guest.evaluate('!document.getElementById("followup-success").hidden && document.getElementById("tracking-result").textContent.includes("The east side")'), 'reporter followup saved');
+    await until(() => guest.evaluate('!document.getElementById("followup-success").hidden && document.getElementById("tracking-result").textContent.includes("The east side")'), 'reporter followup saved').catch(async error => {
+      console.error(await guest.evaluate('({error:document.getElementById("followup-error").textContent,invalid:Array.from(document.querySelectorAll("#public-followup :invalid")).map(el=>el.id),successHidden:document.getElementById("followup-success").hidden})'));
+      await guest.screenshot('followup-failure'); throw error;
+    });
     await guest.screenshot('followup-tracking-desktop');
     await official.go(followDetail);
     check(await official.evaluate('document.querySelector(".resident-response-section").textContent.includes("The east side") && document.querySelector(".case-summary").textContent.includes("Submitted")'), 'staff sees reporter response and return to assessment');
     await official.submit('link_concern', {primaryConcernId:reference}, true);
+    check(await official.evaluate('!document.querySelector(".workflow-step.complete,.workflow-step[aria-current=step]") && document.querySelector(".workflow-explanation").textContent.includes("linked primary")'), 'linked stepper does not claim this report was repaired');
     check(await official.evaluate('document.getElementById("linked-reports").textContent.includes('+JSON.stringify(reference)+') && !document.querySelector("form[data-action=edit]")'), 'linked report displays primary and prevents duplicate actions');
     await guest.click('#public-track button');
     await until(() => guest.evaluate('document.getElementById("tracking-result").textContent.includes("Closed")'), 'linked tracking follows closed primary');
@@ -574,6 +583,35 @@ async function tab() {
     await official.go(detail);
     check(await official.evaluate('(()=>{const layout=document.querySelector(".case-layout"),main=document.querySelector(".case-main"),timeline=document.querySelector(".case-timeline");return document.documentElement.scrollWidth<=innerWidth && getComputedStyle(layout).gridTemplateColumns.split(" ").length===1 && main.getBoundingClientRect().width===timeline.getBoundingClientRect().width})()'), 'tablet concern detail stacks content and timeline without horizontal overflow');
     await official.screenshot('concern-tablet');
+    // Shared design changes affect every role. Use existing disposable fixtures.
+    const reviewPages = [
+      [guest,'public',['landing.php','report-concern.php','track.php','transparency.php','user-guide.php','login.php','login.php?view=forgot']],
+      [official,'official',['index.php','complaints.php',detail,'reports.php','messages.php','action-plans.php','users.php','user-create.php','admin.php','settings.php','audit.php','blocked.php','official-solutions.php','solutions.php','profile.php','notifications.php','history.php']],
+      [personnel,'personnel',['index.php','complaints.php','my-action-plans.php','messages.php','profile.php','notifications.php']],
+      [resident,'resident',['index.php','complaints.php?scope=mine','report-concern.php','profile.php','notifications.php']]
+    ];
+    for (const width of [1440,1280,1024,768,430,390]) {
+      for (const [client,role,pages] of reviewPages) {
+        await client.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});
+        for (const page of pages) {
+          await client.go(page);
+          await client.evaluate('scrollTo(0,0)');
+          await client.screenshot('ui-after-'+role+'-'+page.replace('?view=forgot','-forgot').split('?')[0].replace('.php','')+'-'+width);
+          const fits = await client.evaluate('document.documentElement.scrollWidth<=innerWidth && !document.body.textContent.includes("Unable to complete this request")');
+          if (!fits) console.error(await client.evaluate('Array.from(document.querySelectorAll("body *")).filter(el=>{const r=el.getBoundingClientRect();return r.width && (r.right>innerWidth+1 || r.left< -1) && getComputedStyle(el).position!=="fixed"}).slice(0,12).map(el=>({tag:el.tagName,class:el.className,width:el.getBoundingClientRect().width,right:el.getBoundingClientRect().right}))'));
+          check(fits, role+' '+page+' fits and renders at '+width);
+          if (width<650 && await client.evaluate('!!document.querySelector(".record-table")')) check(await client.evaluate('Array.from(document.querySelectorAll(".record-table")).every(table=>getComputedStyle(table).display==="block" && table.getBoundingClientRect().width<=table.parentElement.getBoundingClientRect().width+1)'), role+' '+page+' stacks operational records at '+width);
+        }
+      }
+    }
+    await official.go('index.php');
+    await official.evaluate('document.querySelector(".mobile-dock button[data-menu]").focus()');
+    await official.click('.mobile-dock button[data-menu]');
+    check(await official.evaluate('document.querySelector(".main").inert && document.querySelector(".sidebar").contains(document.activeElement)'), 'mobile sidebar isolates background and moves keyboard focus');
+    await official.evaluate('(()=>{const links=Array.from(document.querySelectorAll(".sidebar a,.sidebar button,.sidebar summary")).filter(el=>el.getClientRects().length);links.at(-1).focus();document.dispatchEvent(new KeyboardEvent("keydown",{key:"Tab",bubbles:true,cancelable:true}));})()');
+    check(await official.evaluate('document.activeElement===Array.from(document.querySelectorAll(".sidebar a,.sidebar button,.sidebar summary")).find(el=>el.getClientRects().length)'), 'mobile sidebar traps forward keyboard focus');
+    await official.evaluate('document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+    check(await official.evaluate('!document.querySelector(".main").inert && document.activeElement.matches("[data-menu]")'), 'Escape closes sidebar and returns focus');
     check(errors.length === 0, 'no uncaught JavaScript errors');
     console.log('PASS: ' + checks + ' browser checks for anonymous reporting, private tracking, staff workflows, images, recommendations, navigation and responsive layout.');
     console.log('Screenshots saved under tests/tmp/.');

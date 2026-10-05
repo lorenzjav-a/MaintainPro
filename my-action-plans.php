@@ -47,8 +47,8 @@ if ($plan):
 <?php endif ?>
 <section class="panel"><div class="panel-header"><h2 class="panel-title">My action plans</h2></div><div class="panel-body">
 <form method="get" class="row g-3 align-items-end mb-3"><div class="col-md-4"><label class="form-label" for="plan-status">Status</label><select class="form-select" id="plan-status" name="status"><?php br_options(['Planned','Ongoing','Completed','Cancelled'],br_query('status'),'All statuses'); ?></select></div><div class="col-md-4"><button class="btn btn-light" type="submit">Apply filter</button></div></form>
-<div class="table-responsive"><table class="table"><thead><tr><th>Plan</th><th>Week / target</th><th>Team</th><th>Status</th></tr></thead><tbody>
-<?php foreach ($plans['items'] as $row): ?><tr><td><a href="<?= h(br_url('my-action-plans.php',['id'=>$row['id']])) ?>">#<?= (int)$row['id'] ?> · <?= h($row['title']) ?></a><p class="form-text mb-0"><?= h($row['category'].' / '.$row['concern_type'].' / '.$row['keypoint']) ?></p></td><td><?= h($row['week_start']) ?><p class="form-text mb-0"><?= h($row['target_date'] ?: 'No target date') ?></p></td><td><?= h($row['team']) ?></td><td><?= h($row['status']) ?></td></tr><?php endforeach ?>
+<div class="table-responsive"><table class="table record-table"><thead><tr><th>Plan</th><th>Week / target</th><th>Team</th><th>Status</th></tr></thead><tbody>
+<?php foreach ($plans['items'] as $row): ?><tr><td data-label="Plan"><a href="<?= h(br_url('my-action-plans.php',['id'=>$row['id']])) ?>">#<?= (int)$row['id'] ?> · <?= h($row['title']) ?></a><p class="form-text mb-0"><?= h($row['category'].' / '.$row['concern_type'].' / '.$row['keypoint']) ?></p></td><td data-label="Week / target"><?= h($row['week_start']) ?><p class="form-text mb-0"><?= h($row['target_date'] ?: 'No target date') ?></p></td><td data-label="Team"><?= h($row['team']) ?></td><td data-label="Status"><?= br_status(['status' => $row['status']]) ?></td></tr><?php endforeach ?>
 <?php if (!$plans['items']): ?><tr><td colspan="4">No action plans in this view.</td></tr><?php endif ?>
 </tbody></table></div>
 <?php br_pagination('my-action-plans.php',$plans,['status'=>br_query('status')]); ?>

@@ -222,6 +222,8 @@
   if (track) track.addEventListener('submit', async function (event) {
     event.preventDefault(); if (busy) return; busy = true;
     var errorBox = document.getElementById('public-error'), panel = document.getElementById('tracking-result'), button = track.querySelector('button');
+    var followupButton = followup && followup.querySelector('button[type=submit]');
+    if (followupButton) followupButton.disabled = true;
     errorBox.hidden = true; panel.hidden = true; panel.replaceChildren(); button.disabled = true;
     if (guestPanel) { guestHide(true); guestLauncher.hidden = true; document.getElementById('guest-chat-hint').hidden = true; guestOpen = false; document.getElementById('guest-load-older').hidden = true; }
     if (followupPanel) followupPanel.hidden = true;
@@ -230,7 +232,7 @@
       renderTracking(result);
       if (guestPanel) { guestOpen = true; await loadGuestStatus(); }
     } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; }
-    finally { busy = false; button.disabled = false; }
+    finally { busy = false; button.disabled = false; if (followupButton) followupButton.disabled = false; }
   });
   if (followup) followup.addEventListener('submit', async function (event) {
     event.preventDefault(); if (busy || !track) return; busy = true;

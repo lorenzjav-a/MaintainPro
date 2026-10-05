@@ -15,16 +15,6 @@ br_public_header('Track Concern'); ?>
 </section>
 <button class="chat-widget-launcher guest-chat-launcher" id="guest-chat-launcher" type="button" aria-label="Open concern conversation" aria-controls="guest-conversation" aria-expanded="false" hidden><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-8 8 8.5 8.5 0 0 1-4-.9L3 20l1.4-4.4a8 8 0 1 1 15.6-4.1Z"/><path d="M8 11.5h8M8 14.5h5"/></svg><span class="chat-widget-badge" id="guest-chat-badge" hidden>0</span></button>
 <span class="guest-chat-hint" id="guest-chat-hint" hidden>New messages available</span>
-<span class="guest-chat-hint" id="guest-chat-hint" hidden>New messages available</span>
-<section class="panel p-4 mt-4 public-form-panel message-panel" id="guest-conversation" hidden aria-labelledby="guest-conversation-heading">
-  <div class="d-flex align-items-center gap-2"><h2 class="section-title flex-grow-1 mb-0" id="guest-conversation-heading">Conversation</h2><button class="btn btn-light btn-sm" type="button" id="guest-chat-minimize">Minimize</button><button class="btn btn-light btn-sm" type="button" id="guest-chat-close">Close</button></div>
-  <p class="form-text">Messages stay with this concern. Keep your tracking code private.</p>
-  <div class="message-thread" id="guest-message-thread" aria-live="polite"></div>
-  <p class="form-text" id="guest-message-closed" hidden>This conversation is read-only. An official can reopen the concern if more work is needed.</p>
-  <form id="guest-message-form" class="mt-3"><label class="form-label" for="guest-message-body">Write a message</label><textarea class="form-control mb-3" id="guest-message-body" name="body" rows="3" maxlength="2000" required placeholder="Write a message..."></textarea><button class="btn btn-primary" type="submit">Send Message</button></form>
-  <div class="alert alert-danger mt-3" id="guest-message-error" role="alert" hidden></div>
-</section>
-<button class="chat-widget-launcher guest-chat-launcher" id="guest-chat-launcher" type="button" aria-label="Open concern conversation" aria-controls="guest-conversation" aria-expanded="false" hidden><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-8 8 8.5 8.5 0 0 1-4-.9L3 20l1.4-4.4a8 8 0 1 1 15.6-4.1Z"/><path d="M8 11.5h8M8 14.5h5"/></svg><span class="chat-widget-badge" id="guest-chat-badge" hidden>0</span></button>
 <section class="panel p-4 mt-4 public-form-panel followup-panel" id="followup-panel" hidden aria-labelledby="followup-heading">
   <h2 class="section-title" id="followup-heading">Send Additional Information</h2>
   <p class="form-text">Your response is added to the concern history and cannot be edited after submission. Do not include your name or contact information.</p>

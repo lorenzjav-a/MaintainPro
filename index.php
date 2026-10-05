@@ -10,9 +10,9 @@ $description=match($actor['role']) {
     default=>'See your assignments, continue work, and submit completion evidence.',
 };
 br_heading($pageTitle,$description,br_primary($actor));
+require __DIR__.'/includes/components/banner.php';
 require __DIR__.'/includes/components/submission-allowance.php';
 require __DIR__.'/includes/components/stats.php';
-require __DIR__.'/includes/components/banner.php';
 ?>
 <div class="overview-grid dashboard-focus">
   <div><?php $compact=true; require __DIR__.'/includes/components/complaint-table.php'; ?></div>

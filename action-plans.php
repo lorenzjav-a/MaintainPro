@@ -9,7 +9,7 @@ if (br_query('rule')!=='' && (!$rule || !$rule['active'])) br_page_error($contex
 try { $plans=br_store()->actionPlans($actor['id'],br_query('status'),br_query('week'),max(1,(int)br_query('p','1'))); }
 catch(DomainException $error) { br_page_error($context,422,'Check filters',$error->getMessage()); }
 require __DIR__.'/includes/layout/header.php';
-br_heading($pageTitle,'Plan, assign and record outcomes. Completed plans remain available for reference.','<a class="btn btn-light" href="index.php#weekly-concerns">Weekly Top Concerns</a>');
+br_heading($pageTitle,'Plan, assign and record outcomes. Completed plans remain available for reference.','<a class="btn btn-light" href="reports.php#weekly-concerns">Weekly Top Concerns</a>');
 if ($plan || $rule):
 $selected=$plan ?? $rule;
 ?>

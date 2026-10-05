@@ -158,7 +158,7 @@
     };
     var copy = messages[action];
     if (action === 'update_user' && data.active === '0') copy = ['Deactivate this account?', 'This account will no longer be able to sign in. Concern histories will be retained.', 'Deactivate account'];
-    return copy ? Swal.fire({icon: 'question', title: copy[0], text: copy[1], showCancelButton: true, confirmButtonText: copy[2], cancelButtonText: 'Go back'}).then(function (answer) { return answer.isConfirmed; }) : Promise.resolve(true);
+    return copy ? Swal.fire({icon: 'question', title: copy[0], text: copy[1], showCancelButton: true, showCloseButton: true, allowOutsideClick: false, focusCancel: true, confirmButtonText: copy[2], cancelButtonText: 'Go back'}).then(function (answer) { return answer.isConfirmed; }) : Promise.resolve(true);
   }
 
   function showCreatedAccount(account) {
@@ -255,12 +255,24 @@
     a.checked = b.checked; b.checked = active; second.focus();
   });
 
+  var menuReturnFocus = null;
+  var menuBackground = [];
   function toggleMenu(open) {
     var sidebar = document.getElementById('workspace-sidebar');
+    if (open) menuReturnFocus = document.activeElement;
     sidebar.classList.toggle('mobile-open', open);
     document.querySelector('.sidebar-scrim').hidden = !open;
+    document.body.classList.toggle('navigation-open', open);
+    if (open) {
+      menuBackground = Array.from(document.querySelectorAll('.topbar,.workspace-toolbar,.main,.mobile-dock,.chat-widget'));
+      menuBackground.forEach(function (element) { element.inert = true; });
+    } else {
+      menuBackground.forEach(function (element) { element.inert = false; });
+      menuBackground = [];
+    }
     document.querySelectorAll('[data-menu][aria-expanded]').forEach(function (button) { button.setAttribute('aria-expanded', String(open)); });
     if (open) sidebar.querySelector('a').focus();
+    else if (menuReturnFocus && menuReturnFocus.isConnected) menuReturnFocus.focus();
   }
 
   document.addEventListener('click', function (event) {
@@ -270,8 +282,9 @@
     else if (target.hasAttribute('data-refresh')) window.location.reload();
     else if (target.hasAttribute('data-help')) Swal.fire({title: 'One concern. A complete journey.', html: document.getElementById('workflow-help').innerHTML, confirmButtonText: 'Explore the workspace', width: 620});
     else if (target.hasAttribute('data-logout') && !busy) {
+      if (document.getElementById('workspace-sidebar').classList.contains('mobile-open')) toggleMenu(false);
       busy = true;
-      Swal.fire({icon: 'question', title: 'Sign out of your workspace?', text: 'Saved concerns and account information will remain available when you sign in again.', showCancelButton: true, confirmButtonText: 'Sign out', cancelButtonText: 'Stay signed in'}).then(function (answer) {
+      Swal.fire({icon: 'question', title: 'Sign out of your workspace?', text: 'Saved concerns and account information will remain available when you sign in again.', showCancelButton: true, showCloseButton: true, allowOutsideClick: false, focusCancel: true, confirmButtonText: 'Sign out', cancelButtonText: 'Stay signed in'}).then(function (answer) {
         if (answer.isConfirmed) return request('auth.php', 'logout', {}).then(function () { navigating = true; window.location.assign('login.php'); });
       }).catch(showError).finally(function () { if (!navigating) busy = false; });
     } else if (target.hasAttribute('data-use-recommendation')) {
@@ -284,9 +297,20 @@
   });
 
   document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape' && document.getElementById('workspace-sidebar').classList.contains('mobile-open')) {
-      toggleMenu(false); document.querySelector('.menu-toggle').focus();
+    var sidebar = document.getElementById('workspace-sidebar');
+    if (!sidebar.classList.contains('mobile-open')) return;
+    if (event.key === 'Escape') {
+      toggleMenu(false);
+    } else if (event.key === 'Tab') {
+      var controls = Array.from(sidebar.querySelectorAll('a,button,summary')).filter(function (element) { return !element.disabled && element.getClientRects().length; });
+      var first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     }
+  });
+
+  window.addEventListener('resize', function () {
+    if (innerWidth > 767 && document.getElementById('workspace-sidebar').classList.contains('mobile-open')) toggleMenu(false);
   });
 
   function updateConditionalFields() {

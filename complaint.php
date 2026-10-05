@@ -8,8 +8,6 @@ if ($actor['role'] === 'official') $c = array_replace($c, br_store()->concernLin
 $pageTitle = $c['id'] . ' · ' . $c['title'];
 require __DIR__ . '/includes/layout/header.php';
 br_heading($c['title'], 'Concern ' . $c['id'] . ' · ' . $c['category'] . (!empty($c['concernType'])?' · '.$c['concernType']:''), '<a class="btn btn-light" href="concerns.php">Back to concerns</a>');
-$steps = ['Submitted' => 'Submitted', 'Under Review' => 'Under Review', 'Assigned' => 'Assigned', 'In Progress' => 'In Progress', 'Resolved' => 'Resolved', 'Verified' => 'Closed'];
-$stepIndex = $c['status'] === 'Reopened' ? 1 : array_search($c['status'], array_keys($steps), true);
 ?>
 <article class="panel detail-page" data-case-id="<?= h($c['id']) ?>" data-version="<?= (int)$c['version'] ?>">
   <div class="case-summary">
@@ -20,11 +18,7 @@ $stepIndex = $c['status'] === 'Reopened' ? 1 : array_search($c['status'], array_
     <div class="summary-item"><span class="label">Submitted</span><strong><?= h(br_date($c['createdAt'], true)) ?></strong></div>
     <div class="summary-item"><span class="label">Assigned team</span><strong><?= h($c['team'] ?: 'Not yet assigned') ?></strong></div>
   </div>
-  <div class="workflow-steps" aria-label="Concern progress">
-    <?php foreach (array_values($steps) as $i => $label): ?>
-    <div class="workflow-step <?= $stepIndex !== false && $i < $stepIndex ? 'complete' : ($i === $stepIndex ? 'current' : '') ?>"<?= $i === $stepIndex ? ' aria-current="step"' : '' ?>><span class="step-circle"><?= $stepIndex !== false && $i < $stepIndex ? br_icon('check') : $i + 1 ?></span><span><?= h($label) ?></span></div>
-    <?php endforeach ?>
-  </div>
+  <?php require __DIR__ . '/includes/components/concern-progress.php'; ?>
   <div class="case-layout"><div class="case-main">
     <?php if (in_array($c['status'], ['Reopened', 'Returned for Information', 'Rejected', 'Referred to Another Office'], true)): ?><div class="status-note"><strong><?= h(br_status_label($c['status'])) ?></strong><br><?= h($c['timeline'][count($c['timeline']) - 1]['note']) ?></div><?php endif ?>
     <p class="record-note">Original submitted report · Submitted information is preserved as originally reported.</p>
