@@ -7,6 +7,7 @@ require_once __DIR__ . '/evidence-storage.php';
 require_once __DIR__ . '/profile-photo-storage.php';
 require_once __DIR__ . '/planning.php';
 require_once __DIR__ . '/messaging.php';
+require_once __DIR__ . '/security.php';
 
 final class ConflictException extends DomainException {}
 
@@ -120,6 +121,13 @@ final class ComplaintStore
     {
         $user = $this->user($id);
         return $user && $user['active'] && $user['email_verified'] && in_array($user['role'], ['resident', 'official', 'personnel'], true) ? $user : null;
+    }
+
+    public function confirmPassword(string $id, mixed $password): void
+    {
+        $actor=$this->actor($id);
+        $hash=$actor ? $this->db->passwordHash($id) : false;
+        if (!is_string($password) || !is_string($hash) || !password_verify($password,$hash)) throw new DomainException('Enter your current password to continue.');
     }
 
     public function profilePhoto(string $id): ?array
@@ -607,26 +615,76 @@ final class ComplaintStore
         if ($photoChanged && $oldPhotoPath !== '' && $oldPhotoPath !== $newPhotoPath) ProfilePhotoStorage::delete($oldPhotoPath);
     }
 
+    public function requestEmailChange(string $id, mixed $newEmail, mixed $currentPassword, callable $send): string
+    {
+        $email = self::email($newEmail);
+        $this->confirmPassword($id, $currentPassword);
+        $code = (string)random_int(100000, 999999);
+        $challenge = bin2hex(random_bytes(32));
+        $recipient = $this->transaction(function () use ($id, $email, $code, $challenge) {
+            $actor = $this->actor($id);
+            if (!$actor || $actor['must_change_password']) throw new DomainException('Sign in again before changing your email address.');
+            if ($email === $actor['email']) throw new DomainException('Enter a different email address.');
+            $existing = $this->db->registrationUser($email);
+            if ($existing && $existing['id'] !== $id) throw new DomainException('That email address is unavailable.');
+            $this->db->replaceEmailChange($challenge,$id,$email,password_hash($code,PASSWORD_DEFAULT),time()+600,time());
+            return $email;
+        });
+        $send($recipient,$code);
+        return $challenge;
+    }
+
+    public function verifyEmailChange(string $id, string $challenge, mixed $code): array
+    {
+        return $this->transaction(function () use ($id,$challenge,$code) {
+            $row=$this->db->emailChange($challenge,true);
+            if (!$row || $row['user_id']!==$id || !(int)$row['active'] || !(int)$row['email_verified']
+                || (int)$row['expires_at']<=time() || (int)$row['attempts']>=5) throw new DomainException('The code is incorrect or expired. Request a new email change code.');
+            $this->db->recordEmailChangeAttempt($challenge);
+            if (!is_string($code) || !preg_match('/\A[0-9]{6}\z/',$code) || !password_verify($code,$row['otp_hash'])) return null;
+            try { $this->db->completeEmailChange($challenge,$id,$row['new_email']); }
+            catch (PDOException $error) {
+                if ((int)($error->errorInfo[1] ?? 0)===1062) throw new DomainException('That email address is unavailable.');
+                throw $error;
+            }
+            $actor=$this->user($id);
+            $this->db->recordAudit($actor,'email_changed','user',$id,$actor['name'],['oldEmailChanged'=>true]);
+            return ['old_email'=>$row['email'],'new_email'=>$row['new_email'],'name'=>$row['name'],'user'=>$actor];
+        }) ?? throw new DomainException('The code is incorrect or expired. Request a new email change code.');
+    }
+
     public function login(mixed $email, mixed $password, string $client): array
     {
         if (!is_string($email) || !is_string($password) || strlen($email) > 254 || strlen($password) > 1024) throw new DomainException('The email or password is incorrect.');
         $email = strtolower(trim($email));
-        $bucket = hash('sha256', $email . '|' . $client);
+        $bucket = hash('sha256', 'login-pair|' . $email . '|' . $client);
+        $emailBucket = hash('sha256', 'login-email|' . $email);
+        $clientBucket = hash('sha256', 'login-client|' . $client);
         $blocked = false;
-        $this->transaction(function () use ($bucket, &$blocked) {
+        $this->transaction(function () use ($bucket,$emailBucket,$clientBucket,&$blocked) {
             $this->db->deleteOldLoginAttempts(time() - 900);
-            $blocked = $this->db->loginAttemptCount($bucket) >= 5;
+            $blocked = $this->db->loginAttemptCount($bucket) >= 5
+                || $this->db->loginAttemptCount($emailBucket) >= 20
+                || $this->db->loginAttemptCount($clientBucket) >= 50;
             if (!$blocked) {
-                $this->db->recordLoginAttempt($bucket, time());
+                foreach ([$bucket,$emailBucket,$clientBucket] as $key) $this->db->recordLoginAttempt($key,time());
             }
         });
-        if ($blocked) throw new DomainException('Too many sign-in attempts. Please try again in 15 minutes.');
+        if ($blocked) {
+            br_security_log('login_throttled',['result'=>'blocked']);
+            throw new DomainException('Too many sign-in attempts. Please try again in 15 minutes.');
+        }
         $row = $this->db->loginUser($email);
         $dummy = '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2uheWG/igi.';
         $valid = password_verify($password, $row['password_hash'] ?? $dummy);
-        if (!$row || !$valid || !$row['active'] || !$this->actor($row['id'])) throw new DomainException('The email or password is incorrect, or the account is inactive.');
-        $this->db->clearLoginAttempts($bucket);
-        return $this->user($row['id']);
+        if (!$row || !$valid || !$row['active'] || !$this->actor($row['id'])) {
+            br_security_log('login_failed',['result'=>'invalid_credentials']);
+            throw new DomainException('The email or password is incorrect, or the account is inactive.');
+        }
+        foreach ([$bucket,$emailBucket] as $key) $this->db->clearLoginAttempts($key);
+        $user=$this->user($row['id']);
+        if ($user['role']!=='resident') br_security_log('staff_login',['actor_role'=>$user['role'],'result'=>'success']);
+        return $user;
     }
 
     public function requestPasswordReset(mixed $email, string $client, callable $send): string

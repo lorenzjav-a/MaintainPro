@@ -1,0 +1,20 @@
+<VirtualHost *:443>
+    ServerName maintainpro.example.com
+    DocumentRoot /var/www/maintainpro
+    SSLEngine on
+    SSLCertificateFile /path/to/fullchain.pem
+    SSLCertificateKeyFile /path/to/private-key.pem
+    <Directory /var/www/maintainpro>
+        Options -Indexes -ExecCGI
+        AllowOverride FileInfo AuthConfig Limit Options
+        Require all granted
+    </Directory>
+    <DirectoryMatch "^/var/www/maintainpro/(?:config|database|includes|tools|uploads|\.data)(?:/|$)">
+        Require all denied
+    </DirectoryMatch>
+    LimitRequestBody 1700000
+</VirtualHost>
+<VirtualHost *:80>
+    ServerName maintainpro.example.com
+    Redirect permanent / https://maintainpro.example.com/
+</VirtualHost>

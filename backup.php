@@ -10,6 +10,7 @@ if (!is_string($_POST['csrf'] ?? null) || !hash_equals($_SESSION['br_csrf'], $_P
     br_page_error($context, 403, 'Refresh workspace settings', 'Your session changed. Refresh Workspace settings and download the backup again.');
 }
 try {
+    br_store()->confirmPassword($context['actor']['id'], $_POST['current_password'] ?? null);
     if (($_POST['kind'] ?? '')==='full') {
         $backup=br_store()->generateFullBackup($context['actor']['id']);
         try {

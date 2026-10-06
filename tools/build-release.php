@@ -12,7 +12,7 @@ $files = [];
 // Explicit entry points keep future development scripts out of releases.
 $entrypoints = ['action-plans','admin','api','audit','auth','backup','blocked','complaint',
     'complaints','concern','concerns','evidence','history','index','landing','login',
-    'messages','my-action-plans','new-complaint','notifications','official-solutions','profile',
+    'messages','my-action-plans','new-complaint','notifications','official-solutions','profile','profile-photo',
     'public-api','report-concern','reports','router','settings','solutions','track',
     'transparency','user-create','user-edit','user-guide','users'];
 foreach ($entrypoints as $entrypoint) {
@@ -26,7 +26,7 @@ foreach (['assets', 'includes', 'database', 'vendor/phpmailer'] as $directory) {
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS));
     foreach ($iterator as $file) if ($file->isFile() && !$file->isLink()) $files[] = $file->getPathname();
 }
-foreach (['.htaccess', 'uploads/.htaccess', 'config/app.php', 'config/database.php', 'config/features.php', 'config/mail.example.php', 'tools/notify-deadlines.php'] as $relative) {
+foreach (['.htaccess', '.env.example', 'README.md', 'DEPLOYMENT.md', 'uploads/.htaccess', 'config/app.php', 'config/database.php', 'config/features.php', 'config/mail.example.php', 'tools/notify-deadlines.php', 'tools/cleanup-security.php', 'tools/health-check.php', 'docs/PRODUCTION_READINESS_REPORT.md', 'deployment/apache-vhost.conf.example', 'deployment/nginx.conf.example'] as $relative) {
     $path = $root . '/' . $relative;
     if (!is_file($path)) throw new RuntimeException('Missing production file: ' . $relative);
     $files[] = $path;
@@ -39,5 +39,16 @@ foreach (array_unique($files) as $path) {
     $archive->addFile($path, $relative);
 }
 $archive->addFromString('uploads/evidence/.htaccess', "Require all denied\n");
+$archive->addFromString('uploads/profiles/.htaccess', "Require all denied\n");
 unset($archive);
-echo $output, PHP_EOL;
+$inspect=new PharData($output);
+$entries=[];
+foreach (new RecursiveIteratorIterator($inspect) as $file) {
+    $relative=str_replace('\\','/',substr($file->getPathname(),strlen('phar://'.$output)+1));
+    $entries[]=$relative;
+    $forbidden=preg_match('~(^|/)(?:\.git|\.data|tests|tmp|backups|logs)(?:/|$)|(?:^|/)(?:mail\.local\.php|\.env|[^/]+\.(?:log|bak|zip))$~i',$relative)
+        || (str_ends_with(strtolower($relative),'.sql') && !str_starts_with($relative,'database/migrations/'));
+    if ($forbidden) throw new RuntimeException('Forbidden release entry: '.$relative);
+}
+if (!in_array('.env.example',$entries,true) || !in_array('DEPLOYMENT.md',$entries,true)) throw new RuntimeException('Release configuration documentation is incomplete.');
+echo $output, PHP_EOL, 'Inspected ',count($entries),' release entries; private runtime data is excluded.',PHP_EOL;

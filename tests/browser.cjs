@@ -130,7 +130,7 @@ async function tab() {
     check(await guest.evaluate('(async()=>{const response=await fetch("profile-photo.php");return response.status})()')===403, 'profile photo endpoint requires an account');
     await official.screenshot('profile-photo-desktop');
     await official.go('user-create.php');
-    await official.submit('create_user', {name: 'Browser Personnel', email: 'personnel@example.test', role: 'personnel', team: 'Maintenance crew'});
+    await official.submit('create_user', {name: 'Browser Personnel', email: 'personnel@example.test', role: 'personnel', team: 'Maintenance crew', current_password:password});
     const temporary = await official.evaluate('document.getElementById("created-password").value');
     check(temporary.startsWith('MP-'), 'temporary credential shown');
     await personnel.go('login.php'); await personnel.screenshot('staff-login-desktop'); await personnel.auth('login', {email: 'personnel@example.test', password: temporary});
@@ -383,7 +383,7 @@ async function tab() {
     check(true, 'solution editor loads rules');
     await official.screenshot('solutions-desktop');
     await official.go('user-edit.php?id=' + staffId);
-    await official.submit('update_user', {name:'Updated Personnel',email:'updated@example.test'});
+    await official.submit('update_user', {name:'Updated Personnel',email:'updated@example.test',current_password:password});
     check(await official.evaluate('document.body.textContent.includes("updated@example.test")'), 'staff name and email edit');
     await personnel.go('reports.php'); check(await personnel.evaluate('document.querySelector("h1").textContent === "Access denied"'), 'personnel direct URL blocked');
     await official.go('complaints.php?search=' + reference);

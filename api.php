@@ -114,13 +114,36 @@ try {
         http_response_code(403);
         throw new DomainException('This action is unavailable. Your account determines your role.');
     } elseif (in_array($action, ['create_user', 'update_user', 'profile'], true)) {
+        if (in_array($action, ['create_user', 'update_user'], true)) br_store()->confirmPassword($actor['id'], $data['current_password'] ?? null);
         if ($action === 'create_user') $createdAccount = br_store()->createUser($actor['id'], $data);
         if ($action === 'update_user') br_store()->updateUser($actor['id'], $id, $data);
         if ($action === 'profile') {
+            $requestedEmail=is_string($data['email'] ?? null)?strtolower(trim($data['email'])):'';
+            if ($requestedEmail!==strtolower($actor['email'])) {
+                require_once __DIR__ . '/includes/mail.php';
+                $mailer=br_mailer();
+                $challenge=br_store()->requestEmailChange($actor['id'],$requestedEmail,$data['current_password'] ?? null,
+                    fn(string $recipient,string $code)=>br_send_email_change_code($mailer,$recipient,$code));
+                $data['email']=$actor['email'];
+                $_SESSION['br_email_change_challenge']=$challenge;
+            }
             br_store()->updateProfile($actor['id'], $data);
             $_SESSION['br_auth_version'] = (int)br_store()->user($actor['id'])['auth_version'];
             session_regenerate_id(true);
+            if (isset($challenge)) {
+                echo json_encode(['ok'=>true,'redirect'=>'profile.php?email-verification=pending'],JSON_THROW_ON_ERROR);
+                exit;
+            }
         }
+    } elseif ($action === 'verify_email_change') {
+        $challenge=is_string($_SESSION['br_email_change_challenge'] ?? null)?$_SESSION['br_email_change_challenge']:'';
+        $changed=br_store()->verifyEmailChange($actor['id'],$challenge,$data['code'] ?? null);
+        unset($_SESSION['br_email_change_challenge']);
+        require_once __DIR__ . '/includes/mail.php';
+        br_send_email_changed_notice($changed['old_email'],$changed['name'],$changed['new_email']);
+        br_enter_account($changed['user']);
+        echo json_encode(['ok'=>true,'redirect'=>'profile.php?email-verification=complete'],JSON_THROW_ON_ERROR);
+        exit;
     } elseif ($action === 'save_official_rules') {
         br_store()->saveOfficialRules($actor['id'],$data);
     } elseif (in_array($action,['create_action_plan','update_action_plan'],true)) {

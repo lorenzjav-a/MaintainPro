@@ -30,7 +30,7 @@ try {
     $report=['category'=>'Street Lighting','concernType'=>'Exposed wiring','keyPoints'=>['Sparks visible'],'purok'=>'Purok One','street'=>'Test Road','exactArea'=>'Test corner'];
     $own=$store->submitAccount($resident['id'],$report);
     $guest=$store->submitGuest($report,'integrity-guest');
-    integrityCheck($fixture->integrityCounts()===[31,0],'fresh schema has all foreign keys and standard collations');
+    integrityCheck($fixture->integrityCounts()===[32,0],'fresh schema has all foreign keys and standard collations');
     integrityCheck($store->concernForActor($resident['id'],$own)!==null && $store->track($guest['reference'],$guest['trackingCode'],'integrity')['reference']===$guest['reference'],'account and guest concerns work');
 
     // A dump can mark a migration complete while leaving constraints absent.
@@ -39,22 +39,22 @@ try {
     integrityStops(fn()=>DatabaseMaintenance::initialize($db),'orphan reference');
     $fixture->removeOrphanNotification();
     DatabaseMaintenance::initialize($db);
-    integrityCheck($fixture->integrityCounts()[0]===31,'rerun restores a missing notification foreign key');
+    integrityCheck($fixture->integrityCounts()[0]===32,'rerun restores a missing notification foreign key');
 
     $fixture->invalidSolutionJson();
     integrityStops(fn()=>DatabaseMaintenance::initialize($db),'invalid JSON');
     $fixture->removeInvalidSolutionJson();
     DatabaseMaintenance::initialize($db);
-    integrityCheck($fixture->integrityCounts()[0]===31,'rerun restores a missing JSON check without deleting data');
+    integrityCheck($fixture->integrityCounts()[0]===32,'rerun restores a missing JSON check without deleting data');
 
     $before=$fixture->dataChecksums();
     $fixture->useLegacyRuleCollations();
     integrityCheck($fixture->integrityCounts()[1]>0,'legacy general_ci columns reproduced');
     DatabaseMaintenance::initialize($db);
-    integrityCheck($fixture->integrityCounts()===[31,0],'mixed collations and missing rule foreign keys repaired');
+    integrityCheck($fixture->integrityCounts()===[32,0],'mixed collations and missing rule foreign keys repaired');
     integrityCheck($fixture->dataChecksums()===$before,'account, concern, evidence, notification and rule data preserved');
     DatabaseMaintenance::initialize($db);
-    integrityCheck($fixture->integrityCounts()===[31,0],'completed repair is repeatable');
+    integrityCheck($fixture->integrityCounts()===[32,0],'completed repair is repeatable');
 } finally {
     $test->drop();
 }
@@ -68,7 +68,7 @@ try {
     $legacyFixture=new DatabaseTestFixtures($legacy);
     $legacyFixture->partialLegacyUsers();
     DatabaseMaintenance::initialize($legacy);
-    integrityCheck($legacyFixture->integrityCounts()===[31,0],'partial legacy import completes with standard collation and foreign keys');
+    integrityCheck($legacyFixture->integrityCounts()===[32,0],'partial legacy import completes with standard collation and foreign keys');
     integrityCheck($legacyFixture->legacyUserName()==='Legacy User','partial legacy import preserves account data');
 } finally {
     DatabaseMaintenance::dropTestDatabase($legacyName);

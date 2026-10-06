@@ -125,7 +125,7 @@ try {
     httpCheck($tracked['json']['concern']['residentGuidance'] === $receipt['residentGuidance'], 'guidance accessible later through private tracking');
     httpCheck($public('track', array_replace($receipt, ['trackingCode' => str_repeat('0', 48)]))['status'] === 422, 'wrong code blocked');
     httpCheck($public('track', $receipt, '')['status'] === 403, 'tracking CSRF');
-    $created = post($adminJar, 'create_user', ['name' => 'HTTP Staff', 'email' => 'staff@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew'], $adminCsrf);
+    $created = post($adminJar, 'create_user', ['name' => 'HTTP Staff', 'email' => 'staff@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew','current_password'=>$password], $adminCsrf);
     httpCheck($created['status'] === 200, 'staff created');
     $account = $created['json']['created_account']; $staffId = $account['id'];
     httpCheck(!str_contains(req($adminJar, 'api.php')['body'], $account['temporary_password']), 'credential returned once outside state');
@@ -134,7 +134,7 @@ try {
     httpCheck(str_contains(req($staffJar, 'complaint.php?id=' . $id)['body'], 'data-action="change_password"'), 'onboarding direct URL gate');
     httpCheck(auth($staffJar, 'change_password', ['current_password' => $account['temporary_password'], 'password' => $password, 'confirm_password' => $password], token($staffJar, 'login.php'))['status'] === 200, 'staff activates');
     $staffCsrf = token($staffJar);
-    $otherCreated = post($adminJar, 'create_user', ['name' => 'Other Staff', 'email' => 'other@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew'], $adminCsrf)['json']['created_account'];
+    $otherCreated = post($adminJar, 'create_user', ['name' => 'Other Staff', 'email' => 'other@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew','current_password'=>$password], $adminCsrf)['json']['created_account'];
     auth($otherJar, 'login', ['email' => $otherCreated['email'], 'password' => $otherCreated['temporary_password']], token($otherJar, 'login.php'));
     auth($otherJar, 'change_password', ['current_password' => $otherCreated['temporary_password'], 'password' => $password, 'confirm_password' => $password], token($otherJar, 'login.php'));
     $otherCsrf = token($otherJar);
@@ -183,7 +183,7 @@ try {
     httpCheck(post($adminJar, 'save_rule', $rules, $adminCsrf)['status'] === 200, 'official rule management');
     httpCheck($public('guidance', $report)['json']['residentGuidance'][0] === 'Use another safe route.', 'public form uses curated resident guidance');
     httpCheck(post($adminJar, 'reset_rule', $rules, $adminCsrf)['status'] === 200, 'restore default suggestions');
-    httpCheck(post($adminJar, 'update_user', ['role' => 'personnel', 'team' => 'Maintenance crew', 'active' => '1', 'email' => 'bad-email'], $adminCsrf, $staffId)['status'] === 422, 'edit staff email validation');
+    httpCheck(post($adminJar, 'update_user', ['role' => 'personnel', 'team' => 'Maintenance crew', 'active' => '1', 'email' => 'bad-email','current_password'=>$password], $adminCsrf, $staffId)['status'] === 422, 'edit staff email validation');
     $csv = req($adminJar, 'api.php?export=csv');
     httpCheck($csv['status'] === 200 && str_contains($csv['body'], 'Key points') && str_contains($csv['body'], 'Deep; Near school'), 'structured CSV report');
     httpCheck(req($staffJar, 'api.php?export=csv')['status'] === 403, 'personnel export forbidden');
@@ -241,7 +241,7 @@ try {
     require __DIR__ . '/extended-http.php';
     require __DIR__ . '/account-reporting-http.php';
     require __DIR__ . '/system-upgrade-http.php';
-    $limitedOfficial = post($adminJar, 'create_user', ['name' => 'Limited Official', 'email' => 'limited-official@example.test', 'role' => 'official'], $adminCsrf)['json']['created_account'];
+    $limitedOfficial = post($adminJar, 'create_user', ['name' => 'Limited Official', 'email' => 'limited-official@example.test', 'role' => 'official','current_password'=>$password], $adminCsrf)['json']['created_account'];
     $limitedJar = jar();
     httpCheck(auth($limitedJar, 'login', ['email' => $limitedOfficial['email'], 'password' => $limitedOfficial['temporary_password']], token($limitedJar, 'login.php'))['status'] === 200, 'standard official signs in');
     httpCheck(auth($limitedJar, 'change_password', ['current_password' => $limitedOfficial['temporary_password'], 'password' => $password, 'confirm_password' => $password], token($limitedJar, 'login.php'))['status'] === 200, 'standard official finishes onboarding');

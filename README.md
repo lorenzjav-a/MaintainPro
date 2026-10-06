@@ -17,7 +17,7 @@ Staff features now include persistent in-app notifications, workload-aware assig
 3. Open **http://localhost/MaintainPro/** for the public landing page. On an empty installation, configure `APP_SETUP_KEY` in the PHP/Apache environment before using **Sign in** to create the first official account. See [secure first setup](docs/configuration.md#secure-first-official-setup). Existing installations do not need a setup key.
 4. Residents can register through **Sign in → Resident registration**, or use guest reporting. Officials create accounts under **User management → Create account**. All signed-in roles use **Report Concern** from their dashboard.
 
-PHP 8.1+ requires `pdo_mysql`, `mbstring`, `openssl`, sessions and image metadata support. The test suites also use `curl` and `dom`. XAMPP supplies these. Bootstrap CSS, SweetAlert and PHPMailer are bundled locally; no build step or CDN connection is required.
+PHP 8.2+ requires `PDO`, `pdo_mysql`, `mbstring`, `openssl`, `json`, `fileinfo`, `session`, and `Phar`. The test suites also use `curl` and `dom`. XAMPP supplies these. Bootstrap CSS, SweetAlert and PHPMailer are bundled locally; no build step or CDN connection is required. Production installation and security requirements are documented in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 For PHP's local development server, keep MySQL running and use:
 
@@ -53,7 +53,6 @@ Account permissions, CSRF tokens, password hashing, login throttling, transactio
 | `includes` | Sessions, page guards, account and workflow rules, mail integration and shared views |
 | `uploads/evidence` | Protected evidence files; ignored by Git and served only through the authorized evidence endpoint |
 | `uploads/profiles` | Protected account photos; ignored by Git and served only to the signed-in owner |
-| `uploads/profiles` | Protected account photos; ignored by Git and served only to the signed-in owner |
 | `vendor/phpmailer` | PHP mail dependency and upstream license |
 | `tools` | Verification runner and SMTP diagnostic command |
 | `tests`, `tests/support` | Regression suites and isolated test infrastructure |
@@ -67,6 +66,8 @@ Private directories are blocked through Apache rules and the development router.
 - [Database and SMTP configuration](docs/configuration.md)
 - [Verification and simultaneous account testing](docs/testing.md)
 - [Requirements and workflow scope](docs/requirements.md)
+- [Production deployment](DEPLOYMENT.md)
+- [Phase 15 production readiness report](docs/PRODUCTION_READINESS_REPORT.md)
 - [Anonymous reporting upgrade, file inventory and setup](docs/anonymous-upgrade.md)
 - [Temporary resident guidance and compatibility](docs/resident-guidance.md)
 

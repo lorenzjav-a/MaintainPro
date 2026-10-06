@@ -9,7 +9,7 @@ foreach (['assets/vendor/sweetalert2.all.min.js', 'assets/vendor/bootstrap.min.c
 foreach (['vendor/phpmailer/src/PHPMailer.php', 'config/mail.local.php', 'includes/store.php', 'database/database.php', '.data/', 'uploads/'] as $path) {
     httpCheck(req($guestJar, $path)['status'] === 404, 'private path remains blocked: ' . $path);
 }
-$data = ['name'=>'Account Test Personnel','email'=>'personnel@example.test','role'=>'personnel','team'=>'Maintenance crew'];
+$data = ['name'=>'Account Test Personnel','email'=>'personnel@example.test','role'=>'personnel','team'=>'Maintenance crew','current_password'=>$password];
 httpCheck(post($adminJar,'create_user',$data,'')['status']===403,'missing CSRF rejected');
 httpCheck(post($guestJar,'create_user',$data,'')['status']===401,'guest creation rejected');
 $created=post($adminJar,'create_user',$data,$adminCsrf);

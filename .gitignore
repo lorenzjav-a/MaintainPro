@@ -3,8 +3,10 @@
 tests/tmp/
 /uploads/evidence/
 /uploads/profiles/
-/uploads/profiles/
 config/mail.local.php
 includes/mail.local.php
+/.env
+/.env.*
+!/.env.example
 /debug.log
 /maintainpro_fixed.sql

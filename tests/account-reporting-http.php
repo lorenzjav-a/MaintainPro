@@ -9,7 +9,7 @@ httpCheck(auth($reporterJar,'login',$newResident,$reporterCsrf)['status']===200,
 $reporterCsrf = token($reporterJar);
 $reporter = req($reporterJar, 'api.php')['json']['actor'];
 httpCheck($reporter['role'] === 'resident', 'registration ignores forged role');
-$reportStaff = post($adminJar, 'create_user', ['name' => 'Reporting Personnel HTTP', 'email' => 'reporting-staff@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew'], $adminCsrf)['json']['created_account'];
+$reportStaff = post($adminJar, 'create_user', ['name' => 'Reporting Personnel HTTP', 'email' => 'reporting-staff@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew','current_password'=>$password], $adminCsrf)['json']['created_account'];
 $reportStaffJar = jar();
 httpCheck(auth($reportStaffJar, 'login', ['email' => $reportStaff['email'], 'password' => $reportStaff['temporary_password']], token($reportStaffJar, 'login.php'))['status'] === 200, 'new personnel sign in');
 httpCheck(auth($reportStaffJar, 'change_password', ['current_password' => $reportStaff['temporary_password'], 'password' => $password, 'confirm_password' => $password], token($reportStaffJar, 'login.php'))['status'] === 200, 'new personnel onboarding');

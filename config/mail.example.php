@@ -1,12 +1,11 @@
 <?php
-// Copy to mail.local.php and enter the Gmail sender and its Google App Password.
-// https://support.google.com/accounts/answer/185833
+// Safe placeholders only. Configure production mail with environment variables.
 return [
-    'host' => 'smtp.gmail.com',
+    'host' => '',
     'port' => 587,
     'encryption' => 'tls',
-    'username' => 'maintainpro.system2026@gmail.com',
-    'password' => 'acdz ppuv kqxb jzlj',
-    'from_email' => '', // Leave blank to use the username.
+    'username' => '',
+    'password' => '',
+    'from_email' => '',
     'from_name' => 'MaintainPro',
 ];

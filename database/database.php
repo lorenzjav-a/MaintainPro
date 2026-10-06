@@ -101,6 +101,11 @@ final class MaintainProDatabase
         return $this->run('SELECT profile_photo_path FROM users WHERE profile_photo_path IS NOT NULL ORDER BY profile_photo_path')->fetchAll(PDO::FETCH_COLUMN);
     }
 
+    public function migrationCount(): int
+    {
+        return (int)$this->run('SELECT COUNT(*) FROM schema_migrations')->fetchColumn();
+    }
+
     public function insertEvidence(string $id, string $concern, ?string $user, string $type, string $path, string $original, string $mime, int $size, int $width, int $height, int $created): void
     {
         $this->run('INSERT INTO concern_evidence (id,complaint_id,uploaded_by,evidence_type,file_path,original_filename,mime_type,file_size,width,height,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)', [$id,$concern,$user,$type,$path,$original,$mime,$size,$width,$height,$created]);
@@ -272,7 +277,7 @@ final class MaintainProDatabase
             $quoted='`'.str_replace('`','``',$table).'`';
             $schema=$this->run('SHOW CREATE TABLE '.$quoted)->fetch(PDO::FETCH_NUM)[1];
             $sql.=$schema.";\n";
-            if ($withoutCredentials && in_array($table,['password_resets','password_reset_requests','registration_verifications','registration_attempts','login_attempts','public_attempts','feature_alerts'],true)) continue;
+            if ($withoutCredentials && in_array($table,['password_resets','password_reset_requests','registration_verifications','email_change_verifications','registration_attempts','login_attempts','public_attempts','feature_alerts'],true)) continue;
             $columns=$this->run('SHOW FULL COLUMNS FROM '.$quoted)->fetchAll();
             $columns=array_column(array_filter($columns,fn($c)=>!str_contains($c['Extra'],'GENERATED')),'Field');
             $names=implode(',',array_map(fn($name)=>'`'.str_replace('`','``',$name).'`',$columns));
@@ -849,6 +854,29 @@ final class MaintainProDatabase
         return $this->run('SELECT profile_photo_data,profile_photo_mime,profile_photo_path FROM users WHERE id=? AND active=1 AND email_verified=1',[$id])->fetch();
     }
 
+    public function replaceEmailChange(string $challenge, string $userId, string $newEmail, string $hash, int $expires, int $sent): void
+    {
+        $this->run('DELETE FROM email_change_verifications WHERE user_id=? OR expires_at<?', [$userId, time()]);
+        $this->run('INSERT INTO email_change_verifications(challenge,user_id,new_email,otp_hash,expires_at,sent_at) VALUES(?,?,?,?,?,?)', [$challenge,$userId,$newEmail,$hash,$expires,$sent]);
+    }
+
+    public function emailChange(string $challenge, bool $forUpdate = false): array|false
+    {
+        return $this->run('SELECT e.*,u.name,u.email,u.active,u.email_verified FROM email_change_verifications e JOIN users u ON u.id=e.user_id WHERE e.challenge=?'.($forUpdate?' FOR UPDATE':''),[$challenge])->fetch();
+    }
+
+    public function recordEmailChangeAttempt(string $challenge): void
+    {
+        $this->run('UPDATE email_change_verifications SET attempts=attempts+1 WHERE challenge=?',[$challenge]);
+    }
+
+    public function completeEmailChange(string $challenge, string $userId, string $newEmail): void
+    {
+        $this->run('UPDATE users SET email=?,auth_version=auth_version+1 WHERE id=?',[$newEmail,$userId]);
+        $this->run('DELETE FROM email_change_verifications WHERE challenge=?',[$challenge]);
+        $this->deleteUserResets($userId);
+    }
+
     public function loginUser(string $email): array|false
     {
         return $this->run('SELECT id,password_hash,active FROM users WHERE email=?', [$email])->fetch();
@@ -904,6 +932,21 @@ final class MaintainProDatabase
     public function deleteUserResets(string $userId): void
     {
         $this->run('DELETE FROM password_resets WHERE user_id=?', [$userId]);
+    }
+
+    public function cleanupExpiredSecurityRecords(int $now): array
+    {
+        $counts=[];
+        foreach ([
+            'email_changes'=>['DELETE FROM email_change_verifications WHERE expires_at<?',[$now]],
+            'registration_codes'=>['DELETE FROM registration_verifications WHERE expires_at<?',[$now]],
+            'registration_attempts'=>['DELETE FROM registration_attempts WHERE attempted_at<?',[$now-86400]],
+            'password_resets'=>['DELETE FROM password_resets WHERE expires_at<? AND (reset_expires_at IS NULL OR reset_expires_at<?)',[$now,$now]],
+            'password_attempts'=>['DELETE FROM password_reset_requests WHERE requested_at<?',[$now-86400]],
+            'login_attempts'=>['DELETE FROM login_attempts WHERE attempted_at<?',[$now-3600]],
+            'public_attempts'=>['DELETE FROM public_attempts WHERE attempted_at<?',[$now-3600]],
+        ] as $label=>[$sql,$params]) $counts[$label]=$this->run($sql,$params)->rowCount();
+        return $counts;
     }
 
     public function insertReset(string $id, string $userId, string $email, int $authVersion, string $hash, int $expiresAt): void

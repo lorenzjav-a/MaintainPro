@@ -50,9 +50,9 @@ httpCheck(post($adminJar, 'toggle_location', [], $adminCsrf, $locationId)['statu
 httpCheck(req($adminJar, 'audit.php?date=invalid')['status'] === 422, 'invalid audit filter handled');
 httpCheck(str_contains(req($adminJar, 'audit.php?action=assignment_changed')['body'], 'Assignment Changed'), 'audit filters render records');
 function backupRequest(string $cookie, string $token, string $kind='database'): array {
-    global $base;
+    global $base,$password;
     $request = curl_init($base . '/backup.php');
-    curl_setopt_array($request, [CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEFILE => $cookie, CURLOPT_POST => true, CURLOPT_POSTFIELDS => http_build_query(['csrf' => $token,'kind'=>$kind]), CURLOPT_TIMEOUT => 15]);
+    curl_setopt_array($request, [CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEFILE => $cookie, CURLOPT_POST => true, CURLOPT_POSTFIELDS => http_build_query(['csrf' => $token,'kind'=>$kind,'current_password'=>$password]), CURLOPT_TIMEOUT => 15]);
     $body = curl_exec($request);
     return ['status' => curl_getinfo($request, CURLINFO_RESPONSE_CODE), 'body' => $body];
 }

@@ -86,7 +86,7 @@ try {
             br_enter_account(br_store()->setup($data, $_SERVER['REMOTE_ADDR'] ?? ''));
             break;
         case 'logout':
-            unset($_SESSION['br_user_id']);
+            unset($_SESSION['br_user_id'],$_SESSION['br_auth_version'],$_SESSION['br_role'],$_SESSION['br_last_activity'],$_SESSION['br_email_change_challenge']);
             session_regenerate_id(true);
             $_SESSION['br_csrf'] = bin2hex(random_bytes(32));
             echo json_encode(['ok' => true, 'redirect' => 'login.php']);

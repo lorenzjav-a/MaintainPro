@@ -3,13 +3,17 @@ declare(strict_types=1);
 
 function br_database_config(): array
 {
-    return [
-        'host' => getenv('BR_DB_HOST') ?: '127.0.0.1',
-        'port' => getenv('BR_DB_PORT') ?: '3306',
-        'name' => getenv('BR_DB_NAME') ?: 'maintainpro',
-        'user' => getenv('BR_DB_USER') ?: 'root',
-        'password' => getenv('BR_DB_PASSWORD') !== false ? getenv('BR_DB_PASSWORD') : '',
+    require_once __DIR__ . '/app.php';
+    $value = static fn(string $primary, string $legacy, string $default): string => (string)br_env($primary, br_env($legacy, $default));
+    $config = [
+        'host' => $value('DB_HOST', 'BR_DB_HOST', '127.0.0.1'),
+        'port' => $value('DB_PORT', 'BR_DB_PORT', '3306'),
+        'name' => $value('DB_NAME', 'BR_DB_NAME', 'maintainpro'),
+        'user' => $value('DB_USER', 'BR_DB_USER', 'root'),
+        'password' => $value('DB_PASSWORD', 'BR_DB_PASSWORD', ''),
     ];
+    if (br_app_config()['production'] && (strtolower(trim($config['user'])) === 'root' || $config['password'] === '')) throw new RuntimeException('Production requires a dedicated database account with a non-empty password.');
+    return $config;
 }
 
 function br_database(?string $name = null, bool $serverOnly = false): PDO

@@ -6,6 +6,9 @@ DirectoryIndex index.php
 <FilesMatch "(?i)\.(?:log|sql|sqlite|db|bak|backup|dump|zip)(?:\.(?:gz|zip))?$">
     Require all denied
 </FilesMatch>
+<FilesMatch "(?i)^(?:\.env(?:\..*)?|composer\.(?:json|lock)|phpunit\.xml|AGENTS\.md)$">
+    Require all denied
+</FilesMatch>
 
 RewriteEngine On
 RewriteRule "(^|/)\." "-" [F,L,NC]

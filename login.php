@@ -44,7 +44,9 @@ if ($changingPassword) {
 $showPassword = (!$recovery && !$registrationVerification) || $view === 'reset';
 $confirmPassword = $setup || $registering || $changingPassword || ($recovery && $view === 'reset');
 $resetDone = !$recovery && !empty($_SESSION['br_password_reset_done']);
+$sessionExpired = !$recovery && !empty($_SESSION['br_session_expired']);
 unset($_SESSION['br_password_reset_done']);
+unset($_SESSION['br_session_expired']);
 ?>
 <!doctype html>
 <html lang="en">
@@ -82,6 +84,7 @@ unset($_SESSION['br_password_reset_done']);
         <h2><?= htmlspecialchars($title, ENT_QUOTES, 'UTF-8') ?></h2>
         <p class="auth-description"><?= htmlspecialchars($description, ENT_QUOTES, 'UTF-8') ?></p>
         <?php if ($resetDone): ?><div class="alert alert-success" role="status">Your password was reset. Sign in with your new password.</div><?php endif ?>
+        <?php if ($sessionExpired): ?><div class="alert alert-warning" role="status">Your session expired after a period of inactivity. Sign in again to continue.</div><?php endif ?>
         <?php if ($recovery && $view === 'verify' && ($_SESSION['br_reset_until'] ?? 0) <= time()): ?><div class="alert alert-warning" role="status">This verification code has expired. Please request a new code.</div><?php endif ?>
         <?php if ($recovery): ?><p class="form-text">Step <?= ['forgot' => 1, 'verify' => 2, 'reset' => 3][$view] ?> of 3 · Email → Verify code → New password</p><?php endif ?>
         <?php if (!$setup && !$recovery && !$registrationVerification && !$changingPassword): ?>

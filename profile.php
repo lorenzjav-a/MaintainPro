@@ -5,6 +5,8 @@ extract(br_page('profile'));
 require __DIR__ . '/includes/layout/header.php';
 br_heading($pageTitle, 'Manage your photo, account details, and password.');
 ?>
+<?php if (br_query('email-verification')==='complete'): ?><div class="alert alert-success" role="status">Your new email address is verified and active. Other signed-in sessions were revoked.</div><?php endif ?>
+<?php if (isset($_SESSION['br_email_change_challenge'])): ?><section class="panel profile-panel mb-4"><div class="panel-header"><div><h2 class="panel-title">Verify your new email</h2><p class="panel-subtitle">Enter the six-digit code sent to the new address. Your current email remains active until this succeeds.</p></div></div><div class="panel-body"><form method="post" action="api.php" data-action="verify_email_change"><label class="form-label" for="email-change-code">Verification code</label><input class="form-control" id="email-change-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required><p class="form-text">The code expires in 10 minutes and allows five attempts.</p><button class="btn btn-primary" type="submit">Verify new email</button></form></div></section><?php endif ?>
 <section class="panel profile-panel">
   <div class="panel-header profile-panel-header"><div><h2 class="panel-title"><?= h($actor['name']) ?></h2><p class="panel-subtitle"><?= h(br_role($actor['role'])) ?><?= $actor['team'] ? ' · ' . h($actor['team']) : '' ?></p></div><?= br_avatar($actor, 'avatar me profile-header-avatar', true) ?></div>
   <div class="panel-body"><form method="post" action="api.php" data-action="profile">
@@ -18,7 +20,7 @@ br_heading($pageTitle, 'Manage your photo, account details, and password.');
       </div>
     </section>
     <section class="profile-form-section" aria-labelledby="profile-account-heading">
-      <div class="profile-section-heading"><h3 class="section-title" id="profile-account-heading">Account details</h3><p class="form-text">Use the name and email address you want associated with your account.</p></div>
+      <div class="profile-section-heading"><h3 class="section-title" id="profile-account-heading">Account details</h3><p class="form-text">Changing your email sends a verification code to the new address. Your current email remains active until verification succeeds.</p></div>
       <div class="row g-3"><div class="col-sm-6"><label class="form-label" for="profile-name">Full name</label><input class="form-control" id="profile-name" name="name" required minlength="2" maxlength="100" autocomplete="name" value="<?= h($actor['name']) ?>"></div><div class="col-sm-6"><label class="form-label" for="profile-email">Email address</label><input class="form-control" id="profile-email" name="email" type="email" required maxlength="254" autocomplete="username" value="<?= h($actor['email']) ?>"></div></div>
     </section>
     <section class="profile-form-section" aria-labelledby="profile-password-heading">

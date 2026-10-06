@@ -208,6 +208,7 @@
       document.body.classList.add('app-busy');
       return request('api.php', action, data, id).then(function (result) {
         if (action === 'create_user') { showCreatedAccount(result.created_account); form.reset(); return; }
+        if (result.redirect) { navigating = true; window.location.assign(result.redirect); return; }
         var destination = action === 'profile' ? 'profile.php'
           : action === 'update_user' ? 'users.php'
           : action === 'save_official_rules' ? 'official-solutions.php'
