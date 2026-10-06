@@ -121,6 +121,14 @@ async function tab() {
     await official.ready('/index.php');
     check(await official.evaluate('document.querySelector("h1").textContent === "Official dashboard"'), 'official dashboard');
     check(await official.evaluate('Array.from(document.querySelectorAll(".open-case-btn")).every(link=>{const label=link.firstChild,range=document.createRange();range.selectNodeContents(label);return range.getBoundingClientRect().height<=parseFloat(getComputedStyle(link).lineHeight)*1.25 && getComputedStyle(link).whiteSpace==="nowrap"})'), 'concern open actions keep the label on one line');
+    await official.go('profile.php');
+    await setPhoto(official, '#profile-photo');
+    await official.submit('profile', {current_password:password});
+    await until(()=>official.evaluate('Array.from(document.querySelectorAll("img.avatar")).length>=3 && Array.from(document.querySelectorAll("img.avatar")).every(img=>img.complete&&img.naturalWidth>0)'), 'saved profile photo renders');
+    check(await official.evaluate('document.querySelector(".profile-photo-picker").getBoundingClientRect().width>0 && document.querySelector("#profile-photo").accept.includes("image/webp")'), 'profile photo controls render with supported image types');
+    await guest.go('landing.php');
+    check(await guest.evaluate('(async()=>{const response=await fetch("profile-photo.php");return response.status})()')===403, 'profile photo endpoint requires an account');
+    await official.screenshot('profile-photo-desktop');
     await official.go('user-create.php');
     await official.submit('create_user', {name: 'Browser Personnel', email: 'personnel@example.test', role: 'personnel', team: 'Maintenance crew'});
     const temporary = await official.evaluate('document.getElementById("created-password").value');

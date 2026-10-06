@@ -331,9 +331,34 @@
   document.addEventListener('change', function (event) {
     var target = event.target;
     if (target.id === 'exception-status' || target.id === 'user-role') updateConditionalFields();
+    else if (target.id === 'profile-photo-remove') {
+      var profileInput = document.getElementById('profile-photo'), profilePreview = document.querySelector('[data-preview="profile-photo"]');
+      if (profileInput) profileInput.value = '';
+      if (profilePreview) {
+        profilePreview.replaceChildren();
+        if (target.checked) {
+          var fallback = document.createElement('span');
+          fallback.className = 'avatar me profile-photo-avatar';
+          fallback.setAttribute('role', 'img');
+          fallback.setAttribute('aria-label', 'No profile photo selected');
+          fallback.textContent = profilePreview.dataset.initials;
+          profilePreview.appendChild(fallback);
+        } else {
+          var currentPhoto = document.createElement('img');
+          currentPhoto.className = 'avatar me profile-photo-avatar';
+          currentPhoto.src = 'profile-photo.php';
+          currentPhoto.alt = 'Current profile photo';
+          profilePreview.appendChild(currentPhoto);
+        }
+      }
+    }
     else if (target.type === 'file') {
       var preview = document.querySelector('[data-preview="' + target.id + '"]');
       var selected = target.files[0];
+      if (target.id === 'profile-photo' && selected) {
+        var removePhoto = document.getElementById('profile-photo-remove');
+        if (removePhoto) removePhoto.checked = false;
+      }
       readPhoto(selected).then(function (photo) {
         if (!preview || target.files[0] !== selected) return;
         preview.replaceChildren();

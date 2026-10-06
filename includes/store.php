@@ -4,6 +4,7 @@ require_once __DIR__ . '/domain.php';
 require_once dirname(__DIR__) . '/database/database.php';
 require_once __DIR__ . '/notifications.php';
 require_once __DIR__ . '/evidence-storage.php';
+require_once __DIR__ . '/profile-photo-storage.php';
 require_once __DIR__ . '/planning.php';
 require_once __DIR__ . '/messaging.php';
 
@@ -119,6 +120,14 @@ final class ComplaintStore
     {
         $user = $this->user($id);
         return $user && $user['active'] && $user['email_verified'] && in_array($user['role'], ['resident', 'official', 'personnel'], true) ? $user : null;
+    }
+
+    public function profilePhoto(string $id): ?array
+    {
+        $actor = $this->actor($id);
+        if (!$actor || $actor['must_change_password']) return null;
+        $photo = $this->db->profilePhoto($id);
+        return is_array($photo) ? $photo : null;
     }
 
     private function authorizeOfficial(string $id): array
@@ -549,24 +558,53 @@ final class ComplaintStore
 
     public function updateProfile(string $id, array $data): void
     {
-        $this->transaction(function () use ($id, $data) {
-            $actor = $this->actor($id);
-            if (!$actor || $actor['must_change_password']) throw new DomainException('Complete your initial password change before updating your profile.');
-            $name = self::name($data['name'] ?? '');
-            $email = self::email($data['email'] ?? '');
-            $hash = $this->db->passwordHash($id);
-            if (!is_string($data['current_password'] ?? null) || !password_verify($data['current_password'], $hash)) throw new DomainException('Enter your current password to save account changes.');
-            $newPassword = $data['new_password'] ?? '';
-            if ($newPassword !== '' && $newPassword !== ($data['confirm_new_password'] ?? null)) throw new DomainException('The new passwords do not match.');
-            if ($newPassword !== '') $hash = password_hash(self::password($newPassword), PASSWORD_DEFAULT);
-            try {
-                $this->db->updateProfile($id, $name, $email, $hash, $newPassword !== '');
-            } catch (PDOException $e) {
-                if ((int)($e->errorInfo[1] ?? 0) === 1062) throw new DomainException('That email address is already registered.');
-                throw $e;
-            }
-            $this->db->recordAudit($actor,'profile_updated','user',$id,$name,['nameChanged'=>$name!==$actor['name'],'emailChanged'=>$email!==$actor['email'],'passwordChanged'=>$newPassword!=='']);
-        });
+        $newPhotoPath = null;
+        $oldPhotoPath = '';
+        $photoChanged = false;
+        $photoData = null;
+        try {
+            $this->transaction(function () use ($id, $data, &$newPhotoPath, &$oldPhotoPath, &$photoChanged, &$photoData) {
+                $actor = $this->actor($id);
+                if (!$actor || $actor['must_change_password']) throw new DomainException('Complete your initial password change before updating your profile.');
+                $name = self::name($data['name'] ?? '');
+                $email = self::email($data['email'] ?? '');
+                $hash = $this->db->passwordHash($id);
+                if (!is_string($data['current_password'] ?? null) || !password_verify($data['current_password'], $hash)) throw new DomainException('Enter your current password to save account changes.');
+                $newPassword = $data['new_password'] ?? '';
+                if ($newPassword !== '' && $newPassword !== ($data['confirm_new_password'] ?? null)) throw new DomainException('The new passwords do not match.');
+                if ($newPassword !== '') $hash = password_hash(self::password($newPassword), PASSWORD_DEFAULT);
+
+                $oldPhotoPath = is_string($actor['profile_photo_path'] ?? null) ? $actor['profile_photo_path'] : '';
+                $photoPath = $oldPhotoPath;
+                $photoMime = is_string($actor['profile_photo_mime'] ?? null) ? $actor['profile_photo_mime'] : '';
+                if (($data['photo'] ?? '') !== '') {
+                    $stored = ProfilePhotoStorage::storeDataUri($data['photo']);
+                    $newPhotoPath = $stored['file_path'];
+                    $photoPath = $stored['file_path'];
+                    $photoMime = $stored['mime_type'];
+                    $photoData = $stored['data'];
+                    $photoChanged = true;
+                } elseif (($data['remove_photo'] ?? '') === '1') {
+                    $photoPath = '';
+                    $photoMime = '';
+                    $photoChanged = $oldPhotoPath !== '' || !empty($actor['has_profile_photo']);
+                }
+                try {
+                    $this->db->updateProfile($id, $name, $email, $hash, $newPassword !== '', $photoChanged, $photoPath, $photoMime, $photoData);
+                } catch (PDOException $e) {
+                    if ((int)($e->errorInfo[1] ?? 0) === 1062) throw new DomainException('That email address is already registered.');
+                    throw $e;
+                }
+                $this->db->recordAudit($actor,'profile_updated','user',$id,$name,[
+                    'nameChanged'=>$name!==$actor['name'], 'emailChanged'=>$email!==$actor['email'],
+                    'passwordChanged'=>$newPassword!=='', 'photoChanged'=>$photoChanged,
+                ]);
+            });
+        } catch (Throwable $error) {
+            if ($newPhotoPath !== null) ProfilePhotoStorage::delete($newPhotoPath);
+            throw $error;
+        }
+        if ($photoChanged && $oldPhotoPath !== '' && $oldPhotoPath !== $newPhotoPath) ProfilePhotoStorage::delete($oldPhotoPath);
     }
 
     public function login(mixed $email, mixed $password, string $client): array
@@ -1033,9 +1071,15 @@ final class ComplaintStore
                     if (!$file) throw new RuntimeException('A referenced evidence file is missing or invalid. Backup was not produced.');
                     $zip->addFile($file['path'],$relative);
                 }
-                $zip->addFromString('RESTORE.txt',"MaintainPro full data backup\nCreated: ".date(DATE_ATOM)."\n\n1. Install the matching MaintainPro source and PHP/MariaDB environment.\n2. Configure database and SMTP settings separately. Configuration secrets are excluded.\n3. Import database.sql into an EMPTY database. Run php database/setup.php.\n4. Copy uploads/evidence to the protected application uploads/evidence directory, preserving paths. Inline legacy evidence is in SQL.\n5. Account passwords and password-reset grants are excluded. Use Forgot password after restoring; SMTP must be configured. All previous account sessions must be discarded.\n6. Guest tracking HASHES are retained so existing private tracking codes keep working. No plaintext tracking codes are stored.\n\nThis archive contains private concern records and evidence. Keep it in authorized storage. No source, configuration, sessions, logs or temporary files are included.\n");
+                $profileFiles=$this->db->profilePhotoFiles();
+                foreach ($profileFiles as $relative) {
+                    $file=ProfilePhotoStorage::storedFile($relative);
+                    if (!$file) throw new RuntimeException('A referenced profile photo is missing or invalid. Backup was not produced.');
+                    $zip->addFile($file['path'],$relative);
+                }
+                $zip->addFromString('RESTORE.txt',"MaintainPro full data backup\nCreated: ".date(DATE_ATOM)."\n\n1. Install the matching MaintainPro source and PHP/MariaDB environment.\n2. Configure database and SMTP settings separately. Configuration secrets are excluded.\n3. Import database.sql into an EMPTY database. Run php database/setup.php.\n4. Copy uploads/evidence and uploads/profiles to their protected application directories, preserving paths. Inline legacy evidence is in SQL.\n5. Account passwords and password-reset grants are excluded. Use Forgot password after restoring; SMTP must be configured. All previous account sessions must be discarded.\n6. Guest tracking HASHES are retained so existing private tracking codes keep working. No plaintext tracking codes are stored.\n\nThis archive contains private concern records, evidence, and profile photos. Keep it in authorized storage. No source, configuration, sessions, logs or temporary files are included.\n");
                 unset($zip);
-                $this->db->recordAudit($actor,'full_backup_created','system',null,'MaintainPro full system backup',['evidenceFiles'=>count($files),'bytes'=>filesize($temporary)]);
+                $this->db->recordAudit($actor,'full_backup_created','system',null,'MaintainPro full system backup',['evidenceFiles'=>count($files),'profilePhotos'=>count($profileFiles),'bytes'=>filesize($temporary)]);
                 return ['filename'=>'maintainpro-full-'.date('Ymd-His').'.zip','path'=>$temporary];
             });
         } catch (Throwable $error) {

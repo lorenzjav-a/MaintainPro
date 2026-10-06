@@ -2,6 +2,8 @@
 !.data/.htaccess
 tests/tmp/
 /uploads/evidence/
+/uploads/profiles/
+/uploads/profiles/
 config/mail.local.php
 includes/mail.local.php
 /debug.log

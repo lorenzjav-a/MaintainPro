@@ -50,6 +50,16 @@ function br_initials(string $name): string
     return mb_strtoupper(implode('', array_map(fn($part) => mb_substr($part, 0, 1), array_slice(preg_split('/\s+/u', trim($name)), 0, 2))));
 }
 
+function br_avatar(array $user, string $classes = 'avatar me', bool $labelled = false): string
+{
+    $name = (string)($user['name'] ?? 'Account');
+    if (!empty($user['has_profile_photo']) || !empty($user['profile_photo_path'])) {
+        $alt = $labelled ? 'Profile photo for ' . $name : '';
+        return '<img class="' . h($classes) . '" src="profile-photo.php" alt="' . h($alt) . '">';
+    }
+    return '<span class="' . h($classes) . '"' . ($labelled ? ' role="img" aria-label="No profile photo for ' . h($name) . '"' : ' aria-hidden="true"') . '>' . h(br_initials($name)) . '</span>';
+}
+
 function br_icon(string $name): string
 {
     static $paths = [

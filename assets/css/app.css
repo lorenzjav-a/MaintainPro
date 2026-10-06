@@ -477,6 +477,12 @@ body.navigation-open {
   color: #2e6753;
 }
 
+img.avatar {
+  display: block;
+  object-fit: cover;
+  border: 1px solid var(--surface-border);
+}
+
 .profile {
   display: flex;
   gap: 10px;
@@ -3318,7 +3324,107 @@ button.stat-card:hover {
 }
 
 .profile-panel {
-  max-width: 770px;
+  max-width: 900px;
+}
+
+.profile-panel-header {
+  border-bottom: 1px solid var(--line);
+}
+
+.profile-header-avatar {
+  width: 46px;
+  height: 46px;
+  font-size: var(--font-size-body);
+}
+
+.profile-form-section {
+  padding: var(--space-6) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.profile-form-section:first-child {
+  padding-top: 0;
+}
+
+.profile-section-heading {
+  margin-bottom: var(--space-4);
+}
+
+.profile-section-heading .section-title,
+.profile-section-heading .form-text,
+.profile-confirmation .section-title,
+.profile-confirmation .form-text {
+  margin-bottom: 0;
+}
+
+.profile-photo-picker {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-5);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-card);
+  background: var(--surface-soft);
+}
+
+.profile-photo-preview {
+  width: 112px;
+  height: 112px;
+}
+
+.profile-photo-avatar,
+.profile-photo-preview .upload-preview {
+  width: 112px;
+  height: 112px;
+  margin: 0;
+  border: 3px solid var(--surface);
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--surface-border);
+}
+
+.profile-photo-avatar {
+  font-size: 28px;
+}
+
+.profile-photo-controls {
+  min-width: 0;
+}
+
+.profile-photo-controls .form-control {
+  max-width: 500px;
+  background: var(--surface);
+}
+
+.profile-photo-controls .form-text {
+  margin: var(--space-2) 0 0;
+}
+
+.profile-photo-remove {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  color: var(--text-secondary);
+}
+
+.profile-confirmation {
+  padding: var(--space-6) 0 0;
+}
+
+.profile-confirmation > div {
+  margin-bottom: var(--space-4);
+}
+
+.profile-confirmation .form-control {
+  max-width: 500px;
+}
+
+.profile-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--space-6);
 }
 
 .panel-body {
@@ -3333,6 +3439,25 @@ button.stat-card:hover {
   .panel-body {
     padding-inline: var(--space-4);
     padding-bottom: var(--space-5);
+  }
+
+  .profile-photo-picker {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-photo-preview {
+    width: 92px;
+    height: 92px;
+  }
+
+  .profile-photo-avatar,
+  .profile-photo-preview .upload-preview {
+    width: 92px;
+    height: 92px;
+  }
+
+  .profile-form-actions .btn {
+    width: 100%;
   }
 }
 

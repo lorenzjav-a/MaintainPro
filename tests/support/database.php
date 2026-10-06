@@ -46,6 +46,13 @@ final class TestDatabase
             foreach (glob($resolved.'/*') ?: [] as $path) if (is_file($path) && dirname(realpath($path))===$resolved) unlink($path);
             rmdir($resolved);
         }
+        $profileDirectory=dirname(__DIR__,2).'/uploads/profiles/'.$this->name;
+        $profileResolved=realpath($profileDirectory);
+        $profileParent=realpath(dirname($profileDirectory));
+        if ($profileResolved!==false && $profileParent!==false && dirname($profileResolved)===$profileParent && basename($profileResolved)===$this->name) {
+            foreach (glob($profileResolved.'/*') ?: [] as $path) if (is_file($path) && dirname(realpath($path))===$profileResolved) unlink($path);
+            rmdir($profileResolved);
+        }
         putenv($this->previousEvidence===false?'BR_EVIDENCE_TEST_DATABASE':'BR_EVIDENCE_TEST_DATABASE='.$this->previousEvidence);
         $log = dirname(__DIR__, 2) . '/.data/logs/' . $this->name . '.log';
         if (is_file($log)) unlink($log);

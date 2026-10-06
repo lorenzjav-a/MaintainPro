@@ -96,6 +96,11 @@ final class MaintainProDatabase
         return $this->run('SELECT file_path FROM concern_evidence UNION ALL SELECT file_path FROM action_plan_progress WHERE file_path IS NOT NULL ORDER BY file_path')->fetchAll(PDO::FETCH_COLUMN);
     }
 
+    public function profilePhotoFiles(): array
+    {
+        return $this->run('SELECT profile_photo_path FROM users WHERE profile_photo_path IS NOT NULL ORDER BY profile_photo_path')->fetchAll(PDO::FETCH_COLUMN);
+    }
+
     public function insertEvidence(string $id, string $concern, ?string $user, string $type, string $path, string $original, string $mime, int $size, int $width, int $height, int $created): void
     {
         $this->run('INSERT INTO concern_evidence (id,complaint_id,uploaded_by,evidence_type,file_path,original_filename,mime_type,file_size,width,height,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)', [$id,$concern,$user,$type,$path,$original,$mime,$size,$width,$height,$created]);
@@ -456,12 +461,12 @@ final class MaintainProDatabase
 
     public function user(string $id): array|false
     {
-        return $this->run('SELECT id,name,email,role,team,active,email_verified,is_system_admin,auth_version,must_change_password,created_at FROM users WHERE id=?', [$id])->fetch();
+        return $this->run('SELECT id,name,email,role,team,active,email_verified,is_system_admin,auth_version,must_change_password,profile_photo_path,profile_photo_mime,(profile_photo_data IS NOT NULL OR profile_photo_path IS NOT NULL) AS has_profile_photo,created_at FROM users WHERE id=?', [$id])->fetch();
     }
 
     public function users(): array
     {
-        return $this->run('SELECT id,name,email,role,team,active,email_verified,is_system_admin,must_change_password,created_at FROM users ORDER BY created_at DESC,name')->fetchAll();
+        return $this->run('SELECT id,name,email,role,team,active,email_verified,is_system_admin,must_change_password,profile_photo_path,profile_photo_mime,(profile_photo_data IS NOT NULL OR profile_photo_path IS NOT NULL) AS has_profile_photo,created_at FROM users ORDER BY created_at DESC,name')->fetchAll();
     }
 
     public function insertUser(string $id, string $name, string $email, string $hash, string $role, string $team, string $createdAt, bool $isAdmin = false): void
@@ -833,9 +838,15 @@ final class MaintainProDatabase
         return (int)$this->run("SELECT COUNT(*) FROM users WHERE role='official' AND active=1 AND email_verified=1 AND is_system_admin=1")->fetchColumn();
     }
 
-    public function updateProfile(string $id, string $name, string $email, string $hash, bool $revokeSessions): void
+    public function updateProfile(string $id, string $name, string $email, string $hash, bool $revokeSessions, bool $photoChanged, string $photoPath, string $photoMime, ?string $photoData): void
     {
-        $this->run('UPDATE users SET name=?,email=?,password_hash=?,auth_version=auth_version+? WHERE id=?', [$name, $email, $hash, $revokeSessions ? 1 : 0, $id]);
+        $this->run('UPDATE users SET name=?,email=?,password_hash=?,profile_photo_path=IF(?,NULLIF(?,\'\'),profile_photo_path),profile_photo_mime=IF(?,NULLIF(?,\'\'),profile_photo_mime),profile_photo_data=IF(?,?,profile_photo_data),auth_version=auth_version+? WHERE id=?',
+            [$name, $email, $hash, (int)$photoChanged, $photoPath, (int)$photoChanged, $photoMime, (int)$photoChanged, $photoData, $revokeSessions ? 1 : 0, $id]);
+    }
+
+    public function profilePhoto(string $id): array|false
+    {
+        return $this->run('SELECT profile_photo_data,profile_photo_mime,profile_photo_path FROM users WHERE id=? AND active=1 AND email_verified=1',[$id])->fetch();
     }
 
     public function loginUser(string $email): array|false

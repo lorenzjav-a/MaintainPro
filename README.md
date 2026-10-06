@@ -52,6 +52,8 @@ Account permissions, CSRF tokens, password hashing, login throttling, transactio
 | `database/setup.php` | CLI setup; `--schema` prints the schema for manual import |
 | `includes` | Sessions, page guards, account and workflow rules, mail integration and shared views |
 | `uploads/evidence` | Protected evidence files; ignored by Git and served only through the authorized evidence endpoint |
+| `uploads/profiles` | Protected account photos; ignored by Git and served only to the signed-in owner |
+| `uploads/profiles` | Protected account photos; ignored by Git and served only to the signed-in owner |
 | `vendor/phpmailer` | PHP mail dependency and upstream license |
 | `tools` | Verification runner and SMTP diagnostic command |
 | `tests`, `tests/support` | Regression suites and isolated test infrastructure |
