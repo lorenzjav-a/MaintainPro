@@ -26,7 +26,7 @@ foreach (['assets', 'includes', 'database', 'vendor/phpmailer'] as $directory) {
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS));
     foreach ($iterator as $file) if ($file->isFile() && !$file->isLink()) $files[] = $file->getPathname();
 }
-foreach (['.htaccess', '.env.example', 'README.md', 'DEPLOYMENT.md', 'uploads/.htaccess', 'config/app.php', 'config/database.php', 'config/features.php', 'config/mail.example.php', 'tools/notify-deadlines.php', 'tools/cleanup-security.php', 'tools/health-check.php', 'docs/PRODUCTION_READINESS_REPORT.md', 'deployment/apache-vhost.conf.example', 'deployment/nginx.conf.example'] as $relative) {
+foreach (['.htaccess', '.env.example', 'README.md', 'DEPLOYMENT.md', 'uploads/.htaccess', 'config/app.php', 'config/database.php', 'config/features.php', 'config/mail.example.php', 'tools/notify-deadlines.php', 'tools/cleanup-security.php', 'tools/health-check.php', 'tools/audit-uploads.php', 'docs/PRODUCTION_READINESS_REPORT.md', 'deployment/apache-vhost.conf.example', 'deployment/nginx.conf.example'] as $relative) {
     $path = $root . '/' . $relative;
     if (!is_file($path)) throw new RuntimeException('Missing production file: ' . $relative);
     $files[] = $path;
@@ -51,4 +51,19 @@ foreach (new RecursiveIteratorIterator($inspect) as $file) {
     if ($forbidden) throw new RuntimeException('Forbidden release entry: '.$relative);
 }
 if (!in_array('.env.example',$entries,true) || !in_array('DEPLOYMENT.md',$entries,true)) throw new RuntimeException('Release configuration documentation is incomplete.');
+unset($inspect);
+
+// Release ZIPs are reproducible artifacts, not database backups. Keep a small
+// local history so repeated builds cannot grow .data without bound.
+$retentionValue = getenv('RELEASE_RETENTION');
+$retentionValue = $retentionValue === false ? '3' : trim($retentionValue);
+if (!preg_match('/\A(?:[1-9]|1[0-9]|20)\z/', $retentionValue)) throw new RuntimeException('RELEASE_RETENTION must be between 1 and 20.');
+$releaseFiles = glob($outputDir . '/maintainpro-release-*.zip') ?: [];
+rsort($releaseFiles, SORT_STRING);
+$removed = 0;
+foreach (array_slice($releaseFiles, (int)$retentionValue) as $oldRelease) {
+    if (!is_file($oldRelease) || !unlink($oldRelease)) throw new RuntimeException('Unable to remove expired release artifact: ' . basename($oldRelease));
+    $removed++;
+}
 echo $output, PHP_EOL, 'Inspected ',count($entries),' release entries; private runtime data is excluded.',PHP_EOL;
+echo 'Release retention kept the newest ',(int)$retentionValue,' archive(s) and removed ',$removed,' older artifact(s).',PHP_EOL;

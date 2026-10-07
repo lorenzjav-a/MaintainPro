@@ -71,7 +71,7 @@ Private directories are blocked through Apache rules and the development router.
 - [Anonymous reporting upgrade, file inventory and setup](docs/anonymous-upgrade.md)
 - [Temporary resident guidance and compatibility](docs/resident-guidance.md)
 
-The private mail configuration now lives in **`config/mail.local.php`**. The existing file was moved without changing its contents.
+The private mail configuration lives in **`config/mail.local.php`** and remains outside source control and production release archives.
 
 ## Verify changes
 
@@ -80,5 +80,7 @@ C:\xampp\php\php.exe tools\verify.php
 # Include the headless browser checks:
 C:\xampp\php\php.exe tools\verify.php --browser
 ```
+
+Audit database upload references without changing records or files with `C:\xampp\php\php.exe tools\audit-uploads.php`. Add `--details` only in a private administrator terminal when exact internal paths are needed for recovery.
 
 Tests use disposable databases and a local SMTP inbox. They preserve the normal workspace data and send no real email. Browsing and filtering work without JavaScript; submissions and account actions require it.

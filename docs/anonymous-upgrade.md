@@ -1,5 +1,7 @@
 # Anonymous concern reporting upgrade — September 21, 2026
 
+> Historical behavior: this document records the September 2026 anonymous-reporting release. Resident registration and sign-in were restored by the later account-reporting upgrade. For current behavior, use `README.md`, `docs/architecture.md`, and `docs/requirements.md`.
+
 The existing multi-page MaintainPro application was extended in place. Its Bootstrap design, MySQL records, staff login, OTP recovery, temporary passwords, version checks, assessment, priority, history, referrals, reports and historical Solution Library remain.
 
 ## Files created
@@ -82,7 +84,7 @@ The existing `config/mail.local.php` remains ignored and protected. It was not o
 
 No email credentials were invented, exposed or committed. Tests deliver only to the loopback SMTP inbox. Real Gmail delivery still requires valid sender configuration. Existing team-only concerns need individual reassignment, and personnel emails should be reviewed in User management.
 
-The project began with unmerged Git entries for `login.php` and the old root `styles.css`. Conflict markers were removed from the live login page and it uses `assets/css/app.css`. The old stylesheet is retained and unused. No Git commit or merge-index staging was performed; resolve/stage those pre-existing merge entries as part of your normal Git workflow.
+The project began with unmerged Git entries for `login.php` and the old root `styles.css`. Conflict markers were removed from the live login page and it uses `assets/css/app.css`. The unused root stylesheet was retained during that historical upgrade and removed only after the October 8, 2026 repository-wide dependency audit proved it had no runtime or test consumers.
 
 ## Verification
 

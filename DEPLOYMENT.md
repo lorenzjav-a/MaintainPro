@@ -7,7 +7,7 @@ MaintainPro 1.0.0 requires PHP 8.2+, MariaDB 10.6+ or MySQL 8.0+, HTTPS, and a p
 1. Back up the current application release and database to private administrator storage.
 2. Keep database backups outside the web root, encrypt them at rest, restrict access, and apply a documented retention period such as 30 daily and 12 monthly copies.
 3. Set `APP_MAINTENANCE=true` when a migration needs an interruption. CLI setup and health checks remain available.
-4. Build the release with `php tools/build-release.php`. Deploy only the inspected ZIP produced under the private `.data/releases` directory.
+4. Build the release with `php tools/build-release.php`. Deploy only the inspected ZIP produced under the private `.data/releases` directory. The builder keeps the newest three local release ZIPs by default; set `RELEASE_RETENTION` to a value from 1 to 20 when operations policy requires a different local retention count.
 
 The release excludes real uploads, databases, logs, sessions, local mail configuration, tests, `.git`, `.data`, and backups. Never distribute a production database as demo data. Demo data must use invented identities, reports, addresses, messages, photos, and freshly generated demo password hashes.
 
@@ -41,7 +41,7 @@ Coordinate the application 1 MB image limit with `post_max_size=2M`, `upload_max
 2. Deploy the new release beside the current release.
 3. Apply production environment settings and writable directory ownership.
 4. Run `php database/setup.php` with migration credentials. Never edit production tables manually as the normal workflow.
-5. Run `php tools/health-check.php` and the repository integrity/verification suite from a nonproduction checkout.
+5. Run `php tools/health-check.php` and `php tools/audit-uploads.php`, then run the repository integrity/verification suite from a nonproduction checkout. The upload audit is read-only; recover reported missing files from a trusted backup and review orphans before deleting anything.
 6. Confirm HTTPS redirect, HSTS, secure/HttpOnly/SameSite cookies, CSP, error pages, SMTP, sign in, authorization, uploads, backup reauthentication, and responsive UI.
 7. Switch traffic and disable maintenance mode.
 

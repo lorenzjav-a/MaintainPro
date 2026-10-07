@@ -10,3 +10,8 @@ includes/mail.local.php
 !/.env.example
 /debug.log
 /maintainpro_fixed.sql
+/*.log
+/*.sql
+/*.sqlite
+/*.db
+/*.zip

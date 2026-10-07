@@ -32,4 +32,4 @@ Resolved → Reopened → Under Review → Assigned → In Progress → Resolved
 
 The current workspace uses real authenticated accounts and MySQL/MariaDB persistence, with five assignable personnel teams. There are no seeded demo accounts or role-switching controls. The first official is created during setup, public registration creates residents, and officials issue other accounts with temporary passwords. Separate browser profiles provide isolated sessions for local workflow testing.
 
-Password-recovery email is implemented. Future features remain out of scope: complaint notifications by SMS/email, maps/heatmaps, QR codes, mobile apps, AI suggestions, automated recurrence detection, public transparency, LGU integration, and advanced analytics.
+Password-recovery email, in-app concern/deadline notifications, structured recurring-issue detection, and the aggregate public transparency page are implemented. Still out of scope are SMS notifications, maps/heatmaps, QR codes, mobile apps, autonomous AI decisions, LGU integration, and advanced predictive analytics.

@@ -1,5 +1,9 @@
 # Testing MaintainPro
 
+## October 8, 2026 production-readiness verification
+
+The current cleanup validation passed **118 PHP syntax checks**, SQL-boundary validation across 116 PHP files, **1,846 functional/HTTP checks**, and **394 isolated Chrome checks** covering desktop and mobile layouts. The browser run also verifies that assessment, assignment, progress, blocked-work decisions, resolution, and closure return users to the workflow section they were using. Generated screenshots remain ignored under `tests/tmp/` and may be removed after review.
+
 The September 28 [account reporting upgrade](account-reporting-upgrade.md#verification) passed 1,243 functional/browser checks and 85 PHP syntax checks. `tools/verify.php` now includes `tests/account-reporting.php`; the HTTP runner includes `tests/account-reporting-http.php`. These cover reporting by every role, anonymity, calendar limits, concurrent requests, weekly rankings and related links. Browser coverage also compares the new form and weekly panel with shared desktop/mobile typography.
 
 ## Latest system verification
@@ -31,7 +35,7 @@ Tests isolate their databases, evidence files, application logs, sessions, and l
 
 ## Earlier anonymous workflow verification
 
-The current suites cover guest reporting and code-based tracking, official administration and individually assigned personnel. They replace the retired resident-signup/self-verification expectations while preserving staff, OTP and authorization regression checks. See [Anonymous upgrade](anonymous-upgrade.md) for the feature and configuration checklist.
+The current suites cover guest reporting and code-based tracking, resident registration/email verification/account reporting, official administration, and individually assigned personnel. The anonymous upgrade temporarily retired resident sign-in; the later [account reporting upgrade](account-reporting-upgrade.md) restored it. See [Anonymous upgrade](anonymous-upgrade.md) only for that release's historical feature and configuration notes.
 
 On September 21, 2026, PHP syntax, workflow, store/account, OTP and HTTP/page checks passed. Headless Chrome checks passed for desktop/mobile reporting, dependent choices, three suggestions, tracking, staff creation/onboarding, assignment email, photo-required start/progress/resolution, official closure, history, library, profile/account pages, stale-edit drafts, Back/Forward, refresh and session isolation. Screenshots are in `tests/tmp/`. SMTP tests use only a loopback inbox; real Gmail delivery is unconfigured.
 

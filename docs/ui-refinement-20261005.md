@@ -162,17 +162,7 @@ The browser sweep covers 35 page/role views at **1440, 1280, 1024, 768, 430 and 
 
 Manual screenshot review compared the saved baseline with updated dashboards, concern detail, reports, messaging, account tables and public forms. Findings repaired during review: tablet table labels extending document width, cramped mobile dashboard notices, undersized mobile captions, forced account-table width and search action margin. The final layouts retain the green/navy identity and shared type hierarchy.
 
-Selected captures (all contain disposable test data):
-
-| View | Before | After |
-| --- | --- | --- |
-| Mobile dashboard | [Baseline](../tests/tmp/ui-before/dashboard-mobile.png) | [Official](../tests/tmp/ui-after-official-index-390.png), [Personnel](../tests/tmp/ui-after-personnel-index-390.png), [Resident](../tests/tmp/ui-after-resident-index-390.png) |
-| Concern detail | [Baseline](../tests/tmp/ui-before/concern-mobile.png) | [Desktop](../tests/tmp/ui-after-official-complaint-1440.png), [Mobile](../tests/tmp/ui-after-official-complaint-390.png) |
-| Chat | [Baseline](../tests/tmp/ui-before/chat-widget-mobile.png) | [Updated](../tests/tmp/chat-widget-mobile.png) |
-| Messages | [Baseline](../tests/tmp/ui-before/messages-mobile.png) | [Desktop](../tests/tmp/ui-after-official-messages-1440.png), [Mobile](../tests/tmp/ui-after-official-messages-390.png) |
-| Public form | [Baseline](../tests/tmp/ui-before/report-concern-mobile.png) | [Updated](../tests/tmp/ui-after-public-report-concern-390.png) |
-| Accounts | [Account form baseline](../tests/tmp/ui-before/account-form-1440.png); no account-list baseline saved | [Desktop](../tests/tmp/ui-after-official-users-1440.png), [Mobile](../tests/tmp/ui-after-official-users-390.png) |
-| Reports | [Baseline](../tests/tmp/ui-before/weekly-concerns-desktop.png) | [Updated](../tests/tmp/ui-after-official-reports-1440.png) |
+The reviewed captures covered the mobile dashboard, concern detail, chat, messages, public form, accounts, and reports. They were generated under ignored `tests/tmp/` with disposable data and were not retained as repository documentation. Rerun the isolated browser suite to generate current captures; use a separate private archive when a release-specific visual baseline must be preserved.
 
 ## Accessibility and remaining limits
 

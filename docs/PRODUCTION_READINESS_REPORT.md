@@ -1,5 +1,15 @@
 # Phase 15 production readiness report
 
+## October 8, 2026 validation update
+
+The current source passed 118 PHP syntax checks, SQL-boundary validation, 1,846 functional/HTTP checks, and 394 isolated Chrome checks across desktop and mobile layouts. The supported setup process reran against the current database without inserting sample data, all 13 migration checksums remained valid, and representative query plans used the intended operational indexes.
+
+Repository cleanup removed the unused root `styles.css`, generated browser output, the web-root debug log, and expired release archives. The private `maintainpro_fixed.sql` export was moved under protected ignored `.data/archives` instead of being destroyed. `tools/audit-uploads.php` now performs a read-only database-to-file consistency check, and the release builder retains the newest three generated archives by default.
+
+The live upload audit found two evidence database references whose protected files are missing. No database rows were changed and no uncertain uploads were deleted. Recover those files from a trusted historical/full backup or document the loss before production migration. The one profile photo and the three present evidence files passed validation; no orphan, duplicate-path, invalid-type, or test-upload files were found.
+
+The inspected production ZIP contains 131 required entries and excludes `.git`, `.data`, tests, runtime uploads, local mail configuration, logs, database dumps, and other private artifacts. Production remains blocked until the previously exposed SMTP credential is confirmed revoked, the missing evidence is reconciled, and the target-host HTTPS, SMTP, cron, ownership, backup, firewall, and log-rotation checks are completed. The current decision is **READY FOR STAGING**.
+
 Date: October 6, 2026  
 Release: MaintainPro 1.0.0
 

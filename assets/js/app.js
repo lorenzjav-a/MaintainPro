@@ -34,7 +34,6 @@
       sessionStorage.removeItem(workflowPositionKey);
       return;
     }
-    sessionStorage.removeItem(workflowPositionKey);
     var mapped = {
       assess: ['assignment', 'assessment', 'barangay-assessment'],
       assign: ['assignment', 'current-assignment'],
@@ -65,6 +64,11 @@
         window.scrollTo({top: Math.min(Number(saved.scrollY) || 0, Math.max(0, document.documentElement.scrollHeight - window.innerHeight)), behavior: 'auto'});
       }
     };
+    // This script is deferred, so the workflow sections already exist. Restore
+    // immediately to avoid a ready-state race, then repeat after load in case
+    // evidence images changed the document height.
+    restore();
+    sessionStorage.removeItem(workflowPositionKey);
     if (document.readyState === 'complete') requestAnimationFrame(restore);
     else window.addEventListener('load', function () { requestAnimationFrame(restore); }, {once: true});
   }
