@@ -125,7 +125,11 @@ async function tab() {
     await setPhoto(official, '#profile-photo');
     await official.submit('profile', {current_password:password});
     await until(()=>official.evaluate('Array.from(document.querySelectorAll("img.avatar")).length>=3 && Array.from(document.querySelectorAll("img.avatar")).every(img=>img.complete&&img.naturalWidth>0)'), 'saved profile photo renders');
-    check(await official.evaluate('document.querySelector(".profile-photo-picker").getBoundingClientRect().width>0 && document.querySelector("#profile-photo").accept.includes("image/webp")'), 'profile photo controls render with supported image types');
+    check(await official.evaluate('document.querySelector(".profile-photo-picker").getBoundingClientRect().width>0 && document.querySelector("#profile-photo").accept.includes("image/webp") && !!document.querySelector("[data-choose-profile-photo]")'), 'profile photo controls render with supported image types and an accessible photo action');
+    await official.click('[data-remove-profile-photo]');
+    check(await official.evaluate('document.querySelector("#profile-photo-remove").value === "1" && document.querySelector("[data-remove-profile-photo]").hidden && !document.querySelector("[data-preview=profile-photo] img") && document.querySelector("#profile-photo-status").textContent.includes("permanently removed")'), 'remove photo is a one-way pending action with clear status');
+    await setPhoto(official, '#profile-photo');
+    check(await official.evaluate('document.querySelector("#profile-photo-remove").value === "0" && !document.querySelector("[data-remove-profile-photo]").hidden && !!document.querySelector("[data-preview=profile-photo] img")'), 'choosing a replacement intentionally cancels pending removal');
     await guest.go('landing.php');
     check(await guest.evaluate('(async()=>{const response=await fetch("profile-photo.php");return response.status})()')===403, 'profile photo endpoint requires an account');
     await official.screenshot('profile-photo-desktop');

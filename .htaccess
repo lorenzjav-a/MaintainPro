@@ -16,3 +16,20 @@ RewriteRule "(^|/)\." "-" [F,L,NC]
 # directory is private. Blocking every vendor segment breaks form submission.
 RewriteRule "^vendor(?:/|$)" "-" [F,L,NC]
 RewriteRule "(^|/)(?:includes|config|tools|tests|database|logs|backups|uploads)(?:/|$)" "-" [F,L,NC]
+
+# Keep page URLs extensionless. Only redirect browser page requests: POST
+# endpoints such as api.php and auth.php must retain their request bodies.
+RewriteCond %{REQUEST_METHOD} ^(?:GET|HEAD)$ [NC]
+RewriteCond %{THE_REQUEST} \s/+(.*/)?index\.php(?:[?\s]) [NC]
+RewriteRule ^index\.php$ /%1 [R=301,L,NE]
+
+RewriteCond %{REQUEST_METHOD} ^(?:GET|HEAD)$ [NC]
+RewriteCond %{THE_REQUEST} \s/+(.+?)\.php(?:[?\s]) [NC]
+RewriteRule ^(.+)\.php$ /%1 [R=301,L,NE]
+
+# Resolve extensionless application paths to their PHP entry points without
+# exposing the implementation filename in the address bar.
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME}.php -f
+RewriteRule ^(.+?)/?$ $1.php [L]

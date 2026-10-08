@@ -285,6 +285,11 @@
     if (!target) return; // All navigation links keep native Back/new-tab behavior.
     if (target.hasAttribute('data-menu')) toggleMenu(!document.getElementById('workspace-sidebar').classList.contains('mobile-open'));
     else if (target.hasAttribute('data-refresh')) window.location.reload();
+    else if (target.hasAttribute('data-choose-profile-photo')) {
+      var profilePhotoInput = document.getElementById('profile-photo');
+      if (profilePhotoInput) profilePhotoInput.click();
+    }
+    else if (target.hasAttribute('data-remove-profile-photo')) updateProfilePhotoRemoval(true);
     else if (target.hasAttribute('data-help')) Swal.fire({title: 'One concern. A complete journey.', html: document.getElementById('workflow-help').innerHTML, confirmButtonText: 'Explore the workspace', width: 620});
     else if (target.hasAttribute('data-logout') && !busy) {
       if (document.getElementById('workspace-sidebar').classList.contains('mobile-open')) toggleMenu(false);
@@ -333,42 +338,69 @@
       document.getElementById('user-admin').disabled = role.value !== 'official' || document.getElementById('user-admin').dataset.self === '1';
     }
   }
+
+  function renderProfilePhotoFallback(preview) {
+    if (!preview) return;
+    var fallback = document.createElement('span');
+    fallback.className = 'avatar me profile-photo-avatar';
+    fallback.setAttribute('role', 'img');
+    fallback.setAttribute('aria-label', 'No profile photo selected');
+    fallback.textContent = preview.dataset.initials;
+    preview.replaceChildren(fallback);
+  }
+
+  function renderOriginalProfilePhoto(preview) {
+    if (!preview || preview.dataset.hasPhoto !== '1') {
+      renderProfilePhotoFallback(preview);
+      return;
+    }
+    var currentPhoto = document.createElement('img');
+    currentPhoto.className = 'avatar me profile-photo-avatar';
+    currentPhoto.src = 'profile-photo.php';
+    currentPhoto.alt = 'Current profile photo';
+    preview.replaceChildren(currentPhoto);
+  }
+
+  function updateProfilePhotoRemoval(remove) {
+    var input = document.getElementById('profile-photo');
+    var removal = document.getElementById('profile-photo-remove');
+    var preview = document.querySelector('[data-preview="profile-photo"]');
+    var removeButton = document.querySelector('[data-remove-profile-photo]');
+    var status = document.getElementById('profile-photo-status');
+    if (!removal) return;
+    removal.value = remove ? '1' : '0';
+    if (remove) {
+      if (input) input.value = '';
+      renderProfilePhotoFallback(preview);
+      if (removeButton) removeButton.hidden = true;
+      if (status) status.textContent = 'Your current photo will be permanently removed when you save your profile.';
+    } else {
+      if (removeButton) removeButton.hidden = false;
+      if (status) status.textContent = '';
+    }
+  }
+
   document.addEventListener('change', function (event) {
     var target = event.target;
     if (target.id === 'exception-status' || target.id === 'user-role') updateConditionalFields();
-    else if (target.id === 'profile-photo-remove') {
-      var profileInput = document.getElementById('profile-photo'), profilePreview = document.querySelector('[data-preview="profile-photo"]');
-      if (profileInput) profileInput.value = '';
-      if (profilePreview) {
-        profilePreview.replaceChildren();
-        if (target.checked) {
-          var fallback = document.createElement('span');
-          fallback.className = 'avatar me profile-photo-avatar';
-          fallback.setAttribute('role', 'img');
-          fallback.setAttribute('aria-label', 'No profile photo selected');
-          fallback.textContent = profilePreview.dataset.initials;
-          profilePreview.appendChild(fallback);
-        } else {
-          var currentPhoto = document.createElement('img');
-          currentPhoto.className = 'avatar me profile-photo-avatar';
-          currentPhoto.src = 'profile-photo.php';
-          currentPhoto.alt = 'Current profile photo';
-          profilePreview.appendChild(currentPhoto);
-        }
-      }
-    }
     else if (target.type === 'file') {
       var preview = document.querySelector('[data-preview="' + target.id + '"]');
       var selected = target.files[0];
       if (target.id === 'profile-photo' && selected) {
-        var removePhoto = document.getElementById('profile-photo-remove');
-        if (removePhoto) removePhoto.checked = false;
+        updateProfilePhotoRemoval(false);
       }
+      if (!selected) return;
       readPhoto(selected).then(function (photo) {
         if (!preview || target.files[0] !== selected) return;
         preview.replaceChildren();
-        if (photo) { var image = document.createElement('img'); image.className = 'upload-preview'; image.src = photo; image.alt = 'Selected photo preview'; preview.appendChild(image); }
-      }).catch(function (error) { target.value = ''; if (preview) preview.replaceChildren(); showError(error); });
+        if (photo) {
+          var image = document.createElement('img');
+          image.className = 'upload-preview'; image.src = photo; image.alt = 'Selected photo preview';
+          preview.appendChild(image);
+          var status = document.getElementById('profile-photo-status');
+          if (status) status.textContent = 'New photo selected. Save your profile to apply it.';
+        }
+      }).catch(function (error) { target.value = ''; renderOriginalProfilePhoto(preview); showError(error); });
     }
   });
   updateConditionalFields();

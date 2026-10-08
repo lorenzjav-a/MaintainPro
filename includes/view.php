@@ -81,6 +81,8 @@ function br_icon(string $name): string
         'shield' => '<path d="m12 2 8 3v7c0 5-8 10-8 10S4 17 4 12V5l8-3Z"/><path d="m8 11 3 3 5-6"/>',
         'help' => '<circle cx="12" cy="12" r="9"/><path d="M9.5 8a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4M12 16v.2"/>',
         'download' => '<path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/>',
+        'camera' => '<path d="M4 7h3l2-3h6l2 3h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="4"/>',
+        'trash' => '<path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7m4 4v6m4-6v6"/>',
         'menu' => '<path d="M4 6h16M4 12h16M4 18h16"/>',
         'building' => '<path d="m3 9 9-6 9 6H3Zm2 1v10m7-10v10m7-10v10M2 21h20"/>',
         'flag' => '<path d="M5 22V3m0 1c5-5 9 5 15 0v10c-6 5-10-5-15 0"/>',

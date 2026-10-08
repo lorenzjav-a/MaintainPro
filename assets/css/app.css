@@ -3392,21 +3392,29 @@ button.stat-card:hover {
   min-width: 0;
 }
 
-.profile-photo-controls .form-control {
-  max-width: 500px;
-  background: var(--surface);
+.profile-photo-controls > .form-label {
+  display: block;
+  margin-bottom: var(--space-2);
+}
+
+.profile-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.profile-photo-remove-button {
+  color: var(--text-secondary);
 }
 
 .profile-photo-controls .form-text {
   margin: var(--space-2) 0 0;
 }
 
-.profile-photo-remove {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
-  color: var(--text-secondary);
+.profile-photo-status:not(:empty) {
+  color: var(--green-dark);
+  font-weight: var(--weight-label);
 }
 
 .profile-confirmation {
@@ -3454,6 +3462,10 @@ button.stat-card:hover {
   .profile-photo-preview .upload-preview {
     width: 92px;
     height: 92px;
+  }
+
+  .profile-photo-actions .btn {
+    flex: 1 1 150px;
   }
 
   .profile-form-actions .btn {
