@@ -29,8 +29,12 @@ session_save_path($sessionDirectory);
 ini_set('session.use_strict_mode', '1');
 ini_set('session.use_only_cookies', '1');
 ini_set('session.cookie_httponly', '1');
+// Keep authentication only for the current browser session. With no expiry
+// or Max-Age attribute, the browser removes this cookie when it fully closes.
+ini_set('session.cookie_lifetime', '0');
 session_name('maintainpro');
 session_set_cookie_params([
+    'lifetime' => 0,
     'httponly' => true,
     'samesite' => 'Strict',
     'secure' => br_request_is_https(),
