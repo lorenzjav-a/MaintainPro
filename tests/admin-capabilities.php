@@ -11,7 +11,7 @@ try {
     $first = $store->setup(['name' => 'First Administrator', 'email' => 'first-admin@example.test', 'password' => 'Admin-password-42']);
     adminCheck($first['is_system_admin'], 'first official is administrator');
     $second = $store->createUser($first['id'], ['name' => 'Standard Official', 'email' => 'standard-official@example.test', 'role' => 'official']);
-    $second = $store->changeTemporaryPassword($second['id'], ['current_password' => $second['temporary_password'], 'password' => 'Admin-password-42', 'confirm_password' => 'Admin-password-42']);
+    $second = activateInvitedUser($store,$second,'Admin-password-42');
     adminCheck(!$second['is_system_admin'], 'new official receives operational role without administrator access');
     adminDenied(fn() => $store->users($second['id']), 'standard official cannot list accounts');
     adminDenied(fn() => $store->auditLogs($second['id']), 'standard official cannot read audit history');

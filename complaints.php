@@ -11,6 +11,7 @@ br_heading($pageTitle, $description, $actor['role'] === 'official' ? br_export()
 if ($actor['role'] === 'personnel' && $scope !== 'mine') {
     require __DIR__ . '/includes/components/stats.php';
     require __DIR__ . '/includes/components/banner.php';
+    require __DIR__ . '/includes/components/team-work-offers.php';
 }
 require __DIR__ . '/includes/components/complaint-table.php';
 require __DIR__ . '/includes/layout/footer.php';

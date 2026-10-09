@@ -22,4 +22,9 @@ if ($path === '/') {
     require $root . '/index.php';
     return true;
 }
+$extensionless=realpath($root.$path.'.php');
+if ($extensionless!==false && is_file($extensionless) && dirname($extensionless)===$root) {
+    require $extensionless;
+    return true;
+}
 return false;

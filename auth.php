@@ -20,8 +20,19 @@ try {
     if (!is_array($input) || !is_string($input['action'] ?? null) || !is_array($input['data'] ?? [])) throw new DomainException('Invalid request.');
     $action = $input['action'];
     $data = $input['data'] ?? [];
+    br_verify_turnstile($action, $data);
     if (in_array($action, ['register', 'setup'], true) && ($data['password'] ?? '') !== ($data['confirm_password'] ?? null)) throw new DomainException('The passwords do not match.');
     switch ($action) {
+        case 'accept_invitation':
+            $context=$_SESSION['br_invitation_context'] ?? null;
+            $token=is_array($context) && is_string($context['token'] ?? null)?$context['token']:'';
+            br_store()->acceptInvitation($token,$data);
+            unset($_SESSION['br_invitation_context']);
+            $_SESSION['br_invitation_activated']=true;
+            session_regenerate_id(true);
+            $_SESSION['br_csrf']=bin2hex(random_bytes(32));
+            echo json_encode(['ok'=>true,'redirect'=>'login.php'],JSON_THROW_ON_ERROR);
+            exit;
         case 'request_reset':
             $mailer = br_mailer();
             $email = $data['email'] ?? ($_SESSION['br_reset_email'] ?? '');
@@ -95,6 +106,9 @@ try {
             throw new DomainException('Unknown account action.');
     }
     echo json_encode(['ok' => true, 'redirect' => br_actor()['must_change_password'] ? 'login.php?view=change-password' : 'index.php']);
+} catch (TurnstileException $e) {
+    http_response_code($e->status);
+    echo json_encode(['ok' => false, 'code' => 'turnstile_' . $e->reason, 'error' => $e->getMessage()]);
 } catch (MailConfigurationException $e) {
     http_response_code(503);
     echo json_encode(['ok' => false, 'error' => $e->getMessage()]);

@@ -22,7 +22,7 @@ try {
     $staff=$store->createUser($official['id'],['name'=>'Messaging Worker','email'=>'messaging-worker@example.test','role'=>'personnel','team'=>'Maintenance crew']);
     $otherStaff=$store->createUser($official['id'],['name'=>'Other Worker','email'=>'messaging-worker-2@example.test','role'=>'personnel','team'=>'Maintenance crew']);
     $otherTeam=$store->createUser($official['id'],['name'=>'Different Team Worker','email'=>'messaging-worker-3@example.test','role'=>'personnel','team'=>'Sanitation team']);
-    foreach ([$secondOfficial,$staff,$otherStaff,$otherTeam] as $person) $store->changeTemporaryPassword($person['id'],['current_password'=>$person['temporary_password'],'password'=>'Staff-password-42','confirm_password'=>'Staff-password-42']);
+    foreach ([$secondOfficial,$staff,$otherStaff,$otherTeam] as $person) activateInvitedUser($store,$person,'Staff-password-42');
     $resident=$store->register(['name'=>'Messaging Resident','email'=>'messaging-resident@example.test','password'=>'Resident-password-42']);
     $otherResident=$store->register(['name'=>'Other Resident','email'=>'messaging-resident-2@example.test','password'=>'Resident-password-42']);
     $report=['category'=>'Street Lighting','concernType'=>'Light not working','keyPoints'=>['Completely dark'],'purok'=>'Test Purok','street'=>'Test Street','exactArea'=>'Test gate'];
@@ -93,12 +93,14 @@ try {
     $reopened=$store->concernConversation($resident['id'],$own);
     messagingCheck($reopened['canSend'] && str_contains(json_encode($reopened['items']),'Concern reopened.'),'reopened concern resumes messaging with system event');
     $store->mutate($official['id'],'assess',$own,['priority'=>'Medium','recommendation'=>'Inspect again'],4);
-    $store->mutate($official['id'],'assign',$own,['personnelId'=>$staff['id']],5);
+    $store->mutate($official['id'],'assign',$own,['team'=>'Maintenance crew'],5);
+    $store->mutate($staff['id'],'accept_work',$own,[],null);
     $store->sendConcernMessage($staff['id'],$own,['body'=>'Assigned personnel update']);
     messagingCheck(str_contains(json_encode($store->concernConversation($resident['id'],$own)['items']),'Assigned personnel update'),'assigned personnel can reply');
     $linkedChat=$store->createStaffConversation($official['id'],['recipientId'=>$staff['id'],'concernId'=>$own]);
     messagingCheck((int)$store->staffConversationPage($staff['id'],$linkedChat)['conversation']['id']===$linkedChat,'assigned personnel can join work-linked staff chat');
-    $store->mutate($official['id'],'assign',$own,['personnelId'=>$otherStaff['id']],6);
+    $store->mutate($official['id'],'assign',$own,['team'=>'Maintenance crew'],7);
+    $store->mutate($otherStaff['id'],'accept_work',$own,[],null);
     messagingDenied(fn()=>$store->staffConversationPage($staff['id'],$linkedChat),'reassignment revokes linked staff chat');
     messagingCheck(!in_array($linkedChat,array_column($store->staffInbox($staff['id']),'id')),'revoked linked chat absent from inbox');
     messagingDenied(fn()=>$store->sendConcernMessage($staff['id'],$own,['body'=>'Old assignment']),'former assignee cannot reply');

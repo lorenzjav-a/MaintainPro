@@ -2,6 +2,16 @@
 declare(strict_types=1);
 require_once dirname(__DIR__, 2) . '/database/database.php';
 
+function activateInvitedUser(ComplaintStore $store, array $invited, string $password = 'Test-password-42'): array
+{
+    $token=$invited['invitation_token'] ?? null;
+    if (!is_string($token)) throw new RuntimeException('Invitation token missing from test setup.');
+    $store->acceptInvitation($token,['password'=>$password,'confirm_password'=>$password]);
+    $user=$store->user((string)$invited['id']);
+    if (!$user) throw new RuntimeException('Invited test account was not activated.');
+    return $user;
+}
+
 // Only databases created by this helper can be removed by it.
 final class TestDatabase
 {

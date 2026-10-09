@@ -50,12 +50,12 @@ final class ComplaintWorkflow
         if ($value === '' || $value === null) {
             return '';
         }
-        if (!is_string($value) || strlen($value) > 1400000 || !preg_match('~^data:image/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$~D', $value, $match)) {
-            throw new DomainException('Use a JPG, PNG, or WebP image smaller than 1 MB.');
+        if (!is_string($value) || strlen($value) > 6991000 || !preg_match('~^data:image/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$~D', $value, $match)) {
+            throw new DomainException('Use a JPG, PNG, or WebP image no larger than 5 MB.');
         }
         $bytes = base64_decode($match[2], true);
         $info = $bytes !== false ? @getimagesizefromstring($bytes) : false;
-        if (!$info || strlen($bytes) > 1048576 || $info['mime'] !== 'image/' . $match[1] || $info[0] * $info[1] > 20000000) {
+        if (!$info || strlen($bytes) > 5242880 || $info['mime'] !== 'image/' . $match[1] || $info[0] * $info[1] > 20000000) {
             throw new DomainException('The attached image is invalid or exceeds 20 megapixels.');
         }
         return $value;
@@ -79,6 +79,16 @@ final class ComplaintWorkflow
         $c['version']++;
         self::event($c,$official,'Personnel assignment updated','Account management reassigned this work to '.$replacement['name'].' / '.$replacement['team'].'.');
         return $c;
+    }
+
+    public static function acceptTeamWork(array &$c, array $personnel): void
+    {
+        self::guard($personnel['role']==='personnel' && $personnel['active'] && $c['status']==='Assigned'
+            && empty($c['assignedUserId']) && $c['team']===$personnel['team'],'This team assignment is no longer available.');
+        $c['assignedUserId']=$personnel['id'];
+        $c['assignedName']=$personnel['name'];
+        self::event($c,$personnel,'Team assignment accepted',$personnel['name'].' accepted work for '.$c['team'].'.');
+        $c['timeline'][array_key_last($c['timeline'])]['internal']=true;
     }
 
     public static function submit(array &$state, array $actor, array $data): string
@@ -129,7 +139,9 @@ final class ComplaintWorkflow
         }
         // Work on a copy: failed validation cannot partially mutate a record.
         $c = $state['cases'][$index];
-        $assessment = in_array($c['status'], ['Submitted', 'Under Review', 'Reopened'], true);
+        // Returned for Information is retained for older records. New information
+        // requests do not replace the operational status or pause staff work.
+        $assessment = in_array($c['status'], ['Submitted', 'Under Review', 'Reopened', 'Returned for Information'], true);
         $official = $actor['role'] === 'official';
         $personnel = $actor['role'] === 'personnel' && ($c['assignedUserId'] ?? null) === $actor['id'];
         switch ($action) {
@@ -149,19 +161,17 @@ final class ComplaintWorkflow
                 $c['timeline'][array_key_last($c['timeline'])]['dueAt']=$c['dueAt'] ?? null;
                 break;
             case 'assign':
-                self::guard($official && in_array($c['status'], ['Under Review', 'Assigned', 'In Progress'], true) && $c['recommendation'] !== '', 'Save the official assessment and recommended action before assigning.');
-                $assigned = $data['_assignee'] ?? null;
-                self::guard(is_array($assigned) && $assigned['role'] === 'personnel' && (bool)$assigned['active'], 'Choose an active personnel account.');
-                $c['team'] = self::choice($assigned['team'], self::TEAMS, 'team');
-                $c['assignedUserId'] = $assigned['id'];
-                $c['assignedName'] = $assigned['name'];
+                self::guard($official && in_array($c['status'], ['Under Review', 'Assigned', 'In Progress', 'Returned for Information'], true) && $c['recommendation'] !== '', 'Save the official assessment and recommended action before assigning.');
+                $c['team'] = self::choice($data['team'] ?? '', self::TEAMS, 'team or crew');
+                $c['assignedUserId'] = null;
+                $c['assignedName'] = '';
                 // A blank deadline is allowed; supplied values use the workspace timezone.
                 $deadline = self::text($data['dueAt'] ?? '', 'Target completion', 16, false);
                 $due = $deadline !== '' ? DateTimeImmutable::createFromFormat('!Y-m-d\TH:i', $deadline) : false;
                 self::guard($deadline === '' || ($due && $due->format('Y-m-d\TH:i') === $deadline), 'Choose a valid target completion date and time.');
                 $c['dueAt'] = $due ? $due->getTimestamp() : null;
                 $c['status'] = 'Assigned';
-                self::event($c, $actor, 'Personnel assignment updated', $assigned['name'] . ' / ' . $c['team']);
+                self::event($c, $actor, 'Team assignment offered', $c['team'] . ' personnel were notified and may accept this work.');
                 $c['timeline'][array_key_last($c['timeline'])]['dueAt'] = $c['dueAt'];
                 break;
             case 'start':
@@ -197,19 +207,18 @@ final class ComplaintWorkflow
             case 'request_information':
                 self::guard($official && $assessment, 'More information can only be requested while assessing a concern.');
                 $note = self::text($data['notes'] ?? '', 'Information request', 3000);
-                $c['status'] = 'Returned for Information';
+                // A reporter response is useful context, not a workflow gate. Keep
+                // assessment/assignment moving and normalize the old waiting state.
+                if ($c['status'] === 'Returned for Information') $c['status'] = 'Under Review';
                 self::event($c, $actor, 'More information requested', $note);
                 $c['timeline'][array_key_last($c['timeline'])]['publicInformationRequest'] = true;
                 break;
             case 'exception':
                 self::guard($official && $assessment, 'This action is only available during assessment.');
-                $c['status'] = self::choice($data['status'] ?? '', ['Rejected', 'Referred to Another Office'], 'action');
+                $c['status'] = self::choice($data['status'] ?? '', ['Rejected'], 'action');
                 $note = self::text($data['notes'] ?? '', 'Reason', 3000);
-                $office = $c['status'] === 'Referred to Another Office' ? self::text($data['office'] ?? '', 'Receiving office', 200) : '';
-                if ($office) {
-                    $c['referral'] = $office;
-                }
-                self::event($c, $actor, $c['status'], ($office ? 'Receiving office: ' . $office . "\n" : '') . $note);
+                unset($c['referral']);
+                self::event($c, $actor, $c['status'], $note);
                 break;
             case 'edit':
                 throw new DomainException('Submitted concern details cannot be edited.');
@@ -279,15 +288,27 @@ final class ComplaintWorkflow
 
     public static function reporterFollowup(array &$c, array $data): void
     {
-        self::guard($c['status'] === 'Returned for Information', 'This concern is not waiting for more information.');
+        self::guard(self::pendingInformationRequest($c) !== null, 'This concern is not waiting for more information.');
         $description = self::text($data['description'] ?? '', 'Additional information', 4000);
         $photo = self::photo($data['photo'] ?? '');
         $actor = ['id' => null, 'name' => 'Anonymous reporter', 'role' => 'guest'];
-        $c['status'] = 'Submitted';
+        // Only legacy waiting records return to the assessment queue. A response
+        // must never undo assignment or work that continued in the meantime.
+        if ($c['status'] === 'Returned for Information') $c['status'] = 'Submitted';
         self::event($c, $actor, 'Reporter information submitted', $description, null, $photo);
         $last = array_key_last($c['timeline']);
         $c['timeline'][$last]['publicReporterFollowup'] = true;
         if ($photo !== '') $c['timeline'][$last]['evidenceType'] = 'Resident Follow-up';
+    }
+
+    public static function pendingInformationRequest(array $c): ?array
+    {
+        if (in_array($c['status'] ?? '', ['Verified', 'Rejected', 'Referred to Another Office', 'Linked to Primary'], true)) return null;
+        foreach (array_reverse($c['timeline'] ?? []) as $event) {
+            if (!empty($event['publicReporterFollowup'])) return null;
+            if (!empty($event['publicInformationRequest']) || in_array($event['title'] ?? '', ['More information requested', 'Returned for Information'], true)) return $event;
+        }
+        return null;
     }
 
     private static function guard(bool $condition, string $message): void

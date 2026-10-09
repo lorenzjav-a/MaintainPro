@@ -204,7 +204,7 @@ final class MaintainProDatabase
 
     public function evidenceForActor(string $id, array $actor): ?array
     {
-        return $this->run("SELECT e.* FROM concern_evidence e JOIN complaints c ON c.id=e.complaint_id WHERE e.id=? AND (?='official' OR (?='personnel' AND c.assigned_user_id=?) OR c.resident_id=?)", [$id,$actor['role'],$actor['role'],$actor['id'],$actor['id']])->fetch() ?: null;
+        return $this->run("SELECT e.* FROM concern_evidence e JOIN complaints c ON c.id=e.complaint_id WHERE e.id=? AND (?='official' OR (?='personnel' AND (c.assigned_user_id=? OR EXISTS(SELECT 1 FROM concern_team_assignments a JOIN concern_team_recipients r ON r.assignment_id=a.id WHERE a.complaint_id=c.id AND a.status='open' AND r.user_id=? AND r.response='pending'))) OR c.resident_id=?)", [$id,$actor['role'],$actor['role'],$actor['id'],$actor['id'],$actor['id']])->fetch() ?: null;
     }
 
     public function locations(bool $includeInactive = false): array
@@ -226,6 +226,11 @@ final class MaintainProDatabase
     public function updateLocation(int $id, string $name, int $sort, bool $active, int $updated): void
     {
         $this->run('UPDATE locations SET name=?,sort_order=?,active=?,updated_at=? WHERE id=?',[$name,$sort,(int)$active,$updated,$id]);
+    }
+
+    public function deleteLocation(int $id): void
+    {
+        $this->run('DELETE FROM locations WHERE id=?', [$id]);
     }
 
     public function rootConcernId(string $id): string
@@ -338,8 +343,8 @@ final class MaintainProDatabase
 
     public function legacyEvidenceConcern(string $id, array $actor): ?array
     {
-        return $this->run("SELECT payload,version FROM complaints WHERE (?='official' OR (?='personnel' AND assigned_user_id=?) OR resident_id=?)
-            AND JSON_SEARCH(payload,'one',?,NULL,'$.timeline[*].evidenceId') IS NOT NULL LIMIT 1",[$actor['role'],$actor['role'],$actor['id'],$actor['id'],$id])->fetch() ?: null;
+        return $this->run("SELECT payload,version FROM complaints WHERE (?='official' OR (?='personnel' AND (assigned_user_id=? OR EXISTS(SELECT 1 FROM concern_team_assignments a JOIN concern_team_recipients r ON r.assignment_id=a.id WHERE a.complaint_id=complaints.id AND a.status='open' AND r.user_id=? AND r.response='pending'))) OR resident_id=?)
+            AND JSON_SEARCH(payload,'one',?,NULL,'$.timeline[*].evidenceId') IS NOT NULL LIMIT 1",[$actor['role'],$actor['role'],$actor['id'],$actor['id'],$actor['id'],$id])->fetch() ?: null;
     }
 
     public function dashboardGroups(): array
@@ -368,7 +373,7 @@ final class MaintainProDatabase
             $quoted='`'.str_replace('`','``',$table).'`';
             $schema=$this->run('SHOW CREATE TABLE '.$quoted)->fetch(PDO::FETCH_NUM)[1];
             $sql.=$schema.";\n";
-            if ($withoutCredentials && in_array($table,['password_resets','password_reset_requests','registration_verifications','email_change_verifications','registration_attempts','login_attempts','public_attempts','feature_alerts'],true)) continue;
+            if ($withoutCredentials && in_array($table,['account_invitations','password_resets','password_reset_requests','registration_verifications','email_change_verifications','registration_attempts','login_attempts','public_attempts','feature_alerts'],true)) continue;
             $columns=$this->run('SHOW FULL COLUMNS FROM '.$quoted)->fetchAll();
             $columns=array_column(array_filter($columns,fn($c)=>!str_contains($c['Extra'],'GENERATED')),'Field');
             $names=implode(',',array_map(fn($name)=>'`'.str_replace('`','``',$name).'`',$columns));
@@ -383,6 +388,7 @@ final class MaintainProDatabase
         }
         return $sql."SET FOREIGN_KEY_CHECKS=1;\n";
     }
+
     public function recordAudit(array $actor, string $action, string $entityType, ?string $entityId, string $label, array $changes): void
     {
         $this->run('INSERT INTO audit_logs (actor_id,actor_name,action,entity_type,entity_id,entity_label,changes,created_at) VALUES (?,?,?,?,?,?,?,?)', [
@@ -393,11 +399,77 @@ final class MaintainProDatabase
 
     public function workloads(): array
     {
-        return $this->run("SELECT u.id,u.name,u.team,u.active,
+        return $this->run("SELECT u.id,u.name,u.team,u.active,u.email_verified,u.must_change_password,
             COALESCE(SUM(c.status IN ('Assigned','In Progress')),0) AS active_work,
             COALESCE(SUM(c.status IN ('Resolved','Verified')),0) AS completed
             FROM users u LEFT JOIN complaints c ON c.assigned_user_id=u.id
-            WHERE u.role='personnel' GROUP BY u.id,u.name,u.team,u.active ORDER BY u.name")->fetchAll();
+            WHERE u.role='personnel' GROUP BY u.id,u.name,u.team,u.active,u.email_verified,u.must_change_password ORDER BY u.name")->fetchAll();
+    }
+
+    public function activePersonnelForTeam(string $team): array
+    {
+        return $this->run("SELECT id,name,email,team FROM users WHERE role='personnel' AND team=? AND active=1 AND email_verified=1 ORDER BY name,id",[$team])->fetchAll();
+    }
+
+    public function createTeamAssignment(string $complaintId, string $team, string $officialId, ?int $dueAt): array
+    {
+        $existing=$this->run("SELECT id FROM concern_team_assignments WHERE complaint_id=? AND status='open' FOR UPDATE",[$complaintId])->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($existing as $assignmentId) {
+            $this->run("UPDATE concern_team_recipients SET response='closed' WHERE assignment_id=? AND response='pending'",[$assignmentId]);
+            $this->run("UPDATE concern_team_assignments SET status='replaced' WHERE id=?",[$assignmentId]);
+        }
+        $people=$this->activePersonnelForTeam($team);
+        if (!$people) throw new DomainException('This team has no active, verified personnel available to receive the assignment.');
+        $this->run("INSERT INTO concern_team_assignments(complaint_id,team,assigned_by,assigned_at,due_at,status) VALUES(?,?,?,?,?,'open')",[$complaintId,$team,$officialId,time(),$dueAt]);
+        $id=(int)$this->connection->lastInsertId();
+        foreach ($people as $person) $this->run("INSERT INTO concern_team_recipients(assignment_id,user_id,response) VALUES(?,?,'pending')",[$id,$person['id']]);
+        return ['id'=>$id,'people'=>$people];
+    }
+
+    public function cancelOpenTeamAssignments(string $complaintId): void
+    {
+        $ids=$this->run("SELECT id FROM concern_team_assignments WHERE complaint_id=? AND status='open' FOR UPDATE",[$complaintId])->fetchAll(PDO::FETCH_COLUMN);
+        foreach($ids as $id) {
+            $this->run("UPDATE concern_team_recipients SET response='closed' WHERE assignment_id=? AND response='pending'",[$id]);
+            $this->run("UPDATE concern_team_assignments SET status='cancelled' WHERE id=?",[$id]);
+        }
+    }
+
+    public function teamOfferForUser(string $complaintId, string $userId, bool $forUpdate=false): array|false
+    {
+        return $this->run("SELECT a.*,r.response,u.team AS user_team,u.active,u.email_verified FROM concern_team_assignments a JOIN concern_team_recipients r ON r.assignment_id=a.id JOIN users u ON u.id=r.user_id WHERE a.complaint_id=? AND r.user_id=? AND a.status='open'".($forUpdate?' FOR UPDATE':''),[$complaintId,$userId])->fetch();
+    }
+
+    public function pendingTeamOffers(string $userId): array
+    {
+        return $this->run("SELECT a.id AS assignment_id,a.assigned_at,a.team,a.due_at,c.payload,c.version FROM concern_team_recipients r JOIN concern_team_assignments a ON a.id=r.assignment_id JOIN complaints c ON c.id=a.complaint_id JOIN users u ON u.id=r.user_id WHERE r.user_id=? AND r.response='pending' AND a.status='open' AND u.active=1 AND u.email_verified=1 AND u.role='personnel' AND u.team=a.team AND c.status='Assigned' AND c.assigned_user_id IS NULL ORDER BY a.assigned_at DESC,a.id DESC",[$userId])->fetchAll();
+    }
+
+    public function teamAssignmentSummary(string $complaintId): ?array
+    {
+        $row=$this->run("SELECT a.id,a.team,a.assigned_at,a.status,a.accepted_by,a.accepted_at,COUNT(r.user_id) notified,SUM(r.response='accepted') accepted,SUM(r.response='declined') declined,SUM(r.response='pending') pending FROM concern_team_assignments a LEFT JOIN concern_team_recipients r ON r.assignment_id=a.id WHERE a.complaint_id=? GROUP BY a.id ORDER BY a.id DESC LIMIT 1",[$complaintId])->fetch();
+        if (!$row) return null;
+        foreach(['id','assigned_at','accepted_at','notified','accepted','declined','pending'] as $key) $row[$key]=$row[$key]===null?null:(int)$row[$key];
+        return $row;
+    }
+
+    public function currentTeamRecipients(string $complaintId): array
+    {
+        return $this->run("SELECT u.id,u.name,u.email,u.team,r.response,a.id AS assignment_id FROM concern_team_assignments a JOIN concern_team_recipients r ON r.assignment_id=a.id JOIN users u ON u.id=r.user_id WHERE a.id=(SELECT MAX(latest.id) FROM concern_team_assignments latest WHERE latest.complaint_id=?) ORDER BY u.name,u.id",[$complaintId])->fetchAll();
+    }
+
+    public function acceptTeamOffer(int $assignmentId, string $userId): void
+    {
+        $changed=$this->run("UPDATE concern_team_recipients SET response='accepted',responded_at=? WHERE assignment_id=? AND user_id=? AND response='pending'",[time(),$assignmentId,$userId])->rowCount();
+        if ($changed!==1) throw new ConflictException('This work offer is no longer available.');
+        $this->run("UPDATE concern_team_recipients SET response='closed' WHERE assignment_id=? AND user_id<>? AND response='pending'",[$assignmentId,$userId]);
+        $changed=$this->run("UPDATE concern_team_assignments SET status='accepted',accepted_by=?,accepted_at=? WHERE id=? AND status='open'",[$userId,time(),$assignmentId])->rowCount();
+        if ($changed!==1) throw new ConflictException('Another personnel member already accepted this work.');
+    }
+
+    public function declineTeamOffer(int $assignmentId, string $userId): void
+    {
+        if ($this->run("UPDATE concern_team_recipients SET response='declined',responded_at=? WHERE assignment_id=? AND user_id=? AND response='pending'",[time(),$assignmentId,$userId])->rowCount()!==1) throw new ConflictException('This work offer is no longer available.');
     }
 
     public function navigationCounts(array $actor): array
@@ -432,6 +504,33 @@ final class MaintainProDatabase
             ON DUPLICATE KEY UPDATE notifications.id=notifications.id', [$type,$title,$message,$concern,$target,hash('sha256',$event),time(),$user]);
     }
 
+    public function deactivatedAccountsDue(int $before): array
+    {
+        return $this->run("SELECT id,name,email,role,team,deactivated_at,deactivation_sequence
+            FROM users WHERE active=0 AND deactivated_at IS NOT NULL AND deactivated_at<=?
+            ORDER BY deactivated_at,id", [$before])->fetchAll();
+    }
+
+    public function createDeactivationReviewNotifications(array $account, int $days, int $createdAt): void
+    {
+        $role = match ($account['role']) {
+            'official' => 'Barangay official',
+            'personnel' => 'Barangay personnel',
+            'resident' => 'Resident',
+            default => (string)$account['role'],
+        };
+        $roleAndTeam = $role . ($account['team'] !== '' ? ' / ' . $account['team'] : '');
+        $message = $account['name'] . ' (' . $account['email'] . ', ' . $roleAndTeam . ') has been deactivated for '
+            . $days . ' full day' . ($days === 1 ? '' : 's') . '. Review this account in User Management.';
+        $event = hash('sha256', 'deactivation-review:' . $account['id'] . ':' . $account['deactivation_sequence']);
+        $target = 'user-edit.php?id=' . rawurlencode((string)$account['id']);
+        $this->run("INSERT INTO notifications(user_id,type,title,message,target_url,event_key,created_at)
+            SELECT id,'account_deactivated_7_days','Account Deactivated for 7 Days',?,?,?,?
+            FROM users WHERE active=1 AND email_verified=1 AND role='official' AND is_system_admin=1
+            ON DUPLICATE KEY UPDATE notifications.id=notifications.id",
+            [$message,$target,$event,$createdAt]);
+    }
+
     public function officialIds(): array
     {
         return $this->run("SELECT id FROM users WHERE active=1 AND role='official'")->fetchAll(PDO::FETCH_COLUMN);
@@ -439,13 +538,14 @@ final class MaintainProDatabase
 
     public function notifications(array $actor, int $before = 0): array
     {
-        $rows = $this->run('SELECT n.id,n.type,n.title,n.message,n.related_concern_id,n.target_url,n.is_read,n.created_at,n.read_at,c.assigned_user_id,c.resident_id
+        $rows = $this->run('SELECT n.id,n.type,n.title,n.message,n.related_concern_id,n.target_url,n.is_read,n.created_at,n.read_at,c.assigned_user_id,c.resident_id,
+            EXISTS(SELECT 1 FROM concern_team_assignments a JOIN concern_team_recipients r ON r.assignment_id=a.id WHERE a.complaint_id=c.id AND a.status=\'open\' AND r.user_id=n.user_id AND r.response=\'pending\') AS has_offer
             FROM notifications n LEFT JOIN complaints c ON c.id=n.related_concern_id
             WHERE n.user_id=? AND (?=0 OR n.id<?) ORDER BY n.id DESC LIMIT 30', [$actor['id'],$before,$before])->fetchAll();
         foreach ($rows as &$row) {
             // A historical assignment message does not restore access after reassignment.
-            if ($row['related_concern_id'] !== null && $actor['role'] !== 'official' && $row['assigned_user_id'] !== $actor['id'] && $row['resident_id'] !== $actor['id']) $row['target_url'] = 'concerns.php';
-            unset($row['assigned_user_id'],$row['resident_id']);
+            if ($row['related_concern_id'] !== null && $actor['role'] !== 'official' && $row['assigned_user_id'] !== $actor['id'] && $row['resident_id'] !== $actor['id'] && !(int)$row['has_offer']) $row['target_url'] = 'concerns.php';
+            unset($row['assigned_user_id'],$row['resident_id'],$row['has_offer']);
         }
         unset($row);
         return ['items' => $rows, 'unread' => (int)$this->run('SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0', [$actor['id']])->fetchColumn()];
@@ -557,17 +657,68 @@ final class MaintainProDatabase
 
     public function user(string $id): array|false
     {
-        return $this->run('SELECT id,name,email,role,team,active,email_verified,is_system_admin,auth_version,must_change_password,profile_photo_path,profile_photo_mime,(profile_photo_data IS NOT NULL OR profile_photo_path IS NOT NULL) AS has_profile_photo,created_at FROM users WHERE id=?', [$id])->fetch();
+        return $this->run("SELECT u.id,u.name,u.email,u.role,u.team,u.active,u.email_verified,u.is_system_admin,u.auth_version,u.must_change_password,u.profile_photo_path,u.profile_photo_mime,(u.profile_photo_data IS NOT NULL OR u.profile_photo_path IS NOT NULL) AS has_profile_photo,u.created_at,u.deactivated_at,u.deactivated_by,u.deactivation_sequence,
+            (SELECT i.delivery_status FROM account_invitations i WHERE i.user_id=u.id ORDER BY i.id DESC LIMIT 1) invitation_delivery_status,
+            (SELECT i.created_at FROM account_invitations i WHERE i.user_id=u.id ORDER BY i.id DESC LIMIT 1) invitation_created_at,
+            (SELECT i.expires_at FROM account_invitations i WHERE i.user_id=u.id ORDER BY i.id DESC LIMIT 1) invitation_expires_at,
+            (SELECT i.sent_at FROM account_invitations i WHERE i.user_id=u.id ORDER BY i.id DESC LIMIT 1) invitation_sent_at
+            FROM users u WHERE u.id=?", [$id])->fetch();
     }
 
     public function users(): array
     {
-        return $this->run('SELECT id,name,email,role,team,active,email_verified,is_system_admin,must_change_password,profile_photo_path,profile_photo_mime,(profile_photo_data IS NOT NULL OR profile_photo_path IS NOT NULL) AS has_profile_photo,created_at FROM users ORDER BY created_at DESC,name')->fetchAll();
+        return $this->run("SELECT u.id,u.name,u.email,u.role,u.team,u.active,u.email_verified,u.is_system_admin,u.must_change_password,u.profile_photo_path,u.profile_photo_mime,(u.profile_photo_data IS NOT NULL OR u.profile_photo_path IS NOT NULL) AS has_profile_photo,u.created_at,u.deactivated_at,u.deactivated_by,u.deactivation_sequence,
+            (SELECT i.delivery_status FROM account_invitations i WHERE i.user_id=u.id ORDER BY i.id DESC LIMIT 1) invitation_delivery_status,
+            (SELECT i.created_at FROM account_invitations i WHERE i.user_id=u.id ORDER BY i.id DESC LIMIT 1) invitation_created_at,
+            (SELECT i.expires_at FROM account_invitations i WHERE i.user_id=u.id ORDER BY i.id DESC LIMIT 1) invitation_expires_at,
+            (SELECT i.sent_at FROM account_invitations i WHERE i.user_id=u.id ORDER BY i.id DESC LIMIT 1) invitation_sent_at
+            FROM users u ORDER BY u.created_at DESC,u.name")->fetchAll();
     }
 
     public function insertUser(string $id, string $name, string $email, string $hash, string $role, string $team, string $createdAt, bool $isAdmin = false): void
     {
         $this->run('INSERT INTO users(id,name,email,password_hash,role,team,created_at,is_system_admin) VALUES(?,?,?,?,?,?,?,?)', [$id, $name, $email, $hash, $role, $team, $createdAt,(int)$isAdmin]);
+    }
+
+    public function insertInvitedUser(string $id,string $name,string $email,string $hash,string $role,string $team,string $createdAt,bool $isAdmin): void
+    {
+        $this->run('INSERT INTO users(id,name,email,password_hash,role,team,email_verified,must_change_password,created_at,is_system_admin) VALUES(?,?,?,?,?,?,0,0,?,?)',[$id,$name,$email,$hash,$role,$team,$createdAt,(int)$isAdmin]);
+    }
+
+    public function createAccountInvitation(string $userId,string $createdBy,string $tokenHash,int $createdAt,int $expiresAt): int
+    {
+        $this->run('UPDATE account_invitations SET revoked_at=? WHERE user_id=? AND used_at IS NULL AND revoked_at IS NULL',[$createdAt,$userId]);
+        $this->run("INSERT INTO account_invitations(user_id,token_hash,created_by,created_at,expires_at) VALUES(?,?,?,?,?)",[$userId,$tokenHash,$createdBy,$createdAt,$expiresAt]);
+        return (int)$this->connection->lastInsertId();
+    }
+
+    public function accountInvitationByToken(string $tokenHash,bool $forUpdate=false): array|false
+    {
+        return $this->run('SELECT i.*,u.name,u.email,u.role,u.team,u.active,u.email_verified,u.must_change_password FROM account_invitations i JOIN users u ON u.id=i.user_id WHERE i.token_hash=?'.($forUpdate?' FOR UPDATE':''),[$tokenHash])->fetch();
+    }
+
+    public function invitationResendState(string $userId,int $since): array
+    {
+        return $this->run("SELECT COUNT(*) total,COALESCE(MAX(created_at),0) latest,COALESCE(SUBSTRING_INDEX(GROUP_CONCAT(delivery_status ORDER BY id DESC),',',1),'') latest_status FROM account_invitations WHERE user_id=? AND created_at>=?",[$userId,$since])->fetch();
+    }
+
+    public function markInvitationDelivery(int $id,bool $sent,int $at): void
+    {
+        $this->run("UPDATE account_invitations SET delivery_status=?,sent_at=? WHERE id=? AND delivery_status='pending'",[$sent?'sent':'failed',$sent?$at:null,$id]);
+    }
+
+    public function revokeAccountInvitations(string $userId,int $at): void
+    {
+        $this->run('UPDATE account_invitations SET revoked_at=? WHERE user_id=? AND used_at IS NULL AND revoked_at IS NULL',[$at,$userId]);
+    }
+
+    public function completeAccountInvitation(int $id,string $userId,string $passwordHash,int $at): void
+    {
+        $changed=$this->run("UPDATE users SET password_hash=?,email_verified=1,must_change_password=0,auth_version=auth_version+1 WHERE id=? AND active=1 AND email_verified=0 AND role IN ('resident','official','personnel')",[$passwordHash,$userId])->rowCount();
+        if ($changed!==1) throw new ConflictException('This account invitation is no longer available.');
+        $used=$this->run('UPDATE account_invitations SET used_at=? WHERE id=? AND used_at IS NULL AND revoked_at IS NULL AND expires_at>?',[$at,$id,$at])->rowCount();
+        if ($used!==1) throw new ConflictException('This account invitation is no longer available.');
+        $this->run('UPDATE account_invitations SET revoked_at=? WHERE user_id=? AND id<>? AND used_at IS NULL AND revoked_at IS NULL',[$at,$userId,$id]);
     }
 
     public function markChatNotificationsRead(string $user, string $kind, string $id): void
@@ -763,7 +914,7 @@ final class MaintainProDatabase
 
     public function lockedUser(string $id): array|false
     {
-        return $this->run('SELECT id,name,email,role,team,active,email_verified,is_system_admin,auth_version,must_change_password,created_at FROM users WHERE id=? FOR UPDATE',[$id])->fetch();
+        return $this->run('SELECT id,name,email,role,team,active,email_verified,is_system_admin,auth_version,must_change_password,created_at,deactivated_at,deactivated_by,deactivation_sequence FROM users WHERE id=? FOR UPDATE',[$id])->fetch();
     }
 
     public function activeAssignedConcerns(string $userId): array
@@ -790,13 +941,13 @@ final class MaintainProDatabase
         if ($stmt->rowCount()!==1) throw new ConflictException('Assigned work changed. Reload the account before saving.');
     }
 
-    public function personnelActionPlans(string $userId, string $status, int $page, int $perPage): array
+    public function personnelActionPlans(string $userId, string $team, string $status, int $page, int $perPage): array
     {
-        $where='assigned_user_id=?'.($status!==''?' AND status=?':'');
-        $values=$status!==''?[$userId,$status]:[$userId];
+        $where='(assigned_user_id=? OR (assigned_user_id IS NULL AND team=?))'.($status!==''?' AND status=?':'');
+        $values=$status!==''?[$userId,$team,$status]:[$userId,$team];
         $total=(int)$this->run('SELECT COUNT(*) FROM weekly_action_plans WHERE '.$where,$values)->fetchColumn();
         $page=min(max(1,$page),max(1,(int)ceil($total/$perPage)));
-        $items=$this->run('SELECT id,week_start,category,concern_type,keypoint,title,team,target_date,status,created_at FROM weekly_action_plans WHERE '.$where.' ORDER BY created_at DESC,id DESC LIMIT '.(int)$perPage.' OFFSET '.(($page-1)*$perPage),$values)->fetchAll();
+        $items=$this->run('SELECT id,week_start,category,concern_type,keypoint,title,team,assigned_user_id,target_date,status,created_at FROM weekly_action_plans WHERE '.$where.' ORDER BY created_at DESC,id DESC LIMIT '.(int)$perPage.' OFFSET '.(($page-1)*$perPage),$values)->fetchAll();
         return ['items'=>$items,'total'=>$total,'page'=>$page,'perPage'=>$perPage];
     }
 
@@ -815,10 +966,10 @@ final class MaintainProDatabase
         return $this->run("SELECT id,assigned_user_id,target_date FROM weekly_action_plans WHERE id>? AND status IN ('Planned','Ongoing') AND assigned_user_id IS NOT NULL AND target_date IS NOT NULL AND target_date<=? ORDER BY id LIMIT 500",[$afterId,$throughDate])->fetchAll();
     }
 
-    public function updatePersonnelPlan(int $id, string $userId, string $from, string $to, ?string $outcome, int $version): bool
+    public function updatePersonnelPlan(int $id, string $userId, string $team, string $from, string $to, ?string $outcome, int $version): bool
     {
-        $stmt=$this->run('UPDATE weekly_action_plans SET status=?,outcome=COALESCE(?,outcome),completed_at=IF(?=\'Completed\',?,completed_at),updated_at=?,version=version+1 WHERE id=? AND assigned_user_id=? AND status=? AND version=?',
-            [$to,$outcome,$to,time(),time(),$id,$userId,$from,$version]);
+        $stmt=$this->run('UPDATE weekly_action_plans SET status=?,outcome=COALESCE(?,outcome),completed_at=IF(?=\'Completed\',?,completed_at),updated_at=?,version=version+1 WHERE id=? AND (assigned_user_id=? OR (assigned_user_id IS NULL AND team=?)) AND status=? AND version=?',
+            [$to,$outcome,$to,time(),time(),$id,$userId,$team,$from,$version]);
         return $stmt->rowCount()===1;
     }
 
@@ -830,7 +981,7 @@ final class MaintainProDatabase
 
     public function planEvidence(string $evidenceId, string $userId): array|false
     {
-        return $this->run("SELECT p.file_path,p.mime_type FROM action_plan_progress p JOIN weekly_action_plans a ON a.id=p.action_plan_id JOIN users u ON u.id=? WHERE p.evidence_id=? AND u.active=1 AND u.email_verified=1 AND (u.role='official' OR (u.role='personnel' AND a.assigned_user_id=u.id))",[$userId,$evidenceId])->fetch();
+        return $this->run("SELECT p.file_path,p.mime_type FROM action_plan_progress p JOIN weekly_action_plans a ON a.id=p.action_plan_id JOIN users u ON u.id=? WHERE p.evidence_id=? AND u.active=1 AND u.email_verified=1 AND (u.role='official' OR (u.role='personnel' AND (a.assigned_user_id=u.id OR (a.assigned_user_id IS NULL AND a.team=u.team))))",[$userId,$evidenceId])->fetch();
     }
 
     public function createPlanNotification(string $userId, string $type, string $title, string $message, int $planId, string $event, bool $personnelTarget = true): void
@@ -918,10 +1069,10 @@ final class MaintainProDatabase
         $this->run('UPDATE users SET password_hash=?,must_change_password=0,email_verified=1,auth_version=auth_version+1 WHERE id=?', [$hash, $id]);
     }
 
-    public function updateUser(string $id, string $role, string $team, bool $active, bool $isAdmin): void
+    public function updateUser(string $id, string $role, string $team, bool $active, bool $isAdmin, ?int $deactivatedAt, ?string $deactivatedBy, bool $newDeactivation): void
     {
-        $this->run('UPDATE users SET auth_version=auth_version+IF(active<>? OR role<>? OR team<>? OR is_system_admin<>?,1,0),role=?,team=?,active=?,is_system_admin=? WHERE id=?',
-            [(int)$active,$role,$team,(int)$isAdmin,$role,$team,(int)$active,(int)$isAdmin,$id]);
+        $this->run('UPDATE users SET auth_version=auth_version+IF(active<>? OR role<>? OR team<>? OR is_system_admin<>?,1,0),role=?,team=?,active=?,is_system_admin=?,deactivated_at=?,deactivated_by=?,deactivation_sequence=deactivation_sequence+? WHERE id=?',
+            [(int)$active,$role,$team,(int)$isAdmin,$role,$team,(int)$active,(int)$isAdmin,$deactivatedAt,$deactivatedBy,(int)$newDeactivation,$id]);
     }
 
     public function lockAccountAdministration(): void
@@ -1017,7 +1168,7 @@ final class MaintainProDatabase
 
     public function resetUser(string $email): array|false
     {
-        return $this->run("SELECT id,email,auth_version FROM users WHERE email=? AND active=1 AND role IN ('resident','official','personnel')", [$email])->fetch();
+        return $this->run("SELECT id,email,auth_version FROM users WHERE email=? AND active=1 AND email_verified=1 AND role IN ('resident','official','personnel')", [$email])->fetch();
     }
 
     public function deleteUserResets(string $userId): void
@@ -1125,6 +1276,30 @@ final class MaintainProDatabase
         $statement = $this->run('UPDATE complaints SET team=?,status=?,version=?,updated_at=?,payload=? WHERE id=?' . ($expectedVersion !== null ? ' AND version=?' : ''), $values);
         if ($expectedVersion !== null && $statement->rowCount() !== 1) throw new ConflictException('Another user updated this concern. Refresh before saving.');
     }
+
+    /** Removes all workspace data while preserving the installed schema and migration ledger. */
+    public function factoryReset(): void
+    {
+        $this->transaction(function (): void {
+            $tables=$this->run('SHOW TABLES')->fetchAll(PDO::FETCH_COLUMN);
+            $this->connection->exec('SET FOREIGN_KEY_CHECKS=0');
+            try {
+                foreach($tables as $table) {
+                    if ($table==='schema_migrations') continue;
+                    if (!is_string($table) || !preg_match('/\A[a-zA-Z0-9_]+\z/',$table)) throw new RuntimeException('Unexpected database table name during reset.');
+                    $this->connection->exec('DELETE FROM `'.$table.'`');
+                }
+                $this->run("INSERT INTO settings(name,value) VALUES('next_id','1')");
+            } finally {
+                $this->connection->exec('SET FOREIGN_KEY_CHECKS=1');
+            }
+        });
+        DatabaseMaintenance::seedOfficialSolutions($this->connection);
+        foreach($this->run("SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND AUTO_INCREMENT IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN) as $table) {
+            if (!is_string($table) || !preg_match('/\A[a-zA-Z0-9_]+\z/',$table)) continue;
+            $this->connection->exec('ALTER TABLE `'.$table.'` AUTO_INCREMENT=1');
+        }
+    }
 }
 
 // CLI installation and disposable test database operations.
@@ -1210,7 +1385,7 @@ final class DatabaseMaintenance
     }
 
     /** @return array<string,string> version => absolute file path */
-    private static function seedOfficialSolutions(PDO $connection): void
+    public static function seedOfficialSolutions(PDO $connection): void
     {
         if ($connection->query("SELECT value FROM settings WHERE name='official_solutions_seeded'")->fetchColumn()!==false) return;
         require_once dirname(__DIR__).'/includes/concern-catalog.php';
@@ -1544,6 +1719,25 @@ SQL;
 // Test fixtures use this same SQL boundary and cannot target the workspace database.
 final class DatabaseTestFixtures
 {
+    public function invitation(string $userId): array|false
+    {
+        $statement=$this->connection->prepare('SELECT token_hash,expires_at-created_at lifetime FROM account_invitations WHERE user_id=? ORDER BY id DESC LIMIT 1');
+        $statement->execute([$userId]);
+        return $statement->fetch();
+    }
+
+    public function elapseInvitationCooldown(string $userId): void
+    {
+        $statement=$this->connection->prepare('UPDATE account_invitations SET created_at=created_at-61 WHERE user_id=?');
+        $statement->execute([$userId]);
+    }
+
+    public function expireInvitation(string $userId): void
+    {
+        $statement=$this->connection->prepare('UPDATE account_invitations SET expires_at=? WHERE user_id=?');
+        $statement->execute([time()-1,$userId]);
+    }
+
     public function ageRegistrationChallenge(string $challenge, int $seconds): void
     {
         $this->connection->prepare('UPDATE registration_verifications SET sent_at=sent_at-?,expires_at=expires_at-? WHERE challenge=?')->execute([$seconds,$seconds,$challenge]);
@@ -1688,6 +1882,19 @@ final class DatabaseTestFixtures
     {
         $statement = $this->connection->prepare('DELETE FROM feature_alerts WHERE alert_key=?');
         $statement->execute([hash('sha256','deadline-sweep')]);
+    }
+
+    public function makeLegacyInactive(string $id): void
+    {
+        $statement = $this->connection->prepare('UPDATE users SET active=0,deactivated_at=NULL,deactivated_by=NULL,deactivation_sequence=0 WHERE id=?');
+        $statement->execute([$id]);
+    }
+
+    public function notificationCountForTarget(string $recipientId, string $target): int
+    {
+        $statement = $this->connection->prepare("SELECT COUNT(*) FROM notifications WHERE user_id=? AND type='account_deactivated_7_days' AND target_url=?");
+        $statement->execute([$recipientId,$target]);
+        return (int)$statement->fetchColumn();
     }
     public function __construct(private PDO $connection)
     {

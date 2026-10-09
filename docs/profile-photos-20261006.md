@@ -2,7 +2,7 @@
 
 The shared profile page now separates the account photo, identity fields, optional password change, and current-password confirmation into readable sections. All resident, personnel, and official accounts use the same page and behavior.
 
-Profile photos accept JPG, PNG, and WebP images up to 1 MB and 20 megapixels. The browser provides an immediate circular preview. The server revalidates the decoded image contents before storing the bytes in MariaDB and keeping a protected copy under `uploads/profiles`. Raw files are blocked by the existing Apache and development-router rules; `profile-photo.php` serves only the current signed-in account's image, reading the database copy first and using the protected file as a compatibility fallback. Initials remain the fallback when no image is saved.
+Profile photos accept JPG, PNG, and WebP images up to 5 MB and 20 megapixels. The browser provides an immediate circular preview. The server revalidates the decoded image contents before storing the bytes in MariaDB and keeping a protected copy under `uploads/profiles`. Raw files are blocked by the existing Apache and development-router rules; `profile-photo.php` serves only the current signed-in account's image, reading the database copy first and using the protected file as a compatibility fallback. Initials remain the fallback when no image is saved.
 
 Saving, replacing, or removing a photo requires the current account password. Failed database writes delete newly created files. Successful replacement or removal deletes the superseded file after the transaction commits. Audit history records that the photo changed without storing its path or contents in audit metadata.
 

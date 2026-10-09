@@ -4,7 +4,8 @@ declare(strict_types=1);
 /** Validates account photos and keeps a protected file copy outside the public asset tree. */
 final class ProfilePhotoStorage
 {
-    private const MAX_BYTES = 1048576;
+    private const MAX_BYTES = 5242880;
+    private const MAX_DATA_URI_BYTES = 6991000;
     private const MAX_PIXELS = 20000000;
     private const PATH_PREFIX = 'uploads/profiles/';
     private const MIME_EXTENSIONS = [
@@ -74,12 +75,24 @@ final class ProfilePhotoStorage
         return $resolved !== null && @unlink($resolved);
     }
 
+    /** @return array{deleted:int,failed:int} */
+    public static function purge(): array
+    {
+        $deleted=0; $failed=0; $directory=self::directory();
+        if (!is_dir($directory)) return compact('deleted','failed');
+        foreach(new DirectoryIterator($directory) as $file) {
+            if (!$file->isFile() || !preg_match('/\A[a-f0-9]{32}\.(?:jpg|png|webp)\z/',$file->getFilename())) continue;
+            if (@unlink($file->getPathname())) $deleted++; else $failed++;
+        }
+        return compact('deleted','failed');
+    }
+
     /** @return array{0:string,1:string} */
     private static function validatedDataUri(mixed $dataUri): array
     {
-        if (!is_string($dataUri) || strlen($dataUri) > 1400000
+        if (!is_string($dataUri) || strlen($dataUri) > self::MAX_DATA_URI_BYTES
             || !preg_match('~\Adata:image/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)\z~D', $dataUri, $match)) {
-            throw new DomainException('Choose a JPG, PNG, or WebP profile photo smaller than 1 MB.');
+            throw new DomainException('Choose a JPG, PNG, or WebP profile photo no larger than 5 MB.');
         }
         $bytes = base64_decode($match[2], true);
         $image = $bytes !== false ? @getimagesizefromstring($bytes) : false;

@@ -59,12 +59,12 @@
     function render(event) {
       var file = input.files && input.files[0];
       if (!file) { reset(); return; }
-      if (['image/jpeg', 'image/png', 'image/webp'].indexOf(file.type) < 0 || file.size > 1048576) {
+      if (['image/jpeg', 'image/png', 'image/webp'].indexOf(file.type) < 0 || file.size > 5242880) {
         input.value = '';
-        reset('The selected photo was removed. Choose a JPG, PNG, or WebP image up to 1 MB.');
+        reset('The selected photo was removed. Choose a JPG, PNG, or WebP image up to 5 MB.');
         zone.classList.add('has-error');
         name.textContent = 'Photo not accepted';
-        meta.textContent = 'Use JPG, PNG, or WebP up to 1 MB';
+        meta.textContent = 'Use JPG, PNG, or WebP up to 5 MB';
         if (event) event.stopPropagation();
         return;
       }
@@ -111,8 +111,8 @@
   }
   function readPublicPhoto(file) {
     if (!file) return Promise.resolve({data: '', name: ''});
-    if (['image/jpeg', 'image/png', 'image/webp'].indexOf(file.type) < 0 || file.size > 1048576) {
-      return Promise.reject(new Error('Use a JPG, PNG or WebP photo no larger than 1 MB.'));
+    if (['image/jpeg', 'image/png', 'image/webp'].indexOf(file.type) < 0 || file.size > 5242880) {
+      return Promise.reject(new Error('Use a JPG, PNG or WebP photo no larger than 5 MB.'));
     }
     return new Promise(function (resolve, reject) {
       var reader = new FileReader();

@@ -14,9 +14,14 @@ try {
     if (($_POST['kind'] ?? '')==='full') {
         $backup=br_store()->generateFullBackup($context['actor']['id']);
         try {
+            while (ob_get_level()>0) ob_end_clean();
+            session_write_close();
             header('Content-Type: application/zip');
             header('Content-Disposition: attachment; filename="'.$backup['filename'].'"');
             header('Content-Length: '.filesize($backup['path']));
+            header('Cache-Control: private, no-store, max-age=0');
+            header('Pragma: no-cache');
+            header('X-Content-Type-Options: nosniff');
             readfile($backup['path']);
         } finally { unlink($backup['path']); }
         exit;

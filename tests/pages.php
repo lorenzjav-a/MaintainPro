@@ -21,6 +21,15 @@ function pageDocument(string $jar, string $path, int $expected = 200): DOMXPath
 }
 function pageHas(DOMXPath $doc, string $query, string $label): void { httpCheck($doc->query($query)->length > 0, $label); }
 foreach (['landing.php', 'index.php', 'report-concern.php', 'new-complaint.php', 'track.php', 'login.php', 'user-guide.php'] as $path) pageDocument($guestJar, $path);
+foreach (['landing.php', 'report-concern.php', 'track.php', 'user-guide.php'] as $path) {
+    pageHas(pageDocument($guestJar, $path), '//nav[@id="public-navigation"]//a[@href="track.php" and contains(.,"Track Concern")]', 'guest tracking in public navigation on ' . $path);
+}
+pageHas(pageDocument($guestJar, 'landing.php'), '//div[@class="landing-actions"]//a[@href="track.php" and contains(@class,"btn")]', 'landing hero has Track Concern button');
+pageHas(pageDocument($guestJar, 'login.php'), '//a[@href="track.php" and contains(@class,"btn")]', 'authentication page offers tracking without sign-in');
+$guestTracking = pageDocument($guestJar, 'track.php');
+pageHas($guestTracking, '//form[@id="public-track"]//input[@name="reference" and @required]', 'guest tracking requires reference');
+pageHas($guestTracking, '//form[@id="public-track"]//input[@name="trackingCode" and @required]', 'guest tracking requires private code');
+httpCheck($guestTracking->query('//*[@id="account-tracking-heading"]')->length === 0, 'guest tracking does not display account-only access');
 $form = pageDocument($guestJar, 'report-concern.php');
 httpCheck($form->query('//input[@name="name" or @name="email" or @name="password" or @name="title"]')->length === 0, 'no identity/title fields');
 pageHas($form, '//select[@name="category" and @required]', 'category choice');
@@ -45,7 +54,7 @@ pageDocument($adminJar, 'user-edit.php?id=missing', 404);
 $detail = pageDocument($adminJar, 'complaint.php?id=' . $id);
 pageHas($detail, '//details/summary[contains(., "Temporary guidance shared with the resident")]', 'staff guidance is a read-only reference');
 httpCheck(!str_contains($detail->evaluate('string(//body)'), 'reporter preference') && !str_contains($detail->evaluate('string(//body)'), 'FOR ASSESSMENT'), 'guidance not presented as resident preference or staff plan');
-pageHas($detail, '//article[@data-version="7"]', 'version on detail');
+pageHas($detail, '//article[@data-version="8"]', 'version on detail');
 httpCheck($detail->query('//form[@data-action="edit"]')->length === 0, 'official has no general edit-report form');
 pageHas($detail, '//*[contains(@class,"record-note") and contains(.,"preserved as originally reported")]', 'detail marks the original report as read-only');
 $staffDetail = pageDocument($staffJar, 'concern.php?id=' . $id);

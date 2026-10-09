@@ -14,7 +14,7 @@ try {
     $official = $store->setup(['name'=>'Report Official','email'=>'reports@example.test','password'=>$password]);
     $resident = $store->register(['name'=>'SECRET-ANONYMOUS-IDENTITY','email'=>'resident@example.test','password'=>$password]);
     $person = $store->createUser($official['id'],['name'=>'Report Worker','email'=>'worker@example.test','role'=>'personnel','team'=>'Maintenance crew']);
-    $person = $store->changeTemporaryPassword($person['id'],['current_password'=>$person['temporary_password'],'password'=>$password,'confirm_password'=>$password]);
+    $person = activateInvitedUser($store,$person,$password);
     $store->createLocation($official['id'],['name'=>'Purok One']); $location = $store->locations()[0];
     $input = ['category'=>'Street Lighting','concernType'=>'Exposed wiring','keyPoints'=>['Sparks visible'],'locationId'=>(string)$location['id'],'street'=>'Mabini St.','exactArea'=>'School gate','description'=>'Peña & Niño <script>private-file.php</script>'];
     $sourceId = $store->submitAccount($resident['id'],$input+['isAnonymous'=>'1']);

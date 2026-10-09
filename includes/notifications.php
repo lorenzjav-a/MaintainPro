@@ -33,10 +33,13 @@ final class ConcernNotifications
             $this->officials($c,'new_concern',$title,$id . ' is ready for assessment. Recommended priority: ' . $priority . '.',$key);
         }
         if ($action === 'assign') {
-            $this->db->createNotification($assigned,'assignment','Work assignment',$id . ' has been assigned to you. Review the official instructions.',$id,$key);
+            foreach ($this->db->currentTeamRecipients($id) as $recipient) {
+                $this->db->createNotification($recipient['id'],'team_assignment','New team assignment',$id . ' has been assigned to your team. Review the concern and accept the work if you are available.',$id,$key.':'.$recipient['id']);
+            }
             if ($previous && $previous !== $assigned) $this->db->createNotification($previous,'reassignment','Assignment changed',$id . ' has been reassigned. Your other tasks remain in the work queue.',$id,$key,true);
-            $this->officials($c,'assignment','Assignment updated',$id . ' has an updated personnel assignment.',$key);
+            $this->officials($c,'assignment','Team assignment updated',$id . ' has been offered to ' . $c['team'] . '.',$key);
         }
+        if ($action==='accept_work') $this->officials($c,'assignment_accepted','Team assignment accepted',$id . ' was accepted by ' . ($c['assignedName'] ?? 'a personnel member') . '.',$key);
         if (in_array($action,['start','note','resolve','reopen','block'],true)) {
             $title = match ($action) {'start' => 'Work started', 'note' => 'Work progress recorded', 'resolve' => 'Completed work ready for review', 'block' => 'Work blocked / delayed', default => 'Concern reopened'};
             $last = $c['timeline'][array_key_last($c['timeline'])];
@@ -45,7 +48,7 @@ final class ConcernNotifications
             if ($action === 'reopen' && $previous) $this->db->createNotification($previous,'reopen','Completed work reopened',$id . ' was returned for further assessment. Wait for a new assignment.',$id,$key,true);
         }
         if ($action === 'followup') {
-            $this->officials($c,'followup','Reporter information received',$id . ' has new information and is ready for reassessment.',$key);
+            $this->officials($c,'followup','Reporter information received',$id . ' has new information. Review it alongside the current assessment or assigned work.',$key);
         }
         if ($action === 'manage_block' && $assigned) {
             $this->db->createNotification($assigned,'instructions','Blocked-work update',$id . ' has new official instructions or approval. Open the concern before continuing.',$id,$key);
@@ -59,6 +62,14 @@ final class ConcernNotifications
             if ($before['recommendation'] !== $c['recommendation']) $this->db->createNotification($assigned,'instructions','Work instructions updated',$id . ' has updated official instructions. Open the concern before continuing work.',$id,$key . ':instructions');
         }
         if ($action === 'submit') $this->recurrence($c);
+    }
+
+    public function teamResponse(array $c,array $personnel,bool $accepted): void
+    {
+        $key=$c['id'].':team-response:'.$personnel['id'].':'.($accepted?'accepted':'declined');
+        $title=$accepted?'Team assignment accepted':'Personnel not available';
+        $message=$c['id'].' was '.($accepted?'accepted by ':'declined by ').$personnel['name'].' ('.$personnel['team'].').';
+        $this->officials($c,$accepted?'assignment_accepted':'assignment_declined',$title,$message,$key);
     }
 
     private function recurrence(array $c): void

@@ -55,6 +55,19 @@ function post(string $jar, string $action, array $data, string $csrf, string $id
 function auth(string $jar, string $action, array $data, string $csrf): array {
     return req($jar, 'auth.php', ['action' => $action, 'data' => $data], $csrf);
 }
+function latestInvitationToken(TestMailServer $mailServer): string {
+    $messages=$mailServer->messages();
+    for ($i=count($messages)-1;$i>=0;$i--) {
+        $body=quoted_printable_decode((string)($messages[$i]['body'] ?? ''));
+        if (preg_match('/account-setup(?:\.php)?\?token=([a-f0-9]{64})/i',$body,$match)) return strtolower($match[1]);
+    }
+    throw new RuntimeException('Account invitation token missing from local SMTP inbox.');
+}
+function acceptHttpInvitation(string $jar,string $token,string $password): array {
+    $page=req($jar,'account-setup?token='.rawurlencode($token));
+    if ($page['status']!==200 || !str_contains($page['body'],'Activate My Account')) throw new RuntimeException('Invitation setup page unavailable.');
+    return auth($jar,'accept_invitation',['password'=>$password,'confirm_password'=>$password],token($jar,'account-setup'));
+}
 function httpCase(array $r, string $id): array {
     $data = $r['json']['state'] ?? $r['json'];
     foreach ($data['cases'] as $c) if ($c['id'] === $id) return $c;
@@ -133,15 +146,15 @@ try {
     $created = post($adminJar, 'create_user', ['name' => 'HTTP Staff', 'email' => 'staff@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew','current_password'=>$password], $adminCsrf);
     httpCheck($created['status'] === 200, 'staff created');
     $account = $created['json']['created_account']; $staffId = $account['id'];
-    httpCheck(!str_contains(req($adminJar, 'api.php')['body'], $account['temporary_password']), 'credential returned once outside state');
-    httpCheck(auth($staffJar, 'login', ['email' => $account['email'], 'password' => $account['temporary_password']], token($staffJar, 'login.php'))['status'] === 200, 'temporary login');
-    httpCheck(req($staffJar, 'api.php')['status'] === 403, 'onboarding gates data');
-    httpCheck(str_contains(req($staffJar, 'complaint.php?id=' . $id)['body'], 'data-action="change_password"'), 'onboarding direct URL gate');
-    httpCheck(auth($staffJar, 'change_password', ['current_password' => $account['temporary_password'], 'password' => $password, 'confirm_password' => $password], token($staffJar, 'login.php'))['status'] === 200, 'staff activates');
+    httpCheck($created['json']['invitation_sent']===true && $account['pending_setup'] && !isset($created['json']['invitation_token'],$account['temporary_password']), 'pending setup response contains no credential or invitation secret');
+    httpCheck(auth($staffJar, 'login', ['email' => $account['email'], 'password' => $password], token($staffJar, 'login.php'))['status'] === 422, 'pending account cannot sign in');
+    httpCheck(req($staffJar, 'api.php')['status'] === 401, 'pending account cannot access private data');
+    httpCheck(acceptHttpInvitation($staffJar,latestInvitationToken($mailServer),$password)['status']===200,'staff accepts secure invitation');
+    httpCheck(auth($staffJar,'login',['email'=>$account['email'],'password'=>$password],token($staffJar,'login.php'))['status']===200,'activated staff signs in normally');
     $staffCsrf = token($staffJar);
-    $otherCreated = post($adminJar, 'create_user', ['name' => 'Other Staff', 'email' => 'other@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew','current_password'=>$password], $adminCsrf)['json']['created_account'];
-    auth($otherJar, 'login', ['email' => $otherCreated['email'], 'password' => $otherCreated['temporary_password']], token($otherJar, 'login.php'));
-    auth($otherJar, 'change_password', ['current_password' => $otherCreated['temporary_password'], 'password' => $password, 'confirm_password' => $password], token($otherJar, 'login.php'));
+    $otherCreated = post($adminJar, 'create_user', ['name' => 'Other Staff', 'email' => 'other@example.test', 'role' => 'personnel', 'team' => 'Sanitation team','current_password'=>$password], $adminCsrf)['json']['created_account'];
+    acceptHttpInvitation($otherJar,latestInvitationToken($mailServer),$password);
+    auth($otherJar,'login',['email'=>$otherCreated['email'],'password'=>$password],token($otherJar,'login.php'));
     $otherCsrf = token($otherJar);
     httpCheck(req($staffJar, 'concern.php?id=' . $id)['status'] === 404, 'unassigned staff denied private detail');
     httpCheck(post($staffJar, 'assess', [], $staffCsrf, $id, 1)['status'] === 422, 'personnel assessment denied');
@@ -158,30 +171,32 @@ try {
     httpCheck(post($adminJar, 'assess', $assessment, $adminCsrf, $id, 1)['status'] === 200, 'official assesses');
     httpCheck(post($adminJar, 'assess', $assessment, $adminCsrf, $id, 1)['status'] === 409, 'stale edits rejected');
     $assignmentDueAt = date('Y-m-d\TH:i', time() + 86400);
-    $assignment = post($adminJar, 'assign', ['personnelId' => $staffId, 'dueAt' => $assignmentDueAt], $adminCsrf, $id, 2);
+    $assignment = post($adminJar, 'assign', ['team' => 'Maintenance crew', 'dueAt' => $assignmentDueAt], $adminCsrf, $id, 2);
     httpCheck($assignment['status'] === 200 && $assignment['json']['notification_sent'] === true, 'assignment email success');
     $mail = $mailServer->messages();
     $assignmentMail=end($mail);
-    httpCheck(count($mail) === 2 && str_contains($assignmentMail['recipient'], 'staff@example.test') && str_contains($assignmentMail['body'], $id), 'SMTP recipient and reference');
+    httpCheck(str_contains($assignmentMail['recipient'], 'staff@example.test') && str_contains($assignmentMail['body'], $id), 'SMTP recipient and reference');
     httpCheck(!str_contains($assignmentMail['body'], 'PRIVATE') && !str_contains($assignmentMail['body'], 'INTERNAL'), 'assignment mail minimizes private data');
-    httpCheck(count(req($staffJar, 'api.php')['json']['cases']) === 1 && count(req($otherJar, 'api.php')['json']['cases']) === 0, 'same-team isolation');
+    $staffOfferPage=req($staffJar, 'complaint.php?id=' . $id); $otherOfferPage=req($otherJar, 'complaint.php?id=' . $id);
+    httpCheck($staffOfferPage['status'] === 200 && $otherOfferPage['status'] === 404, 'team offer visible only to selected team');
+    httpCheck(post($staffJar, 'accept_work', [], $staffCsrf, $id)['status'] === 200, 'eligible personnel accepts work');
     $png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=';
     $work = ['workStatus' => 'Inspection completed', 'actions' => ['Inspection'], 'photo' => $png];
-    httpCheck(post($staffJar, 'start', [], $staffCsrf, $id, 3)['status'] === 422, 'start requires image');
-    httpCheck(post($staffJar, 'start', array_replace($work, ['photo' => 'data:image/png;base64,' . base64_encode('<?php echo 1; ?>')]), $staffCsrf, $id, 3)['status'] === 422, 'script masquerading as PNG rejected');
-    httpCheck(post($staffJar, 'start', $work, $staffCsrf, $id, 3)['status'] === 200, 'structured start without typing');
-    httpCheck(post($staffJar, 'note', array_replace($work, ['photo' => '']), $staffCsrf, $id, 4)['status'] === 422, 'progress requires evidence');
-    httpCheck(post($staffJar, 'note', $work + ['notes' => 'INTERNAL-WORK-NOTE'], $staffCsrf, $id, 4)['status'] === 200, 'progress persisted');
-    httpCheck(post($staffJar, 'resolve', array_replace($work, ['workStatus' => 'Fully repaired', 'photo' => '']), $staffCsrf, $id, 5)['status'] === 422, 'completion requires evidence');
-    $resolved = post($staffJar, 'resolve', array_replace($work, ['workStatus' => 'Fully repaired', 'actions' => ['Repair']]), $staffCsrf, $id, 5);
+    httpCheck(post($staffJar, 'start', [], $staffCsrf, $id, 4)['status'] === 422, 'start requires image');
+    httpCheck(post($staffJar, 'start', array_replace($work, ['photo' => 'data:image/png;base64,' . base64_encode('<?php echo 1; ?>')]), $staffCsrf, $id, 4)['status'] === 422, 'script masquerading as PNG rejected');
+    httpCheck(post($staffJar, 'start', $work, $staffCsrf, $id, 4)['status'] === 200, 'structured start without typing');
+    httpCheck(post($staffJar, 'note', array_replace($work, ['photo' => '']), $staffCsrf, $id, 5)['status'] === 422, 'progress requires evidence');
+    httpCheck(post($staffJar, 'note', $work + ['notes' => 'INTERNAL-WORK-NOTE'], $staffCsrf, $id, 5)['status'] === 200, 'progress persisted');
+    httpCheck(post($staffJar, 'resolve', array_replace($work, ['workStatus' => 'Fully repaired', 'photo' => '']), $staffCsrf, $id, 6)['status'] === 422, 'completion requires evidence');
+    $resolved = post($staffJar, 'resolve', array_replace($work, ['workStatus' => 'Fully repaired', 'actions' => ['Repair']]), $staffCsrf, $id, 6);
     httpCheck($resolved['status'] === 200, 'structured resolution');
     $case = httpCase(req($staffJar, 'api.php'), $id); $evidenceId = end($case['timeline'])['evidenceId'];
     httpCheck(req($staffJar, 'evidence.php?id=' . $evidenceId)['status'] === 200, 'assigned evidence delivery');
     httpCheck(req($otherJar, 'evidence.php?id=' . $evidenceId)['status'] === 404 && req($guestJar, 'evidence.php?id=' . $evidenceId)['status'] === 403, 'evidence private');
     $tracked = $public('track', $receipt);
     httpCheck(count($tracked['json']['concern']['progress']) === 3 && !str_contains($tracked['body'], 'INTERNAL') && !str_contains($tracked['body'], 'staff') && !str_contains($tracked['body'], 'image'), 'public progress excludes private work and identity');
-    httpCheck(post($staffJar, 'verify', [], $staffCsrf, $id, 6)['status'] === 422, 'personnel cannot close');
-    httpCheck(post($adminJar, 'verify', [], $adminCsrf, $id, 6)['status'] === 200, 'official closure');
+    httpCheck(post($staffJar, 'verify', [], $staffCsrf, $id, 7)['status'] === 422, 'personnel cannot close');
+    httpCheck(post($adminJar, 'verify', [], $adminCsrf, $id, 7)['status'] === 200, 'official closure');
     httpCheck($public('track', $receipt)['json']['concern']['status'] === 'Closed', 'public closure status');
     $rules = $report + ['purpose' => ConcernCatalog::GUIDANCE_PURPOSE, 'action1' => 'Use another safe route.', 'action2' => 'Keep children away from the damaged surface.', 'action3' => 'Do not try to patch the road yourself.'];
     httpCheck(post($staffJar, 'save_rule', $rules, $staffCsrf)['status'] === 422, 'personnel cannot manage recommendations');
@@ -236,20 +251,21 @@ try {
     httpCheck($replay['status'] === 200 && $replay['json']['redirect'] === 'login.php?view=forgot', 'used browser reset grant redirects to recovery');
     httpCheck(req($staffJar, 'api.php')['status'] === 401, 'reset revokes sessions');
     httpCheck(auth($resetJar, 'login', ['email' => 'staff@example.test', 'password' => 'Recovered-password-42'], token($resetJar, 'login.php'))['status'] === 200, 'recovered staff login');
-    httpCheck(post($adminJar, 'reopen', ['feedback' => 'Needs further work'], $adminCsrf, $id, 7)['status'] === 200, 'official reopens');
-    httpCheck(post($adminJar, 'assess', $assessment, $adminCsrf, $id, 8)['status'] === 200, 'reassessment');
+    httpCheck(post($adminJar, 'reopen', ['feedback' => 'Needs further work'], $adminCsrf, $id, 8)['status'] === 200, 'official reopens');
+    httpCheck(post($adminJar, 'assess', $assessment, $adminCsrf, $id, 9)['status'] === 200, 'reassessment');
     $mailServer->stop(); $mailServer = null;
-    $failedMail = post($adminJar, 'assign', ['personnelId' => $otherCreated['id']], $adminCsrf, $id, 9);
-    httpCheck($failedMail['status'] === 200 && $failedMail['json']['notification_sent'] === false && httpCase(req($adminJar, 'api.php'), $id)['assignedUserId'] === $otherCreated['id'], 'SMTP failure does not roll back assignment');
-    httpCheck(str_contains(req($adminJar, 'complaint.php?id=' . $id)['body'], 'email could not be sent'), 'assignment failure notice');
+    $failedMail = post($adminJar, 'assign', ['team' => 'Sanitation team'], $adminCsrf, $id, 10);
+    httpCheck($failedMail['status'] === 200 && $failedMail['json']['notification_sent'] === false && httpCase(req($adminJar, 'api.php'), $id)['team'] === 'Sanitation team', 'SMTP failure does not roll back team assignment');
+    httpCheck(post($otherJar, 'accept_work', [], $otherCsrf, $id)['status'] === 200 && httpCase(req($adminJar, 'api.php'), $id)['assignedUserId'] === $otherCreated['id'], 'new team member accepts reassigned work');
+    httpCheck(str_contains(req($adminJar, 'complaint.php?id=' . $id)['body'], '0 of 1 personnel email sent'), 'assignment failure notice');
     httpCheck(req($resetJar, 'complaint.php?id=' . $id)['status'] === 404 && req($resetJar, 'evidence.php?id=' . $evidenceId)['status'] === 404, 'reassignment revokes previous staff access');
     require __DIR__ . '/extended-http.php';
     require __DIR__ . '/account-reporting-http.php';
     require __DIR__ . '/system-upgrade-http.php';
-    $limitedOfficial = post($adminJar, 'create_user', ['name' => 'Limited Official', 'email' => 'limited-official@example.test', 'role' => 'official','current_password'=>$password], $adminCsrf)['json']['created_account'];
+    $limitedInvitation=(new ComplaintStore($testDatabase->connect()))->createUser(req($adminJar,'api.php')['json']['actor']['id'],['name'=>'Limited Official','email'=>'limited-official@example.test','role'=>'official']);
+    $limitedOfficial=activateInvitedUser(new ComplaintStore($testDatabase->connect()),$limitedInvitation,$password);
     $limitedJar = jar();
-    httpCheck(auth($limitedJar, 'login', ['email' => $limitedOfficial['email'], 'password' => $limitedOfficial['temporary_password']], token($limitedJar, 'login.php'))['status'] === 200, 'standard official signs in');
-    httpCheck(auth($limitedJar, 'change_password', ['current_password' => $limitedOfficial['temporary_password'], 'password' => $password, 'confirm_password' => $password], token($limitedJar, 'login.php'))['status'] === 200, 'standard official finishes onboarding');
+    httpCheck(auth($limitedJar,'login',['email'=>$limitedOfficial['email'],'password'=>$password],token($limitedJar,'login.php'))['status']===200,'standard official signs in after invitation setup');
     $limitedCsrf = token($limitedJar);
     foreach (['admin.php', 'users.php', 'user-create.php', 'settings.php', 'audit.php'] as $restricted) httpCheck(req($limitedJar, $restricted)['status'] === 403, 'standard official blocked from ' . $restricted);
     httpCheck(req($limitedJar, 'reports.php')['status'] === 200, 'standard official keeps operational analytics');

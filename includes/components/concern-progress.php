@@ -18,7 +18,7 @@ $progressExplanation = match ($c['status']) {
     'Resolved' => 'Personnel have recorded a resolution. Official review is still required.',
     'Verified' => 'The barangay reviewed the resolution and closed the concern.',
     'Reopened' => 'This concern returned to assessment. Earlier work remains in the timeline.',
-    'Returned for Information' => 'Assessment is waiting for the reporter to provide more information.',
+    'Returned for Information' => 'Additional information was requested. Officials can continue assessment and assignment.',
     'Rejected' => 'The barangay rejected this report. The normal work stages do not apply to this outcome.',
     'Referred to Another Office' => 'This report was referred to another office. Local work stages do not indicate that it was repaired.',
     'Linked to Primary' => 'Work follows the linked primary concern. This original report remains recorded separately.',
@@ -33,7 +33,7 @@ if ($progressBlocked) $progressExplanation = 'Work is blocked or delayed. Review
       $completed = $progressIndex !== null && ($i < $progressIndex || $c['status'] === 'Verified');
       $current = $i === $progressIndex && $c['status'] !== 'Verified';
     ?>
-    <li class="workflow-step<?= $completed ? ' complete' : ($current ? ' current' : '') ?><?= $current && ($progressBlocked || in_array($c['status'], ['Reopened', 'Returned for Information'], true)) ? ' paused' : '' ?>"<?= $current ? ' aria-current="step"' : '' ?>>
+    <li class="workflow-step<?= $completed ? ' complete' : ($current ? ' current' : '') ?><?= $current && ($progressBlocked || $c['status'] === 'Reopened') ? ' paused' : '' ?>"<?= $current ? ' aria-current="step"' : '' ?>>
       <span class="step-circle" aria-hidden="true"><?= $completed ? br_icon('check') : $i + 1 ?></span>
       <span><?= h($label) ?><span class="visually-hidden"><?= $completed ? ' — complete' : ($current ? ' — current stage' : ' — normal workflow stage') ?></span></span>
     </li>

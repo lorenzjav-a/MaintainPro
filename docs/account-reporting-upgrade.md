@@ -34,7 +34,7 @@ The weekly section reuses `.panel`, `.panel-title`, `.section-title`, `.form-lab
 
 Official suggested solutions are centralized in `ConcernCatalog::OFFICIAL_SOLUTIONS`, alongside the existing category and keypoint catalog. Every category/keypoint pair has exactly three category-specific actions. Weekly analysis counts keypoints in each category/type group, ranks them by safety attention, frequency and catalog order, removes duplicate actions, and returns exactly three final solutions. Electrical, immediate-danger and power-line hazards take precedence; recurring keypoints or recurring history reserve a preventive action. A type-aware category fallback covers reports submitted without keypoints.
 
-Resident safety guidance remains separate in `ConcernCatalog::suggestions()` because it tells residents what to do while waiting and never instructs them to perform staff work. The official solutions only support decisions: they do not save a priority, assign personnel, create work records, spend resources, resolve a concern or change its status. No external API or database change is used.
+Resident safety guidance remains separate in `ConcernCatalog::suggestions()` because it tells residents what to do while waiting and never instructs them to perform staff work. The official solutions only support decisions: they do not save a priority, assign a team, create work records, spend resources, resolve a concern or change its status. No external API or database change is used.
 
 ## File map
 

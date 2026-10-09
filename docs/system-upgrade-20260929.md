@@ -11,13 +11,13 @@ This upgrade preserves the PHP/MariaDB application, existing URLs, role permissi
 | Single concern | Detail and legacy evidence lookup retrieve the requested authorized concern directly. Guest tracking continues to require its reference/token. |
 | First official setup | Browser setup requires a random environment key, zero officials, rate limiting and an unset persistent completion marker. Existing installations are permanently marked initialized. |
 | More information | Account reporters receive dashboard instructions and can respond from their concern; guests retain reference/tracking instructions. Staff views do not expose private account IDs. |
-| Full backup | Official-only, CSRF-protected ZIP download contains SQL, referenced evidence and restore instructions. Credentials, config, reset grants, sessions and temporary files are excluded. Existing SQL download remains available. |
 | Recurrence | Matching uses category, type, stable Purok ID and normalized street, with a normalized name fallback for older reports. Street/St/St. and case/spacing variations match. |
 | Possible duplicates | Explainable open/recent candidates appear for officials, with View, Link and Keep Separate. Dismissals persist; officials make every linking decision. Existing manual linking remains available even without a suggestion. |
 | Official action library | Separate database library with three editable ordered slots per category/type/keypoint, active switches, audit history and stale-edit protection. Existing resident guidance is unchanged. |
 | Weekly action plans | Select a weekly suggested action, choose title, notes, team, optional personnel and target date. Plans retain their solution snapshot, creator, week, status, completion timestamp and outcome; dashboard and paged history show progress. |
 | Reporter notifications | The existing in-app system now sends account owners important concern updates with event deduplication. Guest reports remain tracking-only. Anonymous account reporting keeps the owner's identity private. |
 | Suggested target dates | Central priority windows provide optional dates during assessment/assignment. Officials can accept or edit the date; existing overdue alerts remain active. |
+| Full backup | Official-only, CSRF-protected ZIP download contains SQL, referenced evidence and restore instructions. Credentials, config, reset grants, sessions and temporary files are excluded. Existing SQL download remains available. |
 | Resolution feedback | One optional 1–5 rating/comment from the authenticated owner after resolution/closure; staff cannot rate work they performed. Official reports show average, count, category breakdown and recent comments. |
 | Public transparency | Optional public page shows aggregate counts, categories, registered Puroks and monthly trends. Free-text/private locations, identities, notes and evidence are excluded. |
 

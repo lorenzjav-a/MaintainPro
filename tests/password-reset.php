@@ -27,7 +27,7 @@ $new = ['password' => 'Replacement-password-82', 'confirm_password' => 'Replacem
 try {
     $admin = $store->setup(['name' => 'Reset Official', 'email' => 'official@example.test', 'password' => $old]);
     $issued = $store->createUser($admin['id'], ['name' => 'Reset Personnel', 'email' => 'resident@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew']);
-    $user = $store->changeTemporaryPassword($issued['id'], ['current_password' => $issued['temporary_password'], 'password' => $old, 'confirm_password' => $old]);
+    $user = activateInvitedUser($store,$issued,$old);
     $id = $store->requestPasswordReset('  RESIDENT@example.test ', 'client-one', $send);
     $code = $messages[0]['code'];
     resetCheck($messages[0]['email'] === $user['email'] && preg_match('/^[0-9]{6}$/', $code) === 1, 'OTP sent to normalized registered address');

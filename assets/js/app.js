@@ -140,8 +140,8 @@
   function readPhoto(file) {
     return new Promise(function (resolve, reject) {
       if (!file) { resolve(''); return; }
-      if (['image/jpeg', 'image/png', 'image/webp'].indexOf(file.type) < 0 || file.size > 1048576) {
-        reject(new Error('Choose a JPG, PNG, or WebP image smaller than 1 MB.')); return;
+      if (['image/jpeg', 'image/png', 'image/webp'].indexOf(file.type) < 0 || file.size > 5242880) {
+        reject(new Error('Choose a JPG, PNG, or WebP image no larger than 5 MB.')); return;
       }
       var reader = new FileReader();
       reader.onload = function () { resolve(reader.result); };
@@ -155,25 +155,37 @@
       resolve: ['Record this resolution?', 'An official will review the evidence before closing the concern.', 'Mark as resolved'],
       reopen: ['Reopen this concern?', 'Your feedback will return the concern to the barangay for reassessment.', 'Reopen concern'],
       verify: ['Confirm the concern is resolved?', 'This records official review and closes the concern.', 'Confirm resolution'],
-      exception: ['Record this assessment outcome?', 'The selected outcome and your reason will be added to the concern timeline.', 'Record outcome'],
+      exception: ['Reject this concern?', 'The reason will be added to the timeline and the normal work stages will end. An official can reopen the concern later.', 'Reject concern'],
       request_information: ['Request more information?', 'The request will appear in the reporter\'s account or private tracking page and remain in the concern timeline.', 'Send request'],
       link_concern: ['Link these reports?', 'The original report stays recorded, but work progress and assignment will follow the primary concern.', 'Link reports'],
-      block: ['Mark this work as blocked?', 'Officials will be notified and the reason will be recorded in the concern timeline.', 'Mark as blocked']
+      accept_work: ['Accept this work?', 'You will become the responsible personnel member and this concern will be added to your work queue.', 'Accept Work'],
+      decline_work: ['Mark yourself unavailable?', 'The official will see your response. Other eligible team members may still accept the work.', 'Not Available'],
+      resend_invitation: ['Send a new invitation?', 'The previous setup link will stop working. A new single-use link will be emailed to this account.', 'Resend Invitation'],
+      block: ['Mark this work as blocked?', 'Officials will be notified and the reason will be recorded in the concern timeline.', 'Mark as blocked'],
+      reset_rule: ['Restore built-in guidance?', 'The saved custom guidance for this concern type will be removed.', 'Restore defaults'],
+      delete_location: ['Delete this location?', 'It will no longer be available for new reports. Past concern records will keep their recorded location.', 'Delete location'],
+      factory_reset: ['Reset the entire MaintainPro system?', 'This permanently deletes every account, concern, message, action plan, location, audit record, security record, and uploaded image. This cannot be undone.', 'Permanently reset system']
     };
     var copy = messages[action];
     if (action === 'update_user' && data.active === '0') copy = ['Deactivate this account?', 'This account will no longer be able to sign in. Concern histories will be retained.', 'Deactivate account'];
-    return copy ? Swal.fire({icon: 'question', title: copy[0], text: copy[1], showCancelButton: true, showCloseButton: true, allowOutsideClick: false, focusCancel: true, confirmButtonText: copy[2], cancelButtonText: 'Go back'}).then(function (answer) { return answer.isConfirmed; }) : Promise.resolve(true);
+    var danger = ['exception', 'block', 'reset_rule', 'delete_location', 'factory_reset'].includes(action) || (action === 'update_user' && data.active === '0');
+    return copy ? Swal.fire({icon: danger ? 'warning' : 'question', title: copy[0], text: copy[1], showCancelButton: true, showCloseButton: true, allowOutsideClick: false, focusCancel: true, confirmButtonText: copy[2], cancelButtonText: 'Go back', customClass: danger ? {confirmButton: 'swal2-confirm-danger'} : {}}).then(function (answer) { return answer.isConfirmed; }) : Promise.resolve(true);
   }
 
-  function showCreatedAccount(account) {
+  function showCreatedAccount(account, sent) {
     var panel = document.getElementById('created-account');
     var roles = {official: 'Barangay official', personnel: 'Barangay personnel', resident: 'Resident'};
     ['name', 'email', 'team', 'role'].forEach(function (key) {
       panel.querySelector('[data-created="' + key + '"]').textContent = key === 'role' ? roles[account.role] : (account[key] || '');
     });
     document.getElementById('created-team').hidden = !account.team;
-    // Only the one-time response and this field hold the password. No browser storage.
-    document.getElementById('created-password').value = account.temporary_password;
+    var result=document.querySelector('[data-invitation-result]');
+    result.className='alert '+(sent?'alert-success':'alert-warning');
+    result.textContent=sent
+      ? 'The mail service accepted the invitation. The recipient must use its secure link within 24 hours.'
+      : 'The account is saved as Pending Setup, but the invitation email could not be sent. Open the account to retry.';
+    document.querySelector('[data-created="status"]').textContent='Pending Setup';
+    document.querySelector('[data-view-created]').href='user-edit.php?id='+encodeURIComponent(account.id);
     document.getElementById('account-form-panel').hidden = true;
     panel.hidden = false;
     document.getElementById('created-account-heading').focus();
@@ -186,6 +198,10 @@
     event.preventDefault();
     if (busy) return;
     var action = form.dataset.action, id = form.dataset.id || '', data = {};
+    if (action === 'update_user' && event.submitter && event.submitter.hasAttribute('data-reactivate-account')) {
+      var accountStatus = form.querySelector('[name="active"]');
+      if (accountStatus) accountStatus.value = '1';
+    }
     new FormData(form).forEach(function (value, key) {
       if (typeof value === 'string') data[key] = key.indexOf('password') >= 0 ? value : value.trim();
     });
@@ -211,7 +227,7 @@
       if (!confirmed) return;
       document.body.classList.add('app-busy');
       return request('api.php', action, data, id).then(function (result) {
-        if (action === 'create_user') { showCreatedAccount(result.created_account); form.reset(); return; }
+        if (action === 'create_user') { showCreatedAccount(result.created_account, result.invitation_sent === true); form.reset(); return; }
         if (result.redirect) { navigating = true; window.location.assign(result.redirect); return; }
         var destination = action === 'profile' ? 'profile.php'
           : action === 'update_user' ? 'users.php'
@@ -219,7 +235,7 @@
           : ['create_action_plan','update_action_plan'].includes(action) ? 'action-plans.php'
           : action === 'personnel_action_plan' ? 'my-action-plans.php'
           : ['save_rule', 'reset_rule'].includes(action) ? 'solutions.php'
-          : ['create_location', 'update_location', 'toggle_location'].includes(action) ? 'settings.php'
+          : ['create_location', 'update_location', 'delete_location'].includes(action) ? 'settings.php'
           : 'complaint.php';
         var query = new URLSearchParams({saved: action});
         if (destination === 'complaint.php' || destination === 'action-plans.php' || destination === 'my-action-plans.php') query.set('id', result.id || id);
@@ -294,7 +310,7 @@
     else if (target.hasAttribute('data-logout') && !busy) {
       if (document.getElementById('workspace-sidebar').classList.contains('mobile-open')) toggleMenu(false);
       busy = true;
-      Swal.fire({icon: 'question', title: 'Sign out of your workspace?', text: 'Saved concerns and account information will remain available when you sign in again.', showCancelButton: true, showCloseButton: true, allowOutsideClick: false, focusCancel: true, confirmButtonText: 'Sign out', cancelButtonText: 'Stay signed in'}).then(function (answer) {
+      Swal.fire({icon: 'question', title: 'Sign out of your workspace?', text: 'Saved concerns and account information will remain available when you sign in again.', showCancelButton: true, showCloseButton: true, allowOutsideClick: false, focusCancel: true, confirmButtonText: 'Sign out', cancelButtonText: 'Stay signed in', customClass: {confirmButton: 'swal2-confirm-danger'}}).then(function (answer) {
         if (answer.isConfirmed) return request('auth.php', 'logout', {}).then(function () { navigating = true; window.location.assign('login.php'); });
       }).catch(showError).finally(function () { if (!navigating) busy = false; });
     } else if (target.hasAttribute('data-use-recommendation')) {
@@ -324,18 +340,19 @@
   });
 
   function updateConditionalFields() {
-    var outcome = document.getElementById('exception-status');
-    if (outcome) {
-      var referral = outcome.value === 'Referred to Another Office';
-      document.getElementById('office-wrap').hidden = !referral;
-      document.getElementById('receiving-office').required = referral;
-    }
     var role = document.getElementById('user-role');
     if (role) {
       document.getElementById('user-team-wrap').hidden = role.value !== 'personnel';
       document.getElementById('user-team').required = role.value === 'personnel';
       document.getElementById('user-admin-wrap').hidden = role.value !== 'official';
       document.getElementById('user-admin').disabled = role.value !== 'official' || document.getElementById('user-admin').dataset.self === '1';
+    }
+    var accountStatus = document.getElementById('user-active');
+    var accountSubmit = document.querySelector('[data-account-submit]');
+    if (accountStatus && accountSubmit) {
+      var deactivating = accountSubmit.dataset.originalActive === '1' && accountStatus.value === '0';
+      accountSubmit.classList.toggle('btn-danger', deactivating);
+      accountSubmit.classList.toggle('btn-primary', !deactivating);
     }
   }
 
@@ -382,7 +399,7 @@
 
   document.addEventListener('change', function (event) {
     var target = event.target;
-    if (target.id === 'exception-status' || target.id === 'user-role') updateConditionalFields();
+    if (target.id === 'user-role' || target.id === 'user-active') updateConditionalFields();
     else if (target.type === 'file') {
       if (target.id !== 'profile-photo') return; // Shared evidence uploads are handled by public.js on every role.
       var preview = document.querySelector('[data-preview="' + target.id + '"]');
@@ -403,10 +420,6 @@
     }
   });
   updateConditionalFields();
-  window.addEventListener('pagehide', function () {
-    var password = document.getElementById('created-password');
-    if (password) password.value = '';
-  });
   window.addEventListener('pageshow', function (event) {
     // Recheck authentication, permissions, and record versions after cached Back/Forward.
     if (event.persisted) window.location.reload();

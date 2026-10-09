@@ -45,8 +45,13 @@ if ($changingPassword) {
 $showPassword = (!$recovery && !$registrationVerification) || $view === 'reset';
 $confirmPassword = $setup || $registering || $changingPassword || ($recovery && $view === 'reset');
 $resetDone = !$recovery && !empty($_SESSION['br_password_reset_done']);
+$invitationActivated = !$recovery && !empty($_SESSION['br_invitation_activated']);
 $sessionExpired = !$recovery && !empty($_SESSION['br_session_expired']);
+$turnstileAction = br_turnstile_action($action);
+$turnstile = $app['turnstile'];
+$showTurnstile = !empty($turnstile['enabled']) && $turnstileAction !== null;
 unset($_SESSION['br_password_reset_done']);
+unset($_SESSION['br_invitation_activated']);
 unset($_SESSION['br_session_expired']);
 ?>
 <!doctype html>
@@ -62,6 +67,7 @@ unset($_SESSION['br_session_expired']);
   <link rel="stylesheet" href="assets/vendor/bootstrap.min.css">
   <link rel="stylesheet" href="assets/css/app.css?v=<?= filemtime(__DIR__ . '/assets/css/app.css') ?>">
   <script src="assets/vendor/sweetalert2.all.min.js" defer></script>
+  <?php if ($showTurnstile): ?><script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" defer></script><?php endif ?>
   <script src="assets/js/auth.js?v=<?= filemtime(__DIR__ . '/assets/js/auth.js') ?>" defer></script>
 </head>
 <body class="auth-page">
@@ -87,6 +93,7 @@ unset($_SESSION['br_session_expired']);
         <h2><?= htmlspecialchars($title, ENT_QUOTES, 'UTF-8') ?></h2>
         <p class="auth-description"><?= htmlspecialchars($description, ENT_QUOTES, 'UTF-8') ?></p>
         <?php if ($resetDone): ?><div class="alert alert-success" role="status">Your password was reset. Sign in with your new password.</div><?php endif ?>
+        <?php if ($invitationActivated): ?><div class="alert alert-success" role="status">Your MaintainPro account has been activated successfully. Sign in using your email and password.</div><?php endif ?>
         <?php if ($sessionExpired): ?><div class="alert alert-warning" role="status">Your session expired after a period of inactivity. Sign in again to continue.</div><?php endif ?>
         <?php if ($recovery && $view === 'verify' && ($_SESSION['br_reset_until'] ?? 0) <= time()): ?><div class="alert alert-warning" role="status">This verification code has expired. Please request a new code.</div><?php endif ?>
         <?php if ($recovery): ?><p class="form-text">Step <?= ['forgot' => 1, 'verify' => 2, 'reset' => 3][$view] ?> of 3 · Email → Verify code → New password</p><?php endif ?>
@@ -115,9 +122,10 @@ unset($_SESSION['br_session_expired']);
           <?php if ($confirmPassword): ?>
           <div class="mb-4"><label class="form-label" for="confirm-password">Confirm password</label><input id="confirm-password" type="password" name="confirm_password" class="form-control" autocomplete="new-password" required minlength="10" maxlength="72"></div>
           <?php endif ?>
+          <?php if ($showTurnstile): ?><div class="turnstile-field mb-3"><div id="turnstile-widget" data-sitekey="<?= h($turnstile['site_key']) ?>" data-action="<?= h($turnstileAction) ?>"></div><p class="form-text mb-0" id="turnstile-status" aria-live="polite">Security verification is required.</p></div><?php endif ?>
           <button class="btn btn-primary w-100 auth-submit" type="submit"><?= $changingPassword ? 'Save password and continue' : ($registrationVerification ? 'Verify email' : ($recovery ? ['forgot' => 'Send OTP', 'verify' => 'Verify code', 'reset' => 'Reset password'][$view] : ($setup ? 'Create official account' : ($registering ? 'Create resident account' : 'Sign in to workspace')))) ?><span aria-hidden="true">→</span></button>
         </form>
-        <?php if ($changingPassword): ?><p class="mt-3 text-center"><button id="account-signout" type="button" class="btn btn-light">Sign out</button></p><?php endif ?>
+        <?php if ($changingPassword): ?><p class="mt-3 text-center"><button id="account-signout" type="button" class="btn btn-danger">Sign out</button></p><?php endif ?>
         <?php if (!$setup && !$recovery && !$registrationVerification && !$changingPassword): ?>
         <div class="auth-support">
           <p class="auth-register-prompt">Residents can <a href="report-concern.php">report anonymously</a>. No account needed.</p>
@@ -128,6 +136,7 @@ unset($_SESSION['br_session_expired']);
         <?php if ($recovery && $view === 'verify'): $resendWait = max(0, 60 - (time() - (int)($_SESSION['br_reset_sent_at'] ?? 0))); ?><div class="mt-3 text-center"><button id="resend-code" type="button" class="btn btn-light w-100" data-seconds="<?= $resendWait ?>"<?= $resendWait > 0 ? ' disabled' : '' ?>><?= $resendWait > 0 ? 'Resend code in ' . sprintf('%02d:%02d', intdiv($resendWait, 60), $resendWait % 60) : 'Resend Code' ?></button><p class="form-text mt-2">A new code replaces the previous one.</p><a href="login.php?view=forgot">Use a different email address</a></div><?php endif ?>
         <?php if ($registrationVerification): ?><div class="mt-3 text-center"><button id="resend-registration" type="button" class="btn btn-light w-100">Send a new code</button><p class="form-text mt-2">Wait 60 seconds between requests. If your registration did not complete, return to registration.</p><a href="login.php?view=register">Return to registration</a></div><?php endif ?>
         <?php if ($recovery): ?><p class="mt-3 text-center"><a href="login.php">Back to sign in</a></p><?php endif ?>
+        <a class="btn btn-light w-100 mt-3" href="track.php"><?= br_icon('search') ?>Track Concern</a>
         <p class="auth-footnote">MaintainPro · Community concern management</p>
       </div>
     </section>

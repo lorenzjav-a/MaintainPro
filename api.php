@@ -95,8 +95,8 @@ try {
         echo json_encode(['ok' => false, 'code' => 'csrf_expired', 'error' => 'Your session changed after this page was opened. Refresh the security token before saving.']);
         exit;
     }
-    $raw = file_get_contents('php://input', false, null, 0, 1600001);
-    if (strlen($raw) > 1600000) throw new DomainException('This request is too large. Use a photo smaller than 1 MB.');
+    $raw = file_get_contents('php://input', false, null, 0, 7100001);
+    if (strlen($raw) > 7100000) throw new DomainException('This request is too large. Use a photo no larger than 5 MB.');
     $input = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
     if (!is_array($input)) throw new DomainException('Invalid request.');
     $action = $input['action'] ?? '';
@@ -104,19 +104,41 @@ try {
     if (!is_string($action) || !is_array($data)) throw new DomainException('Invalid request.');
     $id = is_string($input['id'] ?? null) ? $input['id'] : '';
     $createdAccount = null;
+    $invitationDelivery = null;
     if (in_array($action, ['read_notification','read_all_notifications'], true)) {
         if ($action === 'read_notification' && !preg_match('/\A[1-9][0-9]{0,17}\z/', $id)) throw new DomainException('Invalid notification.');
         br_store()->readNotifications($actor['id'], $action === 'read_all_notifications' ? null : (int)$id);
         echo json_encode(['ok' => true] + br_store()->notifications($actor['id']), JSON_THROW_ON_ERROR);
         exit;
     }
-    if (in_array($action, ['switch_role', 'reset'], true)) {
+    if ($action === 'factory_reset') {
+        $result=br_store()->factoryReset($actor['id'],$data);
+        $_SESSION=[];
+        session_regenerate_id(true);
+        $_SESSION['br_csrf']=bin2hex(random_bytes(32));
+        echo json_encode(['ok'=>true,'redirect'=>'login.php','deleted_uploads'=>$result['deletedUploads'],'failed_uploads'=>$result['failedUploads']],JSON_THROW_ON_ERROR);
+        exit;
+    } elseif (in_array($action, ['switch_role', 'reset'], true)) {
         http_response_code(403);
         throw new DomainException('This action is unavailable. Your account determines your role.');
-    } elseif (in_array($action, ['create_user', 'update_user', 'profile'], true)) {
-        if (in_array($action, ['create_user', 'update_user'], true)) br_store()->confirmPassword($actor['id'], $data['current_password'] ?? null);
-        if ($action === 'create_user') $createdAccount = br_store()->createUser($actor['id'], $data);
+    } elseif (in_array($action, ['create_user', 'update_user', 'resend_invitation', 'profile'], true)) {
+        if (in_array($action, ['create_user', 'update_user', 'resend_invitation'], true)) br_store()->confirmPassword($actor['id'], $data['current_password'] ?? null);
+        if ($action === 'create_user') {
+            $invited=br_store()->createUser($actor['id'],$data);
+            require_once __DIR__.'/includes/mail.php';
+            $invitationDelivery=br_send_account_invitation($invited,$invited['invitation_token']);
+            br_store()->recordInvitationDelivery($actor['id'],$invited['id'],(int)$invited['invitation_id'],$invitationDelivery);
+            $createdAccount=br_store()->user($invited['id']);
+        }
         if ($action === 'update_user') br_store()->updateUser($actor['id'], $id, $data);
+        if ($action === 'resend_invitation') {
+            $invited=br_store()->resendInvitation($actor['id'],$id);
+            require_once __DIR__.'/includes/mail.php';
+            $invitationDelivery=br_send_account_invitation($invited,$invited['invitation_token']);
+            br_store()->recordInvitationDelivery($actor['id'],$invited['id'],(int)$invited['invitation_id'],$invitationDelivery,true);
+            echo json_encode(['ok'=>true,'id'=>$id,'invitation_sent'=>$invitationDelivery,'redirect'=>'user-edit.php?id='.rawurlencode($id).'&invitation='.($invitationDelivery?'sent':'failed')],JSON_THROW_ON_ERROR);
+            exit;
+        }
         if ($action === 'profile') {
             $requestedEmail=is_string($data['email'] ?? null)?strtolower(trim($data['email'])):'';
             if ($requestedEmail!==strtolower($actor['email'])) {
@@ -173,11 +195,12 @@ try {
         br_store()->submitFeedback($actor['id'],$id,$data);
     } elseif (in_array($action, ['save_rule', 'reset_rule'], true)) {
         br_store()->saveRule($actor['id'], $data, $action === 'reset_rule');
-    } elseif (in_array($action, ['create_location', 'update_location', 'toggle_location'], true)) {
+    } elseif (in_array($action, ['create_location', 'update_location', 'delete_location'], true)) {
         if ($action === 'create_location') br_store()->createLocation($actor['id'], $data);
         else {
             if (!preg_match('/\A[1-9][0-9]{0,9}\z/', $id)) throw new DomainException('Invalid location.');
-            br_store()->updateLocation($actor['id'], (int)$id, $data, $action === 'toggle_location');
+            if ($action === 'delete_location') br_store()->deleteLocation($actor['id'], (int)$id);
+            else br_store()->updateLocation($actor['id'], (int)$id, $data);
         }
     } else {
         $id = br_store()->mutate($actor['id'], $action, $id, $data, $input['version'] ?? null);
@@ -186,13 +209,18 @@ try {
         // Assignment is already committed; SMTP failure must not roll it back.
         require_once __DIR__ . '/includes/mail.php';
         $assignedCase = br_store()->concernForActor($actor['id'], $id);
-        $personnel = $assignedCase ? br_store()->user($assignedCase['assignedUserId']) : null;
-        $sent = $personnel && br_send_assignment($personnel, $assignedCase);
-        $_SESSION['assignment_notice'] = $sent ? 'Assignment saved. Personnel email sent.' : 'Assignment saved, but the personnel email could not be sent. Check the mail configuration and notify the assigned person.';
+        $recipients=$assignedCase ? br_store()->teamAssignmentRecipients($actor['id'],$id) : [];
+        $sent=0;
+        foreach($recipients as $personnel) if (br_send_assignment($personnel,$assignedCase)) $sent++;
+        $_SESSION['assignment_notice'] = 'Team assignment saved. '.$sent.' of '.count($recipients).' personnel email'.(count($recipients)===1?'':'s').' sent; all eligible personnel received an in-app notification.';
     }
     $response = ['ok' => true, 'id' => $id];
     if ($createdAccount !== null) $response['created_account'] = $createdAccount;
-    if ($action === 'assign') $response['notification_sent'] = (bool)$sent;
+    if ($action === 'create_user') $response['invitation_sent'] = (bool)$invitationDelivery;
+    if ($action === 'assign') {
+        $response['notification_sent'] = count($recipients) > 0 && $sent === count($recipients);
+        $response['notifications_sent'] = $sent;
+    }
     echo json_encode($response, JSON_THROW_ON_ERROR);
 } catch (ConflictException $e) {
     http_response_code(409);

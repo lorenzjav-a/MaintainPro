@@ -43,8 +43,8 @@ All 19 application tables now use InnoDB and `utf8mb4_unicode_ci`. Unless stated
 | P1 | Missing integrity checks | The live complaints JSON check, solution JSON check and two official-rule checks were absent despite earlier migration history. | Restore checks after validating existing rows. |
 | P2 | Preflight could fail on mixed-collation joins | The old orphan queries used ordinary string equality before normalization. | Preflight uses conservative byte comparisons, checks all 18 relationships and refuses orphan data before adding constraints. |
 | P2 | Partial legacy bootstrap could fail before migration preflight | Setup created `password_resets` with a foreign key before normalizing an existing `users` table in `utf8mb4_general_ci`; a disposable partial import reproduced MariaDB error 1005/150. | Normalize an existing legacy `users` table before creating dependent bootstrap tables. A regression case preserves the account row and completes all migrations. |
-| P2 | Backup import depended on connection charset | Application-generated SQL backup lacked a `SET NAMES` header. | Add an explicit UTF-8 connection setting to the backup SQL. |
 | P3 | Private SQL artifact was not ignored | `maintainpro_fixed.sql` contains real data and credential hashes. | Ignore this exact local export; retain HTTP denial. |
+| P2 | Backup import depended on connection charset | Application-generated SQL backup lacked a `SET NAMES` header. | Add an explicit UTF-8 connection setting to the backup SQL. |
 
 No data rows were changed to satisfy a constraint. The logged notification query's current join, assignment join and official-rule/user join all execute after the repair. An overlapping `complaints_resident` and `idx_reporter_date` left prefix was retained because query and migration behavior are established; it is a possible future index-tuning candidate, not a correctness failure.
 

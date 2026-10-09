@@ -115,6 +115,10 @@ final class ComplaintStore
         $user['email_verified'] = (bool)$user['email_verified'];
         $user['is_system_admin'] = (bool)$user['is_system_admin'];
         $user['must_change_password'] = (bool)$user['must_change_password'];
+        $user['deactivated_at'] = $user['deactivated_at'] === null ? null : (int)$user['deactivated_at'];
+        $user['deactivation_sequence'] = (int)$user['deactivation_sequence'];
+        foreach (['invitation_created_at','invitation_expires_at','invitation_sent_at'] as $field) $user[$field] = $user[$field] === null ? null : (int)$user[$field];
+        $user['pending_setup'] = $user['active'] && !$user['email_verified'] && !$user['must_change_password'] && $user['invitation_created_at'] !== null && in_array($user['role'],['resident','official','personnel'],true);
         return $user;
     }
 
@@ -156,7 +160,17 @@ final class ComplaintStore
     public function users(string $officialId): array
     {
         $this->authorizeAdmin($officialId);
-        return $this->db->users();
+        return array_map(function (array $user): array {
+            $user['active'] = (bool)$user['active'];
+            $user['email_verified'] = (bool)$user['email_verified'];
+            $user['is_system_admin'] = (bool)$user['is_system_admin'];
+            $user['must_change_password'] = (bool)$user['must_change_password'];
+            $user['deactivated_at'] = $user['deactivated_at'] === null ? null : (int)$user['deactivated_at'];
+            $user['deactivation_sequence'] = (int)$user['deactivation_sequence'];
+            foreach (['invitation_created_at','invitation_expires_at','invitation_sent_at'] as $field) $user[$field] = $user[$field] === null ? null : (int)$user[$field];
+            $user['pending_setup'] = $user['active'] && !$user['email_verified'] && !$user['must_change_password'] && $user['invitation_created_at'] !== null && in_array($user['role'],['resident','official','personnel'],true);
+            return $user;
+        }, $this->db->users());
     }
 
     public function workloads(string $officialId): array
@@ -215,6 +229,38 @@ final class ComplaintStore
         });
     }
 
+    public function deleteLocation(string $officialId, int $id): void
+    {
+        $this->transaction(function () use ($officialId, $id) {
+            $actor = $this->authorizeAdmin($officialId);
+            $current = $this->db->location($id);
+            if (!$current) throw new DomainException('Location not found.');
+            $this->db->deleteLocation($id);
+            $this->db->recordAudit($actor, 'location_deleted', 'location', (string)$id, $current['name'],
+                ['sortOrder' => (int)$current['sort_order']]);
+        });
+    }
+
+    /** @return array{deletedUploads:int,failedUploads:int} */
+    public function factoryReset(string $officialId, array $data): array
+    {
+        $actor=$this->authorizeAdmin($officialId);
+        $this->confirmPassword($officialId,$data['current_password'] ?? null);
+        if (!is_string($data['confirmation'] ?? null) || !hash_equals('RESET MAINTAINPRO',trim($data['confirmation']))) {
+            throw new DomainException('Type RESET MAINTAINPRO exactly to confirm the factory reset.');
+        }
+        $setupKey=getenv('APP_SETUP_KEY');
+        if (!is_string($setupKey) || strlen($setupKey)<32) {
+            throw new DomainException('Configure APP_SETUP_KEY with at least 32 characters on the server before resetting. It is required to create the new first administrator.');
+        }
+        $this->db->factoryReset();
+        $evidence=EvidenceStorage::purge();
+        $profiles=ProfilePhotoStorage::purge();
+        $failed=$evidence['failed']+$profiles['failed'];
+        br_security_log('factory_reset_completed',['actor_role'=>$actor['role'],'result'=>$failed===0?'success':'upload_cleanup_incomplete']);
+        return ['deletedUploads'=>$evidence['deleted']+$profiles['deleted'],'failedUploads'=>$failed];
+    }
+
     public function blockedConcerns(string $officialId, int $page = 1, int $perPage = 20): array
     {
         $this->authorizeOfficial($officialId);
@@ -255,7 +301,6 @@ final class ComplaintStore
         $row=$this->db->legacyEvidenceConcern($evidenceId,$actor);
         if (!$row) return null;
         $c=self::decodeConcern($row);
-        if (!ComplaintWorkflow::canSee($c,$actor)) return null;
         foreach ($c['timeline'] as $event) if (($event['evidenceId'] ?? '')===$evidenceId && !empty($event['photo'])) return $event['photo'];
         return null;
     }
@@ -299,6 +344,20 @@ final class ComplaintStore
     public function sweepDeadlines(): void
     {
         $this->transaction(fn() => (new ConcernNotifications($this->db))->deadlines());
+    }
+
+    public function sweepDeactivatedAccounts(?int $now = null): int
+    {
+        $now ??= time();
+        if ($now < 7 * 86400) throw new InvalidArgumentException('Use a valid notification sweep time.');
+        return $this->transaction(function () use ($now): int {
+            $accounts = $this->db->deactivatedAccountsDue($now - 7 * 86400);
+            foreach ($accounts as $account) {
+                $days = intdiv(max(0, $now - (int)$account['deactivated_at']), 86400);
+                $this->db->createDeactivationReviewNotifications($account, $days, $now);
+            }
+            return count($accounts);
+        });
     }
 
     private static function name(mixed $name): string
@@ -459,11 +518,80 @@ final class ComplaintStore
             if (isset($data['isAdmin']) && !in_array($data['isAdmin'], ['0', '1'], true)) throw new DomainException('Choose a valid administrator setting.');
             if ($data['role'] !== 'official' && ($data['isAdmin'] ?? '0') === '1') throw new DomainException('Only an official can receive administrator access.');
             $isAdmin = $data['role'] === 'official' && ($data['isAdmin'] ?? '0') === '1';
-            $temporaryPassword = 'MP-' . bin2hex(random_bytes(10));
-            $user = $this->insertUser(array_replace($data, ['password' => $temporaryPassword]), is_string($data['role'] ?? null) ? $data['role'] : '', is_string($data['team'] ?? null) ? $data['team'] : '', $isAdmin);
-            $this->db->requirePasswordChange($user['id']);
-            $this->db->recordAudit($actor, $user['role'] . '_account_created', 'user', $user['id'], $user['name'], ['role' => $user['role'], 'team' => $user['team'], 'isSystemAdmin' => $isAdmin]);
-            return $this->user($user['id']) + ['temporary_password' => $temporaryPassword];
+            $name=self::name($data['name'] ?? '');
+            $email=self::email($data['email'] ?? '');
+            $role=(string)$data['role'];
+            $team=$role==='personnel' ? (string)($data['team'] ?? '') : '';
+            if ($role==='personnel' && !in_array($team,ComplaintWorkflow::TEAMS,true)) throw new DomainException('Choose a team for the personnel account.');
+            $id='user-'.bin2hex(random_bytes(12));
+            $token=bin2hex(random_bytes(32));
+            $now=time();
+            try {
+                $this->db->insertInvitedUser($id,$name,$email,password_hash(bin2hex(random_bytes(32)),PASSWORD_DEFAULT),$role,$team,date(DATE_ATOM),$isAdmin);
+            } catch(PDOException $e) {
+                if ((int)($e->errorInfo[1] ?? 0)===1062) throw new DomainException('That email address is already registered.');
+                throw $e;
+            }
+            $invitationId=$this->db->createAccountInvitation($id,$actor['id'],hash('sha256',$token),$now,$now+86400);
+            $user=$this->user($id);
+            $this->db->recordAudit($actor,$role.'_account_created','user',$id,$name,['role'=>$role,'team'=>$team,'isSystemAdmin'=>$isAdmin,'status'=>'pending_setup']);
+            return $user+['invitation_id'=>$invitationId,'invitation_token'=>$token];
+        });
+    }
+
+    public function resendInvitation(string $officialId,string $userId): array
+    {
+        return $this->transaction(function() use($officialId,$userId) {
+            $actor=$this->authorizeAdmin($officialId);
+            $this->db->lockedUser($userId);
+            $user=$this->user($userId);
+            if (!$user || !$user['pending_setup']) throw new DomainException('Only a Pending Setup account can receive another invitation. Active users must use Forgot Password.');
+            $now=time();
+            $rate=$this->db->invitationResendState($userId,$now-900);
+            if ((int)$rate['total']>=3 || ((int)$rate['latest']>$now-60 && $rate['latest_status']==='sent')) throw new DomainException('Wait before resending. You can send up to three invitations in 15 minutes.');
+            $token=bin2hex(random_bytes(32));
+            $invitationId=$this->db->createAccountInvitation($userId,$actor['id'],hash('sha256',$token),$now,$now+86400);
+            return $user+['invitation_id'=>$invitationId,'invitation_token'=>$token];
+        });
+    }
+
+    public function recordInvitationDelivery(string $officialId,string $userId,int $invitationId,bool $sent,bool $resend=false): void
+    {
+        $this->transaction(function() use($officialId,$userId,$invitationId,$sent,$resend) {
+            $actor=$this->authorizeAdmin($officialId);
+            $user=$this->user($userId);
+            if (!$user) throw new DomainException('Account not found.');
+            $this->db->markInvitationDelivery($invitationId,$sent,time());
+            $this->db->recordAudit($actor,$resend?'account_invitation_resent':'account_invitation_sent','user',$userId,$user['name'],['delivery'=>$sent?'accepted':'failed']);
+        });
+    }
+
+    public function inspectInvitation(mixed $token): array
+    {
+        if (!is_string($token) || !preg_match('/\A[a-f0-9]{64}\z/',$token)) return ['status'=>'invalid'];
+        $row=$this->db->accountInvitationByToken(hash('sha256',$token));
+        if (!$row) return ['status'=>'invalid'];
+        $status=$row['used_at']!==null || (int)$row['email_verified'] ? 'used'
+            : ($row['revoked_at']!==null ? 'revoked' : ((int)$row['expires_at']<=time() ? 'expired' : (!(int)$row['active'] ? 'inactive' : 'valid')));
+        return ['status'=>$status,'name'=>$row['name'],'role'=>$row['role'],'team'=>$row['team'],'expires_at'=>(int)$row['expires_at']];
+    }
+
+    public function acceptInvitation(string $token,array $data): void
+    {
+        $password=self::password($data['password'] ?? '');
+        if ($password!==($data['confirm_password'] ?? null)) throw new DomainException('The passwords do not match.');
+        if (!preg_match('/\A[a-f0-9]{64}\z/',$token)) throw new DomainException('This invitation link is invalid. Request a new invitation from your administrator.');
+        $this->transaction(function() use($token,$password) {
+            $row=$this->db->accountInvitationByToken(hash('sha256',$token),true);
+            if (!$row) throw new DomainException('This invitation link is invalid. Request a new invitation from your administrator.');
+            if ($row['used_at']!==null || (int)$row['email_verified']) throw new DomainException('This invitation was already used. Sign in or use Forgot Password if you need help.');
+            if ($row['revoked_at']!==null) throw new DomainException('This invitation was replaced. Ask your administrator for the latest invitation.');
+            if ((int)$row['expires_at']<=time()) throw new DomainException('This invitation has expired. Ask your administrator to send a new invitation.');
+            if (!(int)$row['active']) throw new DomainException('This account is deactivated. Contact your administrator.');
+            $this->db->completeAccountInvitation((int)$row['id'],$row['user_id'],password_hash($password,PASSWORD_DEFAULT),time());
+            $this->db->deleteUserResets($row['user_id']);
+            $user=$this->user($row['user_id']);
+            $this->db->recordAudit($user,'account_invitation_accepted','user',$user['id'],$user['name'],[]);
         });
     }
 
@@ -516,7 +644,7 @@ final class ComplaintStore
                     }
                     $this->db->lockedUser($replacementId);
                     $replacement=$this->user($replacementId);
-                    if (!$replacement || !$replacement['active'] || $replacement['role']!=='personnel' || !filter_var($replacement['email'],FILTER_VALIDATE_EMAIL)) {
+                    if (!$replacement || !$replacement['active'] || !$replacement['email_verified'] || $replacement['must_change_password'] || $replacement['role']!=='personnel' || !filter_var($replacement['email'],FILTER_VALIDATE_EMAIL)) {
                         throw new DomainException('Choose another active personnel account with a valid email address.');
                     }
                     foreach ($concerns as $row) {
@@ -537,7 +665,11 @@ final class ComplaintStore
                     $this->db->recordAudit($actor,'personnel_work_reassigned','user',$id,$user['name'],['to'=>$replacementId]+$reassigned);
                 }
             }
-            $this->db->updateUser($id, $role, $team, $active, $isAdmin);
+            $newDeactivation = (bool)$user['active'] && !$active;
+            $reactivated = !(bool)$user['active'] && $active;
+            $deactivatedAt = $newDeactivation ? time() : ($active ? null : $user['deactivated_at']);
+            $deactivatedBy = $newDeactivation ? $actor['id'] : ($active ? null : $user['deactivated_by']);
+            $this->db->updateUser($id, $role, $team, $active, $isAdmin, $deactivatedAt, $deactivatedBy, $newDeactivation);
             $name = self::name($data['name'] ?? $user['name']);
             $email = self::email($data['email'] ?? $user['email']);
             try { $this->db->updateAccountIdentity($id, $name, $email); }
@@ -549,6 +681,9 @@ final class ComplaintStore
             if (!$active) {
                 $this->db->deleteUserResets($id);
             }
+            if ($user['pending_setup'] && (!$active || $name!==$user['name'] || $email!==$user['email'] || $role!==$user['role'] || $team!==$user['team'] || $isAdmin!==$user['is_system_admin'])) {
+                $this->db->revokeAccountInvitations($id,time());
+            }
             $changes = [];
             if ($role !== $user['role']) $changes['role'] = ['from' => $user['role'], 'to' => $role];
             if ($team !== $user['team']) $changes['team'] = ['from' => $user['team'], 'to' => $team];
@@ -556,6 +691,8 @@ final class ComplaintStore
             if ($isAdmin !== $user['is_system_admin']) $changes['isSystemAdmin'] = ['from' => $user['is_system_admin'], 'to' => $isAdmin];
             if ($name !== $user['name']) $changes['nameChanged'] = true;
             if ($email !== $user['email']) $changes['emailChanged'] = true;
+            if ($newDeactivation) $changes['deactivation'] = ['at' => $deactivatedAt, 'by' => $actor['id']];
+            if ($reactivated) $changes['reactivation'] = ['previouslyDeactivatedAt' => $user['deactivated_at'], 'by' => $actor['id']];
             if ($changes) {
                 if ($reassigned['concerns'] || $reassigned['actionPlans']) $changes['reassignedWork']=$reassigned;
                 $action = isset($changes['active']) ? ($active ? 'account_activated' : 'account_deactivated')
@@ -781,7 +918,31 @@ final class ComplaintStore
         $actor = $this->actor($userId);
         if (!$actor || $actor['must_change_password']) return null;
         $c = $this->concern($id);
-        return $c && ComplaintWorkflow::canSee($c, $actor) ? $this->presentConcern($c, $actor) : null;
+        $offer=$actor['role']==='personnel' ? $this->db->teamOfferForUser($id,$actor['id']) : false;
+        $pendingOffer=$offer && $offer['response']==='pending';
+        if (!$c || (!ComplaintWorkflow::canSee($c,$actor) && !$pendingOffer)) return null;
+        $c=$this->presentConcern($c,$actor);
+        if ($pendingOffer) $c['teamOffer']=['assignmentId'=>(int)$offer['id'],'assignedAt'=>(int)$offer['assigned_at']];
+        if ($actor['role']==='official') $c['teamAssignment']=$this->db->teamAssignmentSummary($id);
+        return $c;
+    }
+
+    public function pendingTeamOffers(string $userId): array
+    {
+        $actor=$this->actor($userId);
+        if (!$actor || $actor['must_change_password'] || $actor['role']!=='personnel') return [];
+        return array_map(function(array $row) use($actor) {
+            $c=$this->presentConcern(self::decodeConcern($row),$actor);
+            $c['assignmentId']=(int)$row['assignment_id'];
+            $c['assignedAt']=(int)$row['assigned_at'];
+            return $c;
+        },$this->db->pendingTeamOffers($userId));
+    }
+
+    public function teamAssignmentRecipients(string $officialId,string $concernId): array
+    {
+        $this->authorizeOfficial($officialId);
+        return $this->db->currentTeamRecipients($concernId);
     }
 
     public function pagedConcerns(string $userId, array $filters, int $page = 1, int $perPage = 20, bool $history = false): array
@@ -864,7 +1025,26 @@ final class ComplaintStore
             if ($actor['must_change_password']) throw new DomainException('Change your temporary password before accessing concerns.');
             if ($action === 'edit') throw new DomainException('Submitted concern details cannot be edited.');
             $before = $this->concern($id, true);
-            if (!$before || !ComplaintWorkflow::canSee($before, $actor)) throw new DomainException('Concern not found or unavailable to your account.');
+            if (!$before) throw new DomainException('Concern not found or unavailable to your account.');
+            if (in_array($action,['accept_work','decline_work'],true)) {
+                if ($actor['role']!=='personnel') throw new DomainException('Only eligible personnel can respond to a team assignment.');
+                $offer=$this->db->teamOfferForUser($id,$actor['id'],true);
+                if (!$offer || $offer['response']!=='pending' || !(int)$offer['active'] || !(int)$offer['email_verified'] || $offer['team']!==$actor['team']) throw new DomainException('This team assignment is no longer available.');
+                if ($action==='decline_work') {
+                    $this->db->declineTeamOffer((int)$offer['id'],$actor['id']);
+                    (new ConcernNotifications($this->db))->teamResponse($before,$actor,false);
+                    $this->db->recordAudit($actor,'team_assignment_declined','concern',$id,$id,['team'=>$actor['team']]);
+                    return $id;
+                }
+                ComplaintWorkflow::acceptTeamWork($before,$actor);
+                $before['version']++;
+                $this->db->acceptTeamOffer((int)$offer['id'],$actor['id']);
+                $this->db->updateComplaint($before,$before['version']-1);
+                (new ConcernNotifications($this->db))->changed($before,null,'accept_work');
+                $this->db->recordAudit($actor,'team_assignment_accepted','concern',$id,$id,['team'=>$actor['team']]);
+                return $id;
+            }
+            if (!ComplaintWorkflow::canSee($before, $actor)) throw new DomainException('Concern not found or unavailable to your account.');
             if (!is_int($expectedVersion) || $expectedVersion !== $before['version']) throw new ConflictException('Another user updated this concern. Refresh the page to load the latest record before saving.');
             if ($action !== 'link_concern' && $this->db->primaryConcernId($id) !== null) throw new DomainException('This report follows its primary concern and cannot receive separate work actions.');
 
@@ -882,11 +1062,7 @@ final class ComplaintStore
             // Never trust internal assignee, location, primary, or guidance fields supplied by the client.
             unset($data['_assignee'], $data['_location'], $data['_primary'], $data['_residentGuidance'], $data['_suggestions']);
             if ($action === 'assign') {
-                $assignedId = $data['personnelId'] ?? '';
-                if (is_string($assignedId)) $this->db->lockedUser($assignedId);
-                $assigned = is_string($assignedId) ? $this->user($assignedId) : null;
-                if (!$assigned || !$assigned['active'] || $assigned['role'] !== 'personnel' || !filter_var($assigned['email'], FILTER_VALIDATE_EMAIL)) throw new DomainException('Choose active personnel with a valid email address.');
-                $data['_assignee'] = $assigned;
+                if (!is_string($data['team'] ?? null) || !in_array($data['team'],ComplaintWorkflow::TEAMS,true)) throw new DomainException('Choose a valid team or crew.');
             }
             if ($action === 'link_concern') {
                 if ($actor['role'] !== 'official') throw new DomainException('Only a barangay official can link reports.');
@@ -907,6 +1083,8 @@ final class ComplaintStore
             // Link and blocked-work metadata already live in this concern and its audit timeline.
             // Save them atomically instead of maintaining a second, inconsistent copy.
             $this->db->updateComplaint($c, $before['version']);
+            if ($action==='assign') $this->db->createTeamAssignment($id,$c['team'],$actor['id'],$c['dueAt'] ?? null);
+            if (in_array($action,['reopen','link_concern'],true)) $this->db->cancelOpenTeamAssignments($id);
             if ($action === 'reopen') $this->db->insertConcernMessage($id,null,'system','MaintainPro','reporter','Concern reopened.');
             (new ConcernNotifications($this->db))->changed($c, $before, $action);
             if ($action === 'assess') $this->notifyDuplicateSuggestions($c);
@@ -962,9 +1140,16 @@ final class ComplaintStore
         $c['isOwn'] = $owner !== null && $owner === $actor['id'];
         $c['reporterChannel'] = $owner !== null ? 'account' : 'tracking';
         $c['canWork'] = $actor['role'] === 'official' || ($actor['role'] === 'personnel' && ($c['assignedUserId'] ?? null) === $actor['id']);
+        $pendingRequest = ComplaintWorkflow::pendingInformationRequest($c);
+        $c['informationRequestPending'] = $pendingRequest !== null;
+        $c['informationRequest'] = $pendingRequest === null ? null : [
+            'message' => (string)($pendingRequest['note'] ?? ''),
+            'requestedAt' => (string)($pendingRequest['date'] ?? ''),
+        ];
         $reporter = !$anonymous && $owner ? $this->user($owner) : null;
         $c['resident'] = $anonymous ? 'Anonymous' : ($reporter['name'] ?? $c['resident']);
         $c['submitterRole'] = $anonymous ? null : ($reporter['role'] ?? 'resident');
+        if ($actor['role']==='resident') $c['timeline']=array_values(array_filter($c['timeline'],fn($event)=>empty($event['internal'])));
         foreach ($c['timeline'] as &$event) {
             if ($anonymous && $owner && ($event['actorId'] ?? null) === $owner) $event['actor'] = 'Anonymous';
             unset($event['actorId'], $event['priorityDecision']['actorId']);
@@ -1062,23 +1247,21 @@ final class ComplaintStore
                 $progress[] = ['date' => $event['date'], 'status' => $event['workStatus']];
             }
         }
-        $request = null;
         $followups = [];
         foreach ($c['timeline'] as $event) {
-            if (!empty($event['publicInformationRequest']) || ($event['title'] ?? '') === 'Returned for Information') {
-                $request = ['message' => (string)($event['note'] ?? ''), 'requestedAt' => (string)($event['date'] ?? '')];
-            }
             if (!empty($event['publicReporterFollowup'])) {
                 $followups[] = ['description' => (string)($event['note'] ?? ''), 'submittedAt' => (string)($event['date'] ?? '')];
             }
         }
+        $pendingRequest = ComplaintWorkflow::pendingInformationRequest($c);
+        $request = $pendingRequest === null ? null : ['message' => (string)($pendingRequest['note'] ?? ''), 'requestedAt' => (string)($pendingRequest['date'] ?? '')];
         $guidance = ConcernCatalog::validGuidance($c['residentGuidance'] ?? null) ? $c['residentGuidance'] : [];
         $status = $source['status'] === 'Verified' ? 'Closed' : ($c['status'] === 'Returned for Information' ? 'Needs More Information' : $source['status']);
         return [
             'reference' => $c['id'], 'category' => $c['category'], 'concernType' => $c['concernType'], 'status' => $status,
             'reportedAt' => $c['createdAt'], 'updatedAt' => $source['updatedAt'], 'progress' => $progress,
-            'residentGuidance' => $guidance, 'informationRequest' => $c['status'] === 'Returned for Information' ? $request : null,
-            'followUps' => $followups, 'canFollowUp' => $c['status'] === 'Returned for Information', 'linked' => $primaryId !== null,
+            'residentGuidance' => $guidance, 'informationRequest' => $request,
+            'followUps' => $followups, 'canFollowUp' => $request !== null, 'linked' => $primaryId !== null,
         ];
     }
 
@@ -1153,23 +1336,56 @@ final class ComplaintStore
                 if ($base===false) throw new RuntimeException('Cannot create a private backup file.');
                 unlink($base);
                 $temporary=$base.'.zip';
-                $zip=new PharData($temporary,0,null,Phar::ZIP);
-                $zip->addFromString('database.sql',$this->db->sqlBackup(true));
+                $zip=null;
+                $addString=null;
+                $addFile=null;
+                $close=null;
+                if (class_exists('ZipArchive')) {
+                    $zip=new ZipArchive();
+                    $opened=$zip->open($temporary,ZipArchive::CREATE|ZipArchive::OVERWRITE);
+                    if ($opened!==true) throw new RuntimeException('Cannot create the ZIP backup archive.');
+                    $addString=static function(string $name,string $content) use($zip): void {
+                        if (!$zip->addFromString($name,$content)) throw new RuntimeException('Cannot add data to the ZIP backup archive.');
+                    };
+                    $addFile=static function(string $path,string $name) use($zip): void {
+                        if (!$zip->addFile($path,$name)) throw new RuntimeException('Cannot add an uploaded file to the ZIP backup archive.');
+                    };
+                    $close=static function() use($zip): void {
+                        if (!$zip->close()) throw new RuntimeException('Cannot finish the ZIP backup archive.');
+                    };
+                } elseif (class_exists('PharData') && class_exists('Phar')) {
+                    $zip=new PharData($temporary,0,null,Phar::ZIP);
+                    $addString=static function(string $name,string $content) use($zip): void { $zip->addFromString($name,$content); };
+                    $addFile=static function(string $path,string $name) use($zip): void { $zip->addFile($path,$name); };
+                    $close=static function() use(&$zip): void { unset($zip); };
+                } else {
+                    throw new RuntimeException('ZIP support is not enabled on this server. Enable the PHP zip or phar extension.');
+                }
+                $addString('database.sql',$this->db->sqlBackup(true));
                 $files=$this->db->evidenceFiles();
+                $missing=[];
                 foreach ($files as $relative) {
                     $file=EvidenceStorage::storedFile($relative);
-                    if (!$file) throw new RuntimeException('A referenced evidence file is missing or invalid. Backup was not produced.');
-                    $zip->addFile($file['path'],$relative);
+                    if (!$file) { $missing[]=$relative; continue; }
+                    $addFile($file['path'],$relative);
                 }
                 $profileFiles=$this->db->profilePhotoFiles();
                 foreach ($profileFiles as $relative) {
                     $file=ProfilePhotoStorage::storedFile($relative);
-                    if (!$file) throw new RuntimeException('A referenced profile photo is missing or invalid. Backup was not produced.');
-                    $zip->addFile($file['path'],$relative);
+                    if (!$file) { $missing[]=$relative; continue; }
+                    $addFile($file['path'],$relative);
                 }
-                $zip->addFromString('RESTORE.txt',"MaintainPro full data backup\nCreated: ".date(DATE_ATOM)."\n\n1. Install the matching MaintainPro source and PHP/MariaDB environment.\n2. Configure database and SMTP settings separately. Configuration secrets are excluded.\n3. Import database.sql into an EMPTY database. Run php database/setup.php.\n4. Copy uploads/evidence and uploads/profiles to their protected application directories, preserving paths. Inline legacy evidence is in SQL.\n5. Account passwords and password-reset grants are excluded. Use Forgot password after restoring; SMTP must be configured. All previous account sessions must be discarded.\n6. Guest tracking HASHES are retained so existing private tracking codes keep working. No plaintext tracking codes are stored.\n\nThis archive contains private concern records, evidence, and profile photos. Keep it in authorized storage. No source, configuration, sessions, logs or temporary files are included.\n");
-                unset($zip);
-                $this->db->recordAudit($actor,'full_backup_created','system',null,'MaintainPro full system backup',['evidenceFiles'=>count($files),'profilePhotos'=>count($profileFiles),'bytes'=>filesize($temporary)]);
+                $restore="MaintainPro full data backup\nCreated: ".date(DATE_ATOM)."\n\n1. Install the matching MaintainPro source and PHP/MariaDB environment.\n2. Configure database and SMTP settings separately. Configuration secrets are excluded.\n3. Import database.sql into an EMPTY database. Run php database/setup.php.\n4. Copy uploads/evidence and uploads/profiles to their protected application directories, preserving paths. Inline legacy evidence is in SQL.\n5. Account passwords and password-reset grants are excluded. Use Forgot password after restoring; SMTP must be configured. All previous account sessions must be discarded.\n6. Guest tracking HASHES are retained so existing private tracking codes keep working. No plaintext tracking codes are stored.\n\nThis archive contains private concern records, evidence, and profile photos. Keep it in authorized storage. No source, configuration, sessions, logs or temporary files are included.\n";
+                if ($missing) {
+                    $restore.="\nWARNING: ".count($missing)." database-referenced upload(s) were already missing from storage when this backup was created. See MISSING_FILES.txt.\n";
+                    $addString('MISSING_FILES.txt',"Files missing when this backup was created:\n".implode("\n",$missing)."\n");
+                }
+                $addString('RESTORE.txt',$restore);
+                $close();
+                clearstatcache(true,$temporary);
+                $bytes=is_file($temporary) ? filesize($temporary) : false;
+                if ($bytes===false || $bytes<4) throw new RuntimeException('The ZIP backup archive could not be finalized.');
+                $this->db->recordAudit($actor,'full_backup_created','system',null,'MaintainPro full system backup',['evidenceFiles'=>count($files)-count(array_filter($missing,fn($path)=>str_starts_with($path,'uploads/evidence/'))),'profilePhotos'=>count($profileFiles)-count(array_filter($missing,fn($path)=>str_starts_with($path,'uploads/profiles/'))),'missingFiles'=>count($missing),'bytes'=>$bytes]);
                 return ['filename'=>'maintainpro-full-'.date('Ymd-His').'.zip','path'=>$temporary];
             });
         } catch (Throwable $error) {
@@ -1177,4 +1393,5 @@ final class ComplaintStore
             throw $error;
         }
     }
+
 }

@@ -23,7 +23,7 @@ function br_page(string $page, array $roles = []): array
         'my-action-plans' => 'My action plans',
         'messages' => 'Staff messages',
         'users' => 'User management', 'profile' => 'My profile', 'complaint' => 'Concern details',
-        'notifications' => 'Notifications', 'user-guide' => 'User Guide',
+        'notifications' => 'Notifications', 'user-guide' => 'User Guide', 'track' => 'Track Concern',
         'settings' => 'Workspace settings', 'audit' => 'Audit history', 'blocked' => 'Blocked work',
         'new-complaint' => 'Report a community concern', 'user-create' => 'Create a workspace account', 'user-edit' => 'Manage account',
     ];

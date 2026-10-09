@@ -5,8 +5,8 @@ header('Content-Type: application/json; charset=utf-8');
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); header('Allow: POST'); throw new DomainException('Use POST.'); }
     if (!hash_equals($_SESSION['br_csrf'], $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '')) { http_response_code(403); throw new DomainException('Refresh the page before trying again.'); }
-    $raw = file_get_contents('php://input', false, null, 0, 1600001);
-    if (strlen($raw) > 1600000) throw new DomainException('Use a photo no larger than 1 MB.');
+    $raw = file_get_contents('php://input', false, null, 0, 7100001);
+    if (strlen($raw) > 7100000) throw new DomainException('Use a photo no larger than 5 MB.');
     $input = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
     if (!is_array($input) || !is_string($input['action'] ?? null) || !is_array($input['data'] ?? null)) throw new DomainException('Invalid request.');
     $data = $input['data'];

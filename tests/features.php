@@ -11,8 +11,7 @@ try {
     $admin = $store->setup(['name'=>'Official Test','email'=>'official@example.test','password'=>'Test-password-42']);
     $makeStaff = function (string $name, string $team = 'Maintenance crew') use ($store,$admin): array {
         $u = $store->createUser($admin['id'],['name'=>$name,'email'=>strtolower($name).'@example.test','role'=>'personnel','team'=>$team]);
-        $store->changeTemporaryPassword($u['id'],['current_password'=>$u['temporary_password'],'password'=>'Test-password-42','confirm_password'=>'Test-password-42']);
-        return $store->user($u['id']);
+        return activateInvitedUser($store,$u);
     };
     $a = $makeStaff('Alpha'); $b = $makeStaff('Beta'); $other = $makeStaff('Gamma','Sanitation team');
     $report = ['category'=>'Street Lighting','concernType'=>'Exposed wiring','keyPoints'=>['Exposed wires','Near school'],'purok'=>'Purok 3','street'=>'Mabini Street','exactArea'=>'Near gate'];
@@ -57,10 +56,10 @@ try {
     check($c['priority']==='Low' && $c['assessment']==='Official assessment notes' && !empty($c['dueAt']) && $c['priorityDecision']['overridden'] && $c['priorityDecision']['recommended']==='Urgent','official assessment fields remain editable and override is recorded separately');
     $workloads=$store->workloads($admin['id']);
     check(ConcernInsights::recommendPersonnel($workloads,$c)['id']===$a['id'],'active matching team lowest load deterministic tie');
-    // Manual choice of Beta is allowed even while Alpha is recommended.
-    $c=$mutate($admin,$id,'assign',['personnelId'=>$b['id'],'dueAt'=>date('Y-m-d\TH:i',time()+3600)]);
-    check($c['assignedUserId']===$b['id'],'official overrides personnel suggestion');
-    check(count($notices($b,'assignment'))===1,'personnel receives persistent assignment');
+    $c=$mutate($admin,$id,'assign',['team'=>'Maintenance crew','dueAt'=>date('Y-m-d\TH:i',time()+3600)]);
+    $c=$mutate($b,$id,'accept_work',[]);
+    check($c['assignedUserId']===$b['id'],'team member accepts assignment');
+    check(count($notices($b,'team_assignment'))===1,'personnel receives persistent team assignment offer');
     $fixtures->elapseDeadlineSweep(); $store->sweepDeadlines();
     check(count($notices($b,'due_soon'))===1,'due soon notification');
     $beforeUnread=$store->notifications($b['id'])['unread'];
@@ -75,15 +74,16 @@ try {
     $c=$find($id);
     check(array_intersect_key($c,array_flip($immutableFields))===$originalReport && $c['priority']==='Low' && $c['recommendation']==='Updated private instructions','workflow preserves original report while retaining official assessment');
     check(count($notices($b,'priority'))===0 && count($notices($b,'instructions'))===0,'rejected edit sends no misleading personnel notifications');
-    $foreign=$notices($b,'assignment')[0]['id'];
+    $foreign=$notices($b,'team_assignment')[0]['id'];
     denied(fn()=>$store->readNotifications($a['id'],(int)$foreign),'notification ownership protects read action');
     denied(fn()=>$store->notifications('unknown'),'unknown user inbox rejected');
     $store->readNotifications($b['id'],(int)$foreign);
-    check((int)$notices($b,'assignment')[0]['is_read']===1 && $notices($b,'assignment')[0]['read_at']!==null,'single read persisted with timestamp');
+    check((int)$notices($b,'team_assignment')[0]['is_read']===1 && $notices($b,'team_assignment')[0]['read_at']!==null,'single read persisted with timestamp');
     $store->readNotifications($b['id'],null);
     check($store->notifications($b['id'])['unread']===0 && $store->notifications($admin['id'])['unread']>0,'mark all affects owner only');
-    $c=$mutate($admin,$id,'assign',['personnelId'=>$a['id'],'dueAt'=>date('Y-m-d\TH:i',time()-3600)]);
-    check(count($notices($b,'reassignment'))===1 && $notices($b,'assignment')[0]['target_url']==='concerns.php','old assignment links safe after reassignment');
+    $c=$mutate($admin,$id,'assign',['team'=>'Maintenance crew','dueAt'=>date('Y-m-d\TH:i',time()-3600)]);
+    $c=$mutate($a,$id,'accept_work',[]);
+    check(count($notices($b,'reassignment'))===1 && $notices($b,'team_assignment')[0]['target_url']==='concerns.php','old assignment links safe after reassignment');
     $fixtures->elapseDeadlineSweep(); $store->sweepDeadlines();
     check(count($notices($a,'overdue'))===1 && count($notices($admin,'overdue'))===1,'overdue official and assignee notifications');
     $work=['workStatus'=>'Inspection completed','actions'=>['Inspection'],'photo'=>$png];
@@ -107,7 +107,8 @@ try {
     check(count($notices($admin,'reopen'))===1 && count($notices($a,'reopen'))===1,'reopened work notifies officials and previous assignee');
     check(!ComplaintWorkflow::canSee($c,$a),'reopened work needs explicit fresh assignment');
     $mutate($admin,$id,'assess',['priority'=>'Urgent','recommendation'=>'Reinspect']);
-    $mutate($admin,$id,'assign',['personnelId'=>$a['id']]);
+    $mutate($admin,$id,'assign',['team'=>'Maintenance crew']);
+    $mutate($a,$id,'accept_work',[]);
     $mutate($a,$id,'start',$work);
     $c=$mutate($a,$id,'resolve',$resolved);
     check(count(array_filter(ConcernInsights::evidence($c),fn($e)=>$e['evidenceType']==='Completion Evidence'))===2,'multiple completion attempts retained');

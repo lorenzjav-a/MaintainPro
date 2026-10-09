@@ -1,8 +1,27 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/includes/public-layout.php';
-br_public_header('Track Concern'); ?>
-<div class="page-heading"><div><h1>Track Concern</h1><p>Use the reference number and private code saved after submission.</p></div></div><section class="panel p-4 public-form-panel"><form id="public-track" method="post" action="public-api.php"><label class="form-label">Concern Reference Number<input class="form-control" name="reference" placeholder="CON-2026-000123" required maxlength="64" autocomplete="off"></label><label class="form-label">Tracking Code<input class="form-control tracking-code" name="trackingCode" required pattern="[a-f0-9]{48}" maxlength="48" autocomplete="off"></label><div class="alert alert-danger" id="public-error" role="alert" hidden></div><button type="submit" class="btn btn-primary">View status</button></form></section>
+$actor = br_actor();
+if ($actor && !$actor['must_change_password']) {
+    require_once __DIR__ . '/includes/page.php';
+    extract(br_page('track'));
+    require __DIR__ . '/includes/layout/header.php';
+} else {
+    br_public_header('Track Concern');
+}
+br_heading('Track Concern', 'Follow your reported concerns or use the reference number and private code saved after guest submission.'); ?>
+<?php if ($actor && !$actor['must_change_password']): ?>
+<section class="panel p-4 public-form-panel mb-4" aria-labelledby="account-tracking-heading">
+  <h2 class="section-title" id="account-tracking-heading">Concerns reported with your account</h2>
+  <p class="form-text">View progress, updates, and messages for your own reports, including those submitted anonymously. No tracking code is needed.</p>
+  <a class="btn btn-primary" href="complaints.php?scope=mine"><?= br_icon('clipboardList') ?>My Reported Concerns</a>
+</section>
+<?php endif ?>
+<section class="panel p-4 public-form-panel" aria-labelledby="private-tracking-heading">
+  <h2 class="section-title" id="private-tracking-heading">Track with private details</h2>
+  <p class="form-text">For a concern submitted as a guest, enter both values from your submission receipt. No account is required.</p>
+  <form id="public-track" method="post" action="public-api.php"><label class="form-label">Concern Reference Number<input class="form-control" name="reference" placeholder="CON-2026-000123" required maxlength="64" autocomplete="off"></label><label class="form-label">Tracking Code<input class="form-control tracking-code" name="trackingCode" required pattern="[a-f0-9]{48}" maxlength="48" autocomplete="off"></label><div class="alert alert-danger" id="public-error" role="alert" hidden></div><button type="submit" class="btn btn-primary">View status</button></form>
+</section>
 <section class="panel p-4 mt-4 public-form-panel" id="tracking-result" hidden aria-live="polite"></section>
 <section class="panel p-4 mt-4 public-form-panel message-panel" id="guest-conversation" hidden aria-labelledby="guest-conversation-heading">
   <div class="d-flex align-items-center gap-2"><h2 class="section-title flex-grow-1 mb-0" id="guest-conversation-heading">Conversation</h2><button class="btn btn-light btn-sm" type="button" id="guest-chat-minimize">Minimize</button><button class="btn btn-light btn-sm" type="button" id="guest-chat-close">Close</button></div>
@@ -28,4 +47,4 @@ br_public_header('Track Concern'); ?>
   </form>
 </section>
 <noscript><p class="alert alert-warning">Enable JavaScript to securely check your tracking details.</p></noscript>
-<?php br_public_footer(); ?>
+<?php if ($actor && !$actor['must_change_password']) require __DIR__ . '/includes/layout/footer.php'; else br_public_footer(); ?>

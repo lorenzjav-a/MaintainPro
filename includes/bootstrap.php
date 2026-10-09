@@ -3,15 +3,13 @@ declare(strict_types=1);
 require_once __DIR__ . '/error-handler.php';
 date_default_timezone_set('Asia/Manila');
 $app = br_app_config();
-if (PHP_SAPI !== 'cli' && $app['force_https'] && !br_request_is_https()) {
-    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') { http_response_code(400); exit('HTTPS is required.'); }
-    $parts=parse_url($app['url']);
-    $origin='https://'.$parts['host'].(isset($parts['port'])?':'.(int)$parts['port']:'');
-    $requestTarget=(string)($_SERVER['REQUEST_URI'] ?? '/');
-    if ($requestTarget==='' || $requestTarget[0]!=='/') $requestTarget='/';
-    $target=$origin.$requestTarget;
-    header('Location: ' . $target, true, 308);
-    exit;
+if (PHP_SAPI !== 'cli') {
+    $canonicalTarget=br_canonical_redirect_target($app,(string)($_SERVER['HTTP_HOST'] ?? ''),(string)($_SERVER['REQUEST_URI'] ?? '/'),br_request_is_https());
+    if ($canonicalTarget!==null) {
+        if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') { http_response_code(400); exit('HTTPS and the canonical host are required.'); }
+        header('Location: ' . $canonicalTarget, true, 308);
+        exit;
+    }
 }
 if (PHP_SAPI !== 'cli' && $app['maintenance']) {
     http_response_code(503);
@@ -52,13 +50,14 @@ if (isset($_SESSION['br_user_id'], $_SESSION['br_last_activity'])) {
 }
 require_once __DIR__ . '/domain.php';
 require_once __DIR__ . '/store.php';
+require_once __DIR__ . '/turnstile.php';
 $_SESSION['br_csrf'] ??= bin2hex(random_bytes(32));
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
 header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()');
 header('X-Frame-Options: DENY');
-header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+header("Content-Security-Policy: default-src 'self'; script-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://challenges.cloudflare.com; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
 if ($app['production'] && br_request_is_https()) header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
 
 function br_store(): ComplaintStore

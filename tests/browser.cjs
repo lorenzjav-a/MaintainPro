@@ -13,6 +13,17 @@ let socket, counter = 0, checks = 0;
 const pending = new Map(), contexts = [], errors = [];
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 function check(ok, label) { if (!ok) throw new Error('FAIL: ' + label); checks++; }
+function latestInvitationToken() {
+  const mailbox=process.env.BR_TEST_MAILBOX;
+  if (!mailbox || !fs.existsSync(mailbox)) throw new Error('Invitation mailbox unavailable.');
+  const messages=fs.readFileSync(mailbox,'utf8').trim().split(/\r?\n/).filter(Boolean).map(line=>JSON.parse(line));
+  for (let index=messages.length-1;index>=0;index--) {
+    const decoded=String(messages[index].body || '').replace(/=\r?\n/g,'').replace(/=([0-9A-F]{2})/gi,(_,hex)=>String.fromCharCode(parseInt(hex,16)));
+    const match=decoded.match(/account-setup(?:\.php)?\?token=([a-f0-9]{64})/i);
+    if (match) return match[1].toLowerCase();
+  }
+  throw new Error('Invitation token missing from local SMTP inbox.');
+}
 async function until(test, label, timeout = 12000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) { try { const result = await test(); if (result) return result; } catch {} await delay(60); }
@@ -36,7 +47,7 @@ async function tab() {
   await send('Emulation.setDeviceMetricsOverride', {width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false});
   const evaluate = async expression => {
     const result = await send('Runtime.evaluate', {expression, returnByValue: true, awaitPromise: true});
-    if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+    if (result.exceptionDetails) throw new Error((result.exceptionDetails.exception?.description || result.exceptionDetails.text) + '\nExpression: ' + expression.slice(0, 500));
     return result.result.value;
   };
   const ready = async (pathname, selector = 'h1,h2') => until(() => evaluate('location.pathname === ' + JSON.stringify(pathname) + ' && document.readyState === "complete" && !!document.querySelector(' + JSON.stringify(selector) + ')'), pathname + ' ready');
@@ -154,6 +165,7 @@ async function tab() {
     await official.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
     check(await official.evaluate('document.querySelector("h1").textContent === "Official dashboard"'), 'official dashboard');
     check(await official.evaluate('!!document.querySelector(".theme-switcher-workspace[data-theme-toggle]") && getComputedStyle(document.querySelector(".topbar")).backgroundColor!=="rgba(0, 0, 0, 0)"'), 'official workspace uses the shared theme control');
+    check(await official.evaluate('(()=>{const button=document.querySelector(".saved-toolbar [data-logout]");return !!button && button.classList.contains("btn-danger") && getComputedStyle(button).backgroundColor==="rgb(220, 53, 69)"})()'), 'top workspace sign-out button uses the red danger treatment');
     check(await official.evaluate('(()=>{const controls=Array.from(document.querySelectorAll(".btn,.icon-btn,.link-button,.nav-link,.filter-tab,.open-case-btn")).filter(el=>el.getClientRects().length&&!el.disabled);return controls.length>5&&controls.every(el=>parseFloat(getComputedStyle(el).transitionDuration)>0)})()'), 'visible workspace buttons and navigation use shared smooth transitions');
     const hoverPoint = await official.evaluate('(()=>{const box=document.querySelector(".btn-primary").getBoundingClientRect();return {x:box.left+box.width/2,y:box.top+box.height/2}})()');
     await official.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:hoverPoint.x,y:hoverPoint.y}); await delay(380);
@@ -165,6 +177,7 @@ async function tab() {
     check(await official.evaluate('document.documentElement.dataset.theme==="dark" && getComputedStyle(document.querySelector(".topbar")).backgroundColor!=="rgb(255, 255, 255)" && getComputedStyle(document.querySelector(".panel")).color===getComputedStyle(document.body).color'), 'official dashboard components use dark theme colors');
     await official.click('[data-logout]'); await official.waitFor('.swal2-popup');
     check(await official.evaluate('getComputedStyle(document.querySelector(".swal2-popup")).backgroundColor===getComputedStyle(document.querySelector(".panel")).backgroundColor'), 'SweetAlert dialog follows dark theme');
+    check(await official.evaluate('document.querySelector(".swal2-confirm").classList.contains("swal2-confirm-danger") && getComputedStyle(document.querySelector(".swal2-confirm")).backgroundColor==="rgb(220, 53, 69)"'), 'sign-out confirmation uses the red danger treatment');
     await official.screenshot('official-dashboard-dark-dialog');
     await official.click('.swal2-cancel');
     await official.click('[data-theme-toggle]');
@@ -175,6 +188,7 @@ async function tab() {
     await official.submit('profile', {current_password:password});
     await until(()=>official.evaluate('Array.from(document.querySelectorAll("img.avatar")).length>=3 && Array.from(document.querySelectorAll("img.avatar")).every(img=>img.complete&&img.naturalWidth>0)'), 'saved profile photo renders');
     check(await official.evaluate('document.querySelector(".profile-photo-picker").getBoundingClientRect().width>0 && document.querySelector("#profile-photo").accept.includes("image/webp") && !!document.querySelector("[data-choose-profile-photo]")'), 'profile photo controls render with supported image types and an accessible photo action');
+    check(await official.evaluate('document.querySelector("[data-remove-profile-photo]").classList.contains("btn-danger") && getComputedStyle(document.querySelector("[data-remove-profile-photo]")).backgroundColor==="rgb(220, 53, 69)"'), 'remove-photo action uses the red danger treatment');
     await official.click('[data-remove-profile-photo]');
     check(await official.evaluate('document.querySelector("#profile-photo-remove").value === "1" && document.querySelector("[data-remove-profile-photo]").hidden && !document.querySelector("[data-preview=profile-photo] img") && document.querySelector("#profile-photo-status").textContent.includes("permanently removed")'), 'remove photo is a one-way pending action with clear status');
     await setPhoto(official, '#profile-photo');
@@ -185,12 +199,16 @@ async function tab() {
     await official.screenshot('profile-photo-desktop');
     await official.go('user-create.php');
     await official.submit('create_user', {name: 'Browser Personnel', email: 'personnel@example.test', role: 'personnel', team: 'Maintenance crew', current_password:password});
-    const temporary = await official.evaluate('document.getElementById("created-password").value');
-    check(temporary.startsWith('MP-'), 'temporary credential shown');
-    await personnel.go('login.php'); await personnel.screenshot('staff-login-desktop'); await personnel.auth('login', {email: 'personnel@example.test', password: temporary});
-    await personnel.ready('/login.php', '#temporary-password');
-    check(await personnel.evaluate('document.querySelector("#auth-form").dataset.action === "change_password"'), 'temporary password gate');
-    await personnel.auth('change_password', {current_password: temporary, password, confirm_password: password}); await personnel.ready('/index.php');
+    check(await official.evaluate('!document.getElementById("created-password") && document.querySelector("[data-created=status]").textContent.includes("Pending Setup") && document.querySelector("[data-invitation-result]").textContent.includes("invitation")'), 'creation shows Pending Setup without a credential');
+    const invitationToken=latestInvitationToken();
+    await personnel.send('Page.navigate',{url:base+'/account-setup?token='+invitationToken});
+    await until(()=>personnel.evaluate('location.pathname==="/account-setup" && !location.search && !!document.querySelector("#auth-form[data-action=accept_invitation]")'),'clean extensionless invitation setup page');
+    await personnel.fill('#account-password',password); await personnel.fill('#confirm-password',password);
+    check(await personnel.evaluate('document.querySelector("[data-password-strength]").textContent.includes("strong")'), 'setup page gives password strength guidance');
+    await personnel.click('#auth-form button[type=submit]');
+    await until(()=>personnel.evaluate('location.pathname==="/login.php" && document.readyState==="complete"'),'invitation activation redirects to sign in');
+    await personnel.screenshot('staff-login-desktop');
+    await personnel.auth('login',{email:'personnel@example.test',password}); await personnel.ready('/index.php');
     check(await personnel.evaluate('!!document.querySelector(".theme-switcher-workspace[data-theme-toggle]")'), 'personnel workspace uses the shared theme control');
     if (process.env.BR_TEST_ACCOUNTS_ONLY === '1') {
       check(await official.evaluate('location.pathname === "/user-create.php" && !document.getElementById("created-account").hidden'), 'account result stays inside MaintainPro');
@@ -250,11 +268,14 @@ async function tab() {
     check(await personnel.evaluate('document.querySelector("h1").textContent === "My work dashboard"'), 'personnel dashboard');
     await guest.go('landing.php');
     check(await guest.evaluate('!!document.querySelector("a[href=\\"report-concern.php\\"]")'), 'public landing action');
-    check(await guest.evaluate('(()=>{const links=Array.from(document.querySelectorAll(".public-header nav .public-nav-link")),heights=links.map(link=>link.getBoundingClientRect().height),tops=links.map(link=>link.getBoundingClientRect().top),secondary=getComputedStyle(links[0]),cta=getComputedStyle(links[4]);return links.length===5 && Math.max(...heights)-Math.min(...heights)<=1 && Math.max(...tops)-Math.min(...tops)<=1 && secondary.textDecorationLine==="none" && secondary.cursor==="pointer" && parseFloat(secondary.minHeight)>=44 && cta.backgroundColor!==secondary.backgroundColor})()'), 'public navigation uses aligned section links and a distinct login CTA');
+    check(await guest.evaluate('(()=>{const links=Array.from(document.querySelectorAll(".public-header nav .public-nav-link")),heights=links.map(link=>link.getBoundingClientRect().height),tops=links.map(link=>link.getBoundingClientRect().top),secondary=getComputedStyle(links[0]),cta=getComputedStyle(document.querySelector(".public-nav-cta"));return links.length===6 && !!document.querySelector(".public-header a[href=\\"track.php\\"]") && Math.max(...heights)-Math.min(...heights)<=1 && Math.max(...tops)-Math.min(...tops)<=1 && secondary.textDecorationLine==="none" && secondary.cursor==="pointer" && parseFloat(secondary.minHeight)>=44 && cta.backgroundColor!==secondary.backgroundColor})()'), 'public navigation includes tracking with aligned section links and a distinct login CTA');
     check(await guest.evaluate('document.querySelectorAll(".landing-benefit").length===3 && document.querySelectorAll(".process-step").length===4 && document.querySelectorAll(".landing-feature-card").length===4 && document.querySelectorAll(".landing-role").length===3 && document.querySelectorAll(".faq-item").length===6'), 'landing page includes the complete benefits, workflow, features, roles and FAQ content');
     await guest.evaluate('document.querySelector(".public-nav-link").focus()');
     check(await guest.evaluate('(()=>{const link=document.activeElement,style=getComputedStyle(link);return link.matches(".public-nav-link") && style.outlineStyle!=="none" && parseFloat(style.outlineWidth)>=3})()'), 'public navigation has a visible keyboard focus state');
     await guest.screenshot('landing-desktop');
+    await guest.click('.landing-actions a[href="track.php"]');
+    await guest.ready('/track.php');
+    check(await guest.evaluate('!!document.getElementById("public-track") && !document.getElementById("account-tracking-heading")'), 'landing tracking button opens guest tracking without sign-in');
     await guest.send('Emulation.setDeviceMetricsOverride', {width:768,height:900,deviceScaleFactor:1,mobile:false});
     await guest.go('landing.php');
     check(await guest.evaluate('(()=>{const toggle=document.querySelector("[data-public-menu-toggle]"),nav=document.querySelector("[data-public-navigation]");return document.documentElement.scrollWidth<=innerWidth && getComputedStyle(toggle).display==="grid" && getComputedStyle(nav.querySelector(".public-nav-link")).display==="none" && nav.querySelector("[data-theme-toggle]").getClientRects().length===1})()'), 'tablet navigation collapses while keeping the theme switch accessible');
@@ -310,6 +331,7 @@ async function tab() {
     await official.go(detail);
     check(await disclosureStyled(official, '[data-workflow-section="link-concern"] > summary'), 'concern workflow options use the shared disclosure control');
     check(await actionPanelInset(official, 'assess'), 'official assessment form has balanced action-panel spacing');
+    check(await official.evaluate('(()=>{const form=document.querySelector("form[data-action=exception]"),button=form?.querySelector("button[type=submit]");return !!form && form.querySelector("[name=status]").value==="Rejected" && !form.querySelector("select,[name=office],#office-wrap") && button.textContent.trim()==="Reject concern" && getComputedStyle(button).backgroundColor==="rgb(220, 53, 69)"})()'), 'assessment offers rejection only with a red danger action');
     check(await official.evaluate('document.getElementById("concern-message-thread")?.textContent.includes("Guest browser reply")'), 'official sees guest message');
     await official.fill('#concern-message-body', 'Staff-only browser note'); await official.fill('#concern-message-visibility', 'staff'); await official.click('#concern-message-form button');
     await until(() => official.evaluate('document.getElementById("concern-message-thread").textContent.includes("Staff-only browser note")'), 'staff-only note appears');
@@ -369,15 +391,19 @@ async function tab() {
     const stale = await tab(); await stale.go('login.php'); await stale.auth('login', {email:'official@example.test',password}); await stale.ready('/index.php'); await stale.go(detail);
     await official.submit('assess', {priority:'High',recommendation:'Qualified staff should inspect and repair.'});
     check(await workflowSectionVisible(official, 'assignment'), 'assessment reload restores the next workflow section');
-    check(await official.evaluate('document.body.textContent.includes("Recommended personnel: Browser Personnel") && document.querySelector("[name=personnelId]").textContent.includes("0 active")'), 'assignment shows workload and recommended personnel');
+    check(await official.evaluate('document.body.textContent.includes("Recommended team/crew: Maintenance crew") && document.querySelector("form[data-action=assign] [name=team]").value==="Maintenance crew" && !document.querySelector("form[data-action=assign] [name=personnelId]")'), 'assignment recommends a team without individual selection');
     await stale.fill('#recommendation', 'Unsaved draft'); await stale.click('form[data-action=assess] button[type=submit]');
     await until(() => stale.evaluate('document.querySelector(".swal2-title")?.textContent === "This concern has changed"'), 'stale warning');
     await stale.click('.swal2-cancel');
     check(await stale.evaluate('document.getElementById("recommendation").value === "Unsaved draft" && document.querySelector("[data-version]").dataset.version === "1"'), 'conflict preserves draft');
-    await official.submit('assign', {personnelId:staffId});
+    await official.submit('assign', {team:'Maintenance crew'});
     check(await workflowSectionVisible(official, 'assignment'), 'assignment reload keeps the assignment context visible');
-    check(await official.evaluate('document.body.textContent.includes("Personnel email sent")'), 'assignment mail notice');
-    await personnel.go('complaints.php'); await personnel.click('.open-case-btn'); await personnel.ready('/complaint.php');
+    check(await official.evaluate('document.body.textContent.includes("Team assignment saved") && document.body.textContent.includes("1 of 1 personnel email sent")'), 'team assignment mail notice');
+    await personnel.go('complaints.php');
+    check(await personnel.evaluate('document.querySelector("[data-workflow-section=team-work-offers]")?.textContent.includes("Pending Work Offers")'), 'personnel queue shows the team work offer');
+    await personnel.click('[data-workflow-section=team-work-offers] .case-link'); await personnel.ready('/complaint.php');
+    check(await personnel.evaluate('document.querySelector("form[data-action=accept_work]")?.closest(".action-panel")?.classList.contains("action-primary")'), 'pending offer uses the shared action-panel layout');
+    await personnel.submit('accept_work', {}, true);
     check(await actionPanelInset(personnel, 'start'), 'personnel work form has balanced action-panel spacing');
     check(await personnel.evaluate('document.querySelector("form[data-action=start] input[type=file]").required'), 'start evidence input required');
     await setPhoto(personnel, '#start-photo'); await personnel.click('form[data-action=start] [name=actions][value=Inspection]');
@@ -386,6 +412,7 @@ async function tab() {
     await setPhoto(personnel, '#note-photo'); await personnel.click('form[data-action=note] [name=actions][value=Inspection]');
     await personnel.submit('note', {workStatus:'Inspection completed'});
     check(await workflowSectionVisible(personnel, 'work-progress'), 'progress-note reload keeps the progress section visible');
+    check(await personnel.evaluate('getComputedStyle(document.querySelector("form[data-action=block] button[type=submit]")).backgroundColor==="rgb(220, 53, 69)"'), 'blocked-work action uses the red danger treatment');
     await personnel.submit('block', {blockReason:'Waiting for Materials', recommendedAction:'Supply replacement fixture', expectedAt:'2026-12-30'}, true);
     check(await workflowSectionVisible(personnel, 'blocked-status'), 'blocked-work reload restores the blocked status section');
     check(await personnel.evaluate('!!document.querySelector(".workflow-step.paused[aria-current=step]") && document.querySelector(".workflow-explanation").textContent.includes("blocked or delayed")'), 'blocked stepper identifies paused work');
@@ -443,6 +470,10 @@ async function tab() {
     await official.go('user-edit.php?id=' + staffId);
     await official.submit('update_user', {name:'Updated Personnel',email:'updated@example.test',current_password:password});
     check(await official.evaluate('document.body.textContent.includes("updated@example.test")'), 'staff name and email edit');
+    await official.go('user-edit.php?id=' + staffId);
+    await official.fill('#user-active', '0');
+    check(await official.evaluate('(()=>{const button=document.querySelector("[data-account-submit]");return button.classList.contains("btn-danger") && getComputedStyle(button).backgroundColor==="rgb(220, 53, 69)"})()'), 'account save action turns red when deactivation is selected');
+    await official.fill('#user-active', '1');
     await personnel.go('reports.php'); check(await personnel.evaluate('document.querySelector("h1").textContent === "Access denied"'), 'personnel direct URL blocked');
     await official.go('complaints.php?search=' + reference);
     const filtered = await official.evaluate('location.href');
@@ -458,12 +489,13 @@ async function tab() {
     await official.click('form[data-action=create_location] button');
     await until(() => official.evaluate('location.search.includes("saved=create_location") && document.readyState==="complete"'), 'location created');
     check(await official.evaluate('!!document.querySelector("form[data-action=update_location]")'), 'location management form saves');
+    check(await official.evaluate('(()=>{const button=document.querySelector("form[data-action=delete_location] button");return !!button && button.textContent.includes("Delete") && getComputedStyle(button).backgroundColor==="rgb(220, 53, 69)"})()'), 'location deletion uses the red danger treatment');
     await official.screenshot('settings-desktop');
     await guest.go('report-concern.php');
-    check(await guest.evaluate('!!document.querySelector("select[name=locationId][required]") && !document.querySelector("input[name=purok]")'), 'resident chooses configured location');
+    check(await guest.evaluate('!!document.querySelector("select[name=locationId][required]") && Array.from(document.querySelector("select[name=locationId]").options).some(option=>option.textContent.includes("PRIVATE-PUROK"))'), 'resident chooses an active Barangay, Purok or Sitio location');
+    const managedLocationId = await guest.evaluate('Array.from(document.querySelector("select[name=locationId]").options).find(option=>option.textContent.includes("PRIVATE-PUROK")).value');
     await guest.fill('[name=category]', 'Street Lighting'); await guest.fill('[name=concernType]', 'Light not working');
-    const locationId = await guest.evaluate('document.querySelector("[name=locationId] option:nth-child(2)").value');
-    await guest.fill('[name=locationId]', locationId); await guest.fill('[name=street]', 'PRIVATE-STREET'); await guest.fill('[name=exactArea]', 'PRIVATE-GATE');
+    await guest.fill('[name=locationId]', managedLocationId); await guest.fill('[name=street]', 'PRIVATE-STREET'); await guest.fill('[name=exactArea]', 'PRIVATE-GATE');
     await guest.click('#public-report button[type=submit]');
     await until(() => guest.evaluate('!document.getElementById("receipt").hidden'), 'managed location receipt');
     const followRef = await guest.evaluate('document.getElementById("receipt-reference").value');
@@ -471,6 +503,12 @@ async function tab() {
     const followDetail = 'complaint.php?id=' + followRef;
     await official.go(followDetail);
     await official.submit('request_information', {notes:'Which side of the crossing?'}, true);
+    check(await official.evaluate('document.querySelector(".case-summary").textContent.includes("Submitted") && !!document.querySelector("form[data-action=assess]") && document.querySelector("[data-workflow-section=waiting-information]").textContent.includes("may continue") && !document.querySelector(".workflow-step.current.paused")'), 'information request remains pending without pausing official progress');
+    await official.screenshot('information-request-nonblocking-desktop');
+    await official.send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth && !!document.querySelector("[data-workflow-section=waiting-information]") && !!document.querySelector("form[data-action=assess]")'), 'non-blocking information request and assessment fit mobile');
+    await official.screenshot('information-request-nonblocking-mobile');
+    await official.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     await guest.go('track.php'); await guest.fill('[name=reference]', followRef); await guest.fill('[name=trackingCode]', followCode); await guest.click('#public-track button');
     await until(() => guest.evaluate('document.querySelector("#public-followup")?.getClientRects().length > 0 && !document.querySelector("#public-followup button[type=submit]").disabled'), 'reporter followup form ready');
     check(await guest.evaluate('document.getElementById("tracking-result").textContent.includes("Which side of the crossing?")'), 'official information request visible on tracking');
@@ -482,7 +520,7 @@ async function tab() {
     });
     await guest.screenshot('followup-tracking-desktop');
     await official.go(followDetail);
-    check(await official.evaluate('document.querySelector(".resident-response-section").textContent.includes("The east side") && document.querySelector(".case-summary").textContent.includes("Submitted")'), 'staff sees reporter response and return to assessment');
+    check(await official.evaluate('document.querySelector(".resident-response-section").textContent.includes("The east side") && document.querySelector(".case-summary").textContent.includes("Submitted")'), 'staff sees reporter response without regressing concern progress');
     await official.submit('link_concern', {primaryConcernId:reference}, true);
     check(await official.evaluate('!document.querySelector(".workflow-step.complete,.workflow-step[aria-current=step]") && document.querySelector(".workflow-explanation").textContent.includes("linked primary")'), 'linked stepper does not claim this report was repaired');
     check(await official.evaluate('document.getElementById("linked-reports").textContent.includes('+JSON.stringify(reference)+') && !document.querySelector("form[data-action=edit]")'), 'linked report displays primary and prevents duplicate actions');
@@ -511,7 +549,7 @@ async function tab() {
       await client.go('report-concern.php');
       check(await client.evaluate('!!document.querySelector(".shell") && document.querySelector("#public-report").dataset.action === "submit" && document.body.textContent.includes("0 of 3 concern submissions used today.")'), role+' shared report form and allowance');
       await client.fill('[name=category]','Waste Management'); await client.fill('[name=concernType]','Uncollected garbage');
-      await client.fill('[name=locationId]',locationId); await client.fill('[name=street]','Reporting Street'); await client.fill('[name=exactArea]','Crossing');
+      await client.fill('[name=locationId]',managedLocationId); await client.fill('[name=street]','Reporting Street'); await client.fill('[name=exactArea]','Crossing');
       await client.click('[name=isAnonymous]');
       await client.screenshot(role+'-report-desktop');
       await client.submit('submit');
@@ -548,10 +586,11 @@ async function tab() {
     }
     await official.send('Emulation.setDeviceMetricsOverride', {width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     await official.evaluate('document.getElementById("weekly-concerns").scrollIntoView({block:"start"})');
-    check(await official.evaluate('document.getElementById("weekly-concerns").textContent.includes("Uncollected garbage") && document.getElementById("weekly-concerns").textContent.includes("Common keypoints") && document.getElementById("weekly-concerns").textContent.includes("Suggested solutions") && document.querySelectorAll("#weekly-concerns .weekly-concern:first-of-type > ol > li").length === 3'), 'weekly concerns and three keypoint solutions shown');
+    check(await official.evaluate('document.getElementById("weekly-concerns").textContent.includes("Uncollected garbage") && document.getElementById("weekly-concerns").textContent.includes("Common keypoints") && document.getElementById("weekly-concerns").textContent.includes("Suggested solutions") && document.querySelectorAll("#weekly-concerns .weekly-concern:first-of-type .weekly-general-actions > ol > li").length === 3 && getComputedStyle(document.querySelector("#weekly-concerns .weekly-concern-layout")).gridTemplateColumns.split(" ").length === 2 && getComputedStyle(document.querySelector("#weekly-concerns .weekly-action-grid")).gridTemplateColumns.split(" ").length === 2'), 'weekly concerns preserve solutions in a balanced two-column desktop layout');
     await official.screenshot('weekly-concerns-desktop');
     await official.click('#weekly-concerns a[href^="action-plans.php?rule="]');
     await official.ready('/action-plans.php','form[data-action=create_action_plan]');
+    check(await official.evaluate('document.querySelectorAll(".action-plan-context > div").length===4 && getComputedStyle(document.querySelector(".action-plan-form-grid")).gridTemplateColumns.split(" ").length===2 && ["ruleId","ruleVersion","requestKey","title","notes","team","personnelId","targetDate"].every(name=>document.querySelector(`form[data-action=create_action_plan] [name="${name}"]`))'), 'create action plan keeps its contract and uses contextual two-column grouping');
     await official.fill('form[data-action=create_action_plan] [name=title]','Weekly safety inspection');
     await official.fill('form[data-action=create_action_plan] [name=team]','Maintenance crew');
     await official.fill('form[data-action=create_action_plan] [name=personnelId]',staffId);
@@ -562,7 +601,7 @@ async function tab() {
     await official.fill('form[data-action=update_action_plan] [name=status]','Completed');
     await official.fill('form[data-action=update_action_plan] [name=outcome]','Inspected and secured the site.');
     await official.click('form[data-action=update_action_plan] button[type=submit]');
-    await until(()=>official.evaluate('location.search.includes("saved=update_action_plan") || !!document.querySelector(".swal2-title")'),'plan completion response through UI');
+    await until(()=>official.evaluate('(document.readyState === "complete" && location.search.includes("saved=update_action_plan") && !!document.querySelector("form[data-action=update_action_plan] [name=version]")) || !!document.querySelector(".swal2-title")'),'plan completion response through UI');
     const planCompletionState = await official.evaluate('({url:location.href,version:document.querySelector("form[data-action=update_action_plan] [name=version]")?.value || "",dialog:document.querySelector(".swal2-html-container")?.textContent || ""})');
     check(planCompletionState.url.includes('saved=update_action_plan') && planCompletionState.version === '2', 'plan completed through UI: ' + JSON.stringify(planCompletionState));
     check(await official.evaluate('document.querySelector("[name=status]").value === "Completed" && document.body.textContent.includes("Completed")'),'plan completion retained');
@@ -580,7 +619,7 @@ async function tab() {
     check(await official.evaluate('document.querySelectorAll(".complaint-table tbody tr").length === 3 && document.querySelector(".complaint-table").textContent.includes("Anonymous")'), 'weekly related link includes all three anonymous role reports');
     for (let i=0;i<2;i++) {
       await resident.go('report-concern.php');
-      await resident.submit('submit',{category:'Waste Management',concernType:'Uncollected garbage',locationId,street:'Reporting Street',exactArea:'Crossing'});
+      await resident.submit('submit',{category:'Waste Management',concernType:'Uncollected garbage',locationId:managedLocationId,street:'Reporting Street',exactArea:'Crossing'});
     }
     await resident.go('report-concern.php');
     check(await resident.evaluate('document.querySelector("#public-report button[type=submit]").disabled && document.body.textContent.includes("3 of 3 concern submissions used today.")'), 'daily limit visible after UI submissions');
@@ -595,12 +634,12 @@ async function tab() {
     check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth && getComputedStyle(document.querySelector(".report-section-heading > p")).textAlign === "left" && getComputedStyle(document.querySelector(".report-quality-grid")).gridTemplateColumns.split(" ").length === 1'), 'reports stack cleanly on mobile without overflow');
     await official.screenshot('reports-overview-mobile');
     await official.evaluate('document.getElementById("weekly-concerns").scrollIntoView({block:"start"})');
-    check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth && getComputedStyle(document.querySelector("#weekly-concerns .panel-title")).fontSize === getComputedStyle(document.querySelector(".report-grid .panel-title")).fontSize'), 'weekly panel matches shared mobile panel typography and fits');
+    check(await official.evaluate('document.documentElement.scrollWidth<=innerWidth && getComputedStyle(document.querySelector("#weekly-concerns .panel-title")).fontSize === getComputedStyle(document.querySelector(".report-grid .panel-title")).fontSize && getComputedStyle(document.querySelector("#weekly-concerns .weekly-concern-layout")).gridTemplateColumns.split(" ").length===1 && getComputedStyle(document.querySelector("#weekly-concerns .weekly-action-grid")).gridTemplateColumns.split(" ").length===1'), 'weekly panel matches shared mobile typography, stacks cleanly, and fits');
     await official.screenshot('weekly-concerns-mobile');
     for (const page of ['landing.php','report-concern.php','track.php','transparency.php','user-guide.php','login.php','login.php?view=forgot']) {
       await guest.go(page); check(await guest.evaluate('document.documentElement.scrollWidth <= innerWidth'), page + ' fits mobile');
       if (page === 'landing.php') {
-        check(await guest.evaluate('(()=>{const nav=document.querySelector(".public-header nav"),links=Array.from(nav.querySelectorAll(".public-nav-link"));return links.length===5 && links.every(link=>getComputedStyle(link).display==="none") && nav.querySelector("[data-theme-toggle]").getClientRects().length===1})()'), 'mobile public navigation is compact and keeps theme switching available');
+        check(await guest.evaluate('(()=>{const nav=document.querySelector(".public-header nav"),links=Array.from(nav.querySelectorAll(".public-nav-link"));return links.length===6 && !!nav.querySelector("a[href=\\"track.php\\"]") && links.every(link=>getComputedStyle(link).display==="none") && nav.querySelector("[data-theme-toggle]").getClientRects().length===1})()'), 'mobile public navigation includes tracking and keeps theme switching available');
         await guest.click('[data-public-menu-toggle]');
         check(await guest.evaluate('(()=>{const nav=document.querySelector(".public-header nav");return nav.classList.contains("is-open") && Array.from(nav.querySelectorAll(".public-nav-link")).every(link=>link.getBoundingClientRect().width>0 && link.getBoundingClientRect().right<=innerWidth)})()'), 'mobile public navigation expands without overflow');
       }
@@ -675,14 +714,39 @@ async function tab() {
     await official.go(detail);
     check(await official.evaluate('(()=>{const layout=document.querySelector(".case-layout"),main=document.querySelector(".case-main"),timeline=document.querySelector(".case-timeline");return document.documentElement.scrollWidth<=innerWidth && getComputedStyle(layout).gridTemplateColumns.split(" ").length===1 && main.getBoundingClientRect().width===timeline.getBoundingClientRect().width})()'), 'tablet concern detail stacks content and timeline without horizontal overflow');
     await official.screenshot('concern-tablet');
+    // Tracking is reachable by every account role and retains the guest-code path.
+    for (const width of [1440,390]) {
+      for (const [client,role] of [[official,'official'],[personnel,'personnel'],[resident,'resident']]) {
+        await client.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});
+        await client.go('index.php');
+        if (width<768) {
+          await client.click('.mobile-dock button[data-menu]');
+          check(await client.evaluate('(()=>{const link=document.querySelector(".sidebar a[href=\\"track.php\\"]");return !!link && link.getBoundingClientRect().height>=44})()'), role+' has reachable mobile Track Concern navigation');
+          await client.click('.sidebar a[href="track.php"]');
+        } else await client.click('.heading-actions a[href="track.php"]');
+        await client.ready('/track.php');
+        check(await client.evaluate('!!document.querySelector(".sidebar a[href=\\"track.php\\"][aria-current=page]") && !!document.getElementById("account-tracking-heading") && !!document.getElementById("public-track") && document.documentElement.scrollWidth<=innerWidth'), role+' tracking paths fit at '+width);
+        await client.click('section[aria-labelledby="account-tracking-heading"] a');
+        await client.ready('/complaints.php');
+        check(await client.evaluate('location.search==="?scope=mine"'), role+' account tracking opens only own reports');
+        await client.go('track.php');
+        await client.fill('[name=reference]',reference); await client.fill('[name=trackingCode]',trackingCode); await client.click('#public-track button');
+        await until(()=>client.evaluate('!document.getElementById("tracking-result").hidden && !document.getElementById("guest-chat-launcher").hidden'),role+' private tracking result');
+        check(await client.evaluate('!document.getElementById("tracking-result").textContent.includes("PRIVATE") && !document.getElementById("chat-widget-launcher")'),role+' private tracking keeps safe results and a single chat launcher');
+        await client.click('#guest-chat-launcher');
+        await until(()=>client.evaluate('!document.getElementById("guest-conversation").hidden'),role+' tracking conversation opens');
+        check(await client.evaluate('(()=>{const box=document.getElementById("guest-conversation").getBoundingClientRect(),launcher=document.getElementById("guest-chat-launcher").getBoundingClientRect(),dock=document.querySelector(".mobile-dock"),limit=getComputedStyle(dock).display==="none"?innerHeight:dock.getBoundingClientRect().top;return box.left>=0 && box.right<=innerWidth && box.top>=0 && box.bottom<=limit && launcher.bottom<=limit})()'),role+' tracking conversation avoids mobile navigation at '+width);
+        await client.screenshot('tracking-'+role+'-'+width);
+      }
+    }
     // Shared design changes affect every role. Use existing disposable fixtures.
     const reviewPages = [
       [guest,'public',['landing.php','report-concern.php','track.php','transparency.php','user-guide.php','login.php','login.php?view=forgot']],
-      [official,'official',['index.php','complaints.php',detail,'reports.php','messages.php','action-plans.php','users.php','user-create.php','admin.php','settings.php','audit.php','blocked.php','official-solutions.php','solutions.php','profile.php','notifications.php','history.php']],
-      [personnel,'personnel',['index.php','complaints.php','my-action-plans.php','messages.php','profile.php','notifications.php']],
-      [resident,'resident',['index.php','complaints.php?scope=mine','report-concern.php','profile.php','notifications.php']]
+      [official,'official',['index.php','track.php','complaints.php',detail,'reports.php','messages.php','action-plans.php','users.php','user-create.php','admin.php','settings.php','audit.php','blocked.php','official-solutions.php','solutions.php','profile.php','notifications.php','history.php']],
+      [personnel,'personnel',['index.php','track.php','complaints.php','my-action-plans.php','messages.php','profile.php','notifications.php']],
+      [resident,'resident',['index.php','track.php','complaints.php?scope=mine','report-concern.php','profile.php','notifications.php']]
     ];
-    for (const width of [1440,1280,1024,768,430,390]) {
+    for (const width of [1920,1440,1280,1024,768,430,390,375]) {
       for (const [client,role,pages] of reviewPages) {
         await client.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});
         for (const page of pages) {
@@ -692,6 +756,8 @@ async function tab() {
           const fits = await client.evaluate('document.documentElement.scrollWidth<=innerWidth && !document.body.textContent.includes("Unable to complete this request")');
           if (!fits) console.error(await client.evaluate('Array.from(document.querySelectorAll("body *")).filter(el=>{const r=el.getBoundingClientRect();return r.width && (r.right>innerWidth+1 || r.left< -1) && getComputedStyle(el).position!=="fixed"}).slice(0,12).map(el=>({tag:el.tagName,class:el.className,width:el.getBoundingClientRect().width,right:el.getBoundingClientRect().right}))'));
           check(fits, role+' '+page+' fits and renders at '+width);
+          if (role==='official' && page==='audit.php' && width>=1280) check(await client.evaluate('(()=>{const controls=Array.from(document.querySelectorAll(".audit-filter-form .form-control,.audit-filter-form .form-select,.audit-filter-form .btn")),bottoms=controls.map(control=>Math.round(control.getBoundingClientRect().bottom)),heights=controls.map(control=>Math.round(control.getBoundingClientRect().height));return controls.length===4 && Math.max(...bottoms)-Math.min(...bottoms)<=1 && Math.max(...heights)-Math.min(...heights)<=1})()'), 'audit filters align at '+width);
+          if (role==='official' && page==='action-plans.php' && width>=1024) check(await client.evaluate('(()=>{const controls=Array.from(document.querySelectorAll(".action-plan-filter-form .form-control,.action-plan-filter-form .form-select,.action-plan-filter-form .btn")),bottoms=controls.map(control=>Math.round(control.getBoundingClientRect().bottom)),heights=controls.map(control=>Math.round(control.getBoundingClientRect().height));return controls.length===3 && Math.max(...bottoms)-Math.min(...bottoms)<=1 && Math.max(...heights)-Math.min(...heights)<=1})()'), 'action plan filters align at '+width);
           if (width<650 && await client.evaluate('!!document.querySelector(".record-table")')) check(await client.evaluate('Array.from(document.querySelectorAll(".record-table")).every(table=>getComputedStyle(table).display==="block" && table.getBoundingClientRect().width<=table.parentElement.getBoundingClientRect().width+1)'), role+' '+page+' stacks operational records at '+width);
         }
       }
@@ -699,10 +765,10 @@ async function tab() {
     // Representative dark-theme coverage for every interface family. The
     // broader loop above already verifies every page and target width in light mode.
     const darkReviewPages = [
-      [guest,'public',['landing.php','report-concern.php','login.php']],
-      [official,'official',['index.php',detail,'reports.php','settings.php']],
-      [personnel,'personnel',['index.php','complaints.php']],
-      [resident,'resident',['index.php','report-concern.php']]
+      [guest,'public',['landing.php','track.php','report-concern.php','login.php']],
+      [official,'official',['index.php','track.php',detail,'reports.php','settings.php']],
+      [personnel,'personnel',['index.php','track.php','complaints.php']],
+      [resident,'resident',['index.php','track.php','report-concern.php']]
     ];
     for (const width of [1440,390]) {
       for (const [client,role,pages] of darkReviewPages) {

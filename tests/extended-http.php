@@ -44,9 +44,9 @@ httpCheck(post($adminJar, 'create_location', ['name' => 'Purok 5'], $adminCsrf)[
 $locationId = (string)$isolatedStore->locations()[0]['id'];
 pageHas(pageDocument($guestJar, 'report-concern.php'), '//select[@name="locationId"]//option[@value="' . $locationId . '"]', 'report uses managed location choices');
 httpCheck(post($adminJar, 'update_location', ['name' => 'Purok Five', 'sortOrder' => '1'], $adminCsrf, $locationId)['status'] === 200, 'location edit endpoint');
-httpCheck(post($adminJar, 'toggle_location', [], $adminCsrf, $locationId)['status'] === 200, 'location deactivate endpoint');
-httpCheck(!str_contains(req($guestJar, 'report-concern.php')['body'], '<option value="' . $locationId . '"'), 'inactive location removed from public selection');
-httpCheck(post($adminJar, 'toggle_location', [], $adminCsrf, $locationId)['status'] === 200, 'location reactivate endpoint');
+httpCheck(post($otherJar, 'delete_location', [], $otherCsrf, $locationId)['status'] === 422, 'personnel cannot delete locations');
+httpCheck(post($adminJar, 'delete_location', [], $adminCsrf, $locationId)['status'] === 200, 'location delete endpoint');
+httpCheck(!str_contains(req($guestJar, 'report-concern.php')['body'], '<option value="' . $locationId . '"'), 'deleted location removed from public selection');
 httpCheck(req($adminJar, 'audit.php?date=invalid')['status'] === 422, 'invalid audit filter handled');
 httpCheck(str_contains(req($adminJar, 'audit.php?action=assignment_changed')['body'], 'Assignment Changed'), 'audit filters render records');
 function backupRequest(string $cookie, string $token, string $kind='database'): array {

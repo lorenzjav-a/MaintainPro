@@ -35,13 +35,17 @@ The migration account additionally needs `CREATE`, `ALTER`, `INDEX`, `REFERENCES
 
 Configure process environment values from `.env.example`; MaintainPro does not load a web-readable `.env` file. Generate independent `APP_KEY` and `APP_SETUP_KEY` values with at least 32 random characters. Set `APP_ENV=production`, `APP_DEBUG=false`, an HTTPS `APP_URL`, `APP_FORCE_HTTPS=true`, and strong database/SMTP credentials. Enable `APP_TRUST_PROXY` only behind a trusted reverse proxy that overwrites `X-Forwarded-Proto`. Rotate a secret immediately if it is exposed; removing it from the latest file does not invalidate it.
 
-Use authenticated SMTP with TLS/STARTTLS and valid certificate verification. Mail failures show safe messages and leave accounts unverified. Test mail from the CLI without printing credentials.
+Configure the Cloudflare Turnstile Managed widget with both `maintainprosystem.online` and `www.maintainprosystem.online` as allowed hostnames. Set `TURNSTILE_SITE_KEY=0x4AAAAAAFSjXDhs1cEh5_hi` and set `TURNSTILE_SECRET_KEY` to the corresponding private secret in Hostinger's environment configuration. Never upload the real secret in `.env`, PHP source, or a public directory. Production startup fails closed when either value is absent. For local automated testing, use Cloudflare's published test key pair rather than allowing `localhost` on the production widget.
+
+Use authenticated SMTP with TLS/STARTTLS and valid certificate verification. The canonical public URL is `https://www.maintainprosystem.online`; keep `APP_URL` set to that exact `www` HTTPS origin in production. Invitation links are built from this trusted value and production refuses insecure setup URLs. Legacy non-`www` requests are redirected to the canonical host while retaining the complete path and query string. Mail failures show safe messages and leave accounts in Pending Setup so an administrator can retry from the account page. Test mail from the CLI without printing credentials. On Hostinger, use the mailbox SMTP host, port, encryption and sender address shown in the Email Accounts configuration panel; do not commit them to the release.
+
+In Hostinger hPanel, make the `www` domain primary. If a domain redirect is configured there, redirect `maintainprosystem.online` to `https://www.maintainprosystem.online` with the path and query string retained. Do not use a destination that always replaces requests with the home page. After uploading a release, purge Hostinger CDN/cache, run `php database/setup.php` through SSH (or import only the unapplied migration through phpMyAdmin), and confirm `account_invitations` exists before resending Pending Setup invitations.
 
 ## 4. Server and files
 
 Use `deployment/apache-vhost.conf.example` or `deployment/nginx.conf.example` as a reviewed starting point. Redirect HTTP to HTTPS, disable directory listing, deny hidden files and private directories, and deny PHP/script execution in uploads. Application source and configuration should be owned by the deployment account and not writable by the web server. Grant the web server write access only to `uploads/evidence`, `uploads/profiles`, `.data/logs`, and the system session directory. Typical directory/file modes are `0750`/`0640`; do not use `0777`.
 
-Coordinate the application 1 MB image limit with `post_max_size=2M`, `upload_max_filesize=2M`, and a server request limit near 1.6 MB. Set `display_errors=Off`, `log_errors=On`, and rotate `.data/logs/maintainpro.log` using logrotate or the hosting platform. Logs and backups must never be web accessible.
+Coordinate the application 5 MB image limit with `post_max_size=10M`, `upload_max_filesize=6M`, and a web-server request limit of at least 8 MB. Images are sent inside JSON as base64, so the HTTP request is larger than the original file. Set `display_errors=Off`, `log_errors=On`, and rotate `.data/logs/maintainpro.log` using logrotate or the hosting platform. Logs and backups must never be web accessible.
 
 ## 5. Deploy and migrate
 
@@ -61,10 +65,13 @@ Run only supported CLI jobs. Example cron entries:
 
 ```cron
 */15 * * * * cd /var/www/maintainpro && /usr/bin/php tools/notify-deadlines.php >/dev/null 2>&1
+11 1 * * * cd /var/www/maintainpro && /usr/bin/php tools/notify-deactivated-accounts.php >/dev/null 2>&1
 17 2 * * * cd /var/www/maintainpro && /usr/bin/php tools/cleanup-security.php >/dev/null 2>&1
 ```
 
-The cleanup job removes expired verification/reset and throttling records, not audit history. Use the hosting platform for encrypted database backups; do not trigger system maintenance from normal web requests.
+On Hostinger, open the website's **Cron Jobs** page, choose the **PHP** job type, and enter the absolute path to `tools/notify-deactivated-accounts.php`. Run it at least once daily; Hostinger displays cron schedules in UTC, so account for the eight-hour Asia/Manila offset when choosing the time. It is safe to retry: the database permits only one notification per System Admin and deactivation period.
+
+The deactivated-account job only reviews inactive accounts with a recorded deactivation timestamp. Legacy inactive accounts remain marked “Deactivation date unavailable” until they are reactivated and deactivated through MaintainPro. The cleanup job removes expired verification/reset and throttling records, not audit or notification history. Use the hosting platform for encrypted database backups; do not trigger system maintenance from normal web requests.
 
 ## 7. Rollback
 

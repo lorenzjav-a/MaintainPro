@@ -133,7 +133,7 @@ function br_active(array $case): bool
 
 function br_review(array $case): bool
 {
-    return in_array($case['status'], ['Submitted', 'Under Review', 'Reopened'], true);
+    return in_array($case['status'], ['Submitted', 'Under Review', 'Reopened', 'Returned for Information'], true);
 }
 
 function br_metrics(array $cases): array
@@ -166,7 +166,7 @@ function br_group(array $cases, string|callable $key): array
 function br_next_step(array $c, string $role): string
 {
     $copy = [
-        'official' => ['Submitted' => 'Review and recommend an action', 'Under Review' => 'Assign the responsible team', 'Assigned' => 'Waiting for the team to accept', 'In Progress' => 'Monitor the team’s work', 'Resolved' => 'Waiting for official review', 'Verified' => 'Complete and recorded', 'Reopened' => 'Reassess and assign another action', 'Returned for Information' => 'Waiting for the reporter’s response', 'Rejected' => 'No further action', 'Referred to Another Office' => 'Monitor the referral separately'],
+        'official' => ['Submitted' => 'Review and recommend an action', 'Under Review' => 'Assign the responsible team', 'Assigned' => 'Waiting for the team to accept', 'In Progress' => 'Monitor the team’s work', 'Resolved' => 'Waiting for official review', 'Verified' => 'Complete and recorded', 'Reopened' => 'Reassess and assign another action', 'Returned for Information' => 'Continue assessment while awaiting the response', 'Rejected' => 'No further action', 'Referred to Another Office' => 'Monitor the referral separately'],
         'personnel' => ['Assigned' => 'Accept this assignment', 'In Progress' => 'Add an update or record resolution', 'Resolved' => 'Waiting for official review', 'Verified' => 'Complete and recorded', 'Reopened' => 'Waiting for reassignment'],
     ];
     return $copy[$role][$c['status']] ?? 'Open for details';
@@ -221,7 +221,7 @@ function br_upload(string $id, string $label, bool $required = false): void
         <div class="upload-selection"><strong data-upload-name>No photo selected</strong><span data-upload-meta>Drag and drop or browse</span></div>
         <button class="upload-clear" type="button" data-upload-clear aria-label="Remove selected photo" title="Remove selected photo" hidden><?= br_icon('trash') ?></button>
       </div>
-      <p class="form-text" id="<?= h($id) ?>-help">JPG, PNG, or WebP · Up to 1 MB · Private evidence saved with the concern record.</p>
+      <p class="form-text" id="<?= h($id) ?>-help">JPG, PNG, or WebP · Up to 5 MB · Private evidence saved with the concern record.</p>
       <p class="visually-hidden" id="<?= h($id) ?>-status" data-upload-status role="status" aria-live="polite">No photo selected.</p>
       <div class="upload-preview-area" data-preview="<?= h($id) ?>"></div>
     </div>

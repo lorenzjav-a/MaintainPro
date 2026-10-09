@@ -2,6 +2,35 @@
   'use strict';
   var busy = false;
   var csrf = document.querySelector('meta[name="csrf-token"]').content;
+  var turnstileContainer = document.getElementById('turnstile-widget');
+  var turnstileStatus = document.getElementById('turnstile-status');
+  var turnstileWidgetId = null;
+  function renderTurnstile() {
+    if (!turnstileContainer || !window.turnstile) return;
+    if (turnstileWidgetId !== null) window.turnstile.remove(turnstileWidgetId);
+    turnstileContainer.replaceChildren();
+    turnstileWidgetId = window.turnstile.render(turnstileContainer, {
+      sitekey: turnstileContainer.dataset.sitekey,
+      action: turnstileContainer.dataset.action,
+      theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+      size: 'flexible',
+      appearance: 'always',
+      'refresh-expired': 'auto',
+      'refresh-timeout': 'auto',
+      callback: function () { if (turnstileStatus) turnstileStatus.textContent = 'Security verification complete.'; },
+      'expired-callback': function () { if (turnstileStatus) turnstileStatus.textContent = 'Security verification expired. Please complete it again.'; },
+      'error-callback': function () { if (turnstileStatus) turnstileStatus.textContent = 'Security verification could not load. Check your connection and try again.'; }
+    });
+  }
+  if (turnstileContainer) {
+    if (window.turnstile) renderTurnstile();
+    else window.addEventListener('load', renderTurnstile, {once: true});
+    document.addEventListener('maintainpro:themechange', renderTurnstile);
+  }
+  function resetTurnstile() {
+    if (turnstileWidgetId !== null && window.turnstile) window.turnstile.reset(turnstileWidgetId);
+    if (turnstileStatus) turnstileStatus.textContent = 'Security verification is required.';
+  }
   function send(action, data) {
     if (busy) return;
     busy = true;
@@ -15,7 +44,7 @@
         var destinations = ['index.php', 'login.php', 'login.php?view=verify', 'login.php?view=reset', 'login.php?view=change-password', 'login.php?view=verify-registration'];
         window.location.assign(destinations.indexOf(body.redirect) >= 0 ? body.redirect : 'login.php');
       })
-      .catch(function (err) { Swal.fire({icon: 'error', title: 'Unable to continue', text: err.message, confirmButtonText: 'Try again'}); })
+      .catch(function (err) { resetTurnstile(); Swal.fire({icon: 'error', title: 'Unable to continue', text: err.message, confirmButtonText: 'Try again'}); })
       .finally(function () {
         busy = false;
         document.body.classList.remove('app-busy');
@@ -56,5 +85,12 @@
     document.getElementById('account-password').type = event.target.checked ? 'text' : 'password';
     var confirm = document.getElementById('confirm-password');
     if (confirm) confirm.type = event.target.checked ? 'text' : 'password';
+  });
+  var passwordInput = document.getElementById('account-password');
+  var strength = document.querySelector('[data-password-strength]');
+  if (passwordInput && strength) passwordInput.addEventListener('input', function () {
+    var value=passwordInput.value, score=[value.length>=10,value.length>=14,/[a-z]/.test(value)&&/[A-Z]/.test(value),/[0-9]/.test(value),/[^A-Za-z0-9]/.test(value)].filter(Boolean).length;
+    strength.textContent='Strength: '+(value.length===0?'waiting for password':score<=2?'basic':score<=4?'good':'strong');
+    strength.parentElement.dataset.strength=String(score);
   });
 }());

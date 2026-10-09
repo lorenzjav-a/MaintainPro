@@ -10,7 +10,7 @@ require __DIR__ . '/includes/layout/header.php';
 br_heading($pageTitle, 'Review account, assignment, location, and workspace changes.');
 ?>
 <section class="panel user-register"><div class="panel-body">
-<form method="get" class="row g-3 align-items-end mb-4">
+<form method="get" class="row g-3 align-items-end mb-4 audit-filter-form">
 <div class="col-md-3"><label class="form-label">Date<input class="form-control" name="date" type="date" value="<?= h($filters['date']) ?>"></label></div>
 <div class="col-md-4"><label class="form-label">Account<select class="form-select" name="user"><option value="">All accounts</option><?php foreach (br_store()->users($actor['id']) as $user): ?><option value="<?= h($user['id']) ?>"<?= $filters['user'] === $user['id'] ? ' selected' : '' ?>><?= h($user['name']) ?></option><?php endforeach ?></select></label></div>
 <div class="col-md-3"><label class="form-label">Action code<input class="form-control" name="action" value="<?= h($filters['action']) ?>" maxlength="120" placeholder="e.g. assignment_changed"></label></div>

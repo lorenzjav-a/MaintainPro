@@ -17,7 +17,7 @@ try {
     $resident=$store->register(['name'=>'Private Reporter','email'=>'resident@example.test','password'=>$password]);
     $other=$store->register(['name'=>'Other Reporter','email'=>'other@example.test','password'=>$password]);
     $staff=$store->createUser($official['id'],['name'=>'Upgrade Staff','email'=>'staff@example.test','role'=>'personnel','team'=>'Maintenance crew']);
-    $staff=$store->changeTemporaryPassword($staff['id'],['current_password'=>$staff['temporary_password'],'password'=>$password,'confirm_password'=>$password]);
+    $staff=activateInvitedUser($store,$staff,$password);
     $report=['category'=>'Street Lighting','concernType'=>'Exposed wiring','keyPoints'=>['Sparks visible'],'purok'=>'Original name','street'=>'Mabini St.','exactArea'=>'PRIVATE GATE'];
     $png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=';
     $store->createLocation($official['id'],['name'=>'Purok One']);
@@ -63,7 +63,8 @@ try {
     upgradeDenied(fn()=>$change($official,$id,'assess',['priority'=>'Urgent','recommendation'=>'Inspect','dueAt'=>'2026-02-31T12:00']),'invalid SLA date');
     $change($official,$id,'assess',['priority'=>'Urgent','recommendation'=>'Inspect safely','dueAt'=>$dates['Urgent']]);
     upgradeCheck($find($id)['dueAt']===strtotime($dates['Urgent']),'official accepts SLA without automatic resolution');
-    $change($official,$id,'assign',['personnelId'=>$staff['id'],'dueAt'=>$dates['High']]);
+    $change($official,$id,'assign',['team'=>'Maintenance crew','dueAt'=>$dates['High']]);
+    $store->mutate($staff['id'],'accept_work',$id,[],null);
     $work=['photo'=>$png,'workStatus'=>'Inspection completed','actions'=>['Inspection']];
     $change($staff,$id,'start',$work);
     upgradeDenied(fn()=>$store->submitFeedback($resident['id'],$id,['rating'=>'5']),'feedback unavailable before resolution');
@@ -81,7 +82,8 @@ try {
     upgradeDenied(fn()=>$store->feedbackAnalytics($resident['id']),'feedback analytics official only');
     $own=$store->submitAccount($staff['id'],$report);
     $change($official,$own,'assess',['priority'=>'High','recommendation'=>'Inspect']);
-    $change($official,$own,'assign',['personnelId'=>$staff['id']]);
+    $change($official,$own,'assign',['team'=>'Maintenance crew']);
+    $store->mutate($staff['id'],'accept_work',$own,[],null);
     $change($staff,$own,'start',$work); $change($staff,$own,'resolve',array_replace($work,['workStatus'=>'Fully repaired']));
     upgradeDenied(fn()=>$store->submitFeedback($staff['id'],$own,['rating'=>'5']),'personnel reporter cannot rate own work');
     $rules=$store->officialRules($official['id'],'Street Lighting','Exposed wiring','Sparks visible');

@@ -75,7 +75,7 @@ The sender setup follows [PHPMailer's Gmail example](https://github.com/PHPMaile
 
 The private local file is ignored by Git and blocked from web access. TLS certificate verification remains enabled. Real SMTP connections require authentication and TLS; unauthenticated/unencrypted SMTP is allowed only for a loopback test inbox.
 
-Set optional `BR_APP_URL` in the PHP/Apache environment to the URL staff can reach (for example `http://YOUR-LAN-HOST/MaintainPro` on a trusted local network, or the deployed HTTPS URL). Assignment notices then include a concern link. Do not use localhost for recipients on other PCs. The URL is never derived from an untrusted Host header. Exact locations, internal notes and evidence are omitted from email; staff sign in to view them. Assignment commits before SMTP runs. Failure produces a generic log and an official-facing notice without undoing the assignment.
+Set `APP_URL` (or the compatible `BR_APP_URL`) in the PHP/Apache environment to the URL recipients can reach. The MaintainPro deployment uses `https://www.maintainprosystem.online`; Hostinger's redirect from non-`www` must preserve the full path and query string. Production account invitations require HTTPS. Invitation and assignment links use this trusted setting and are never derived from an untrusted Host header. Exact locations, internal notes and evidence are omitted from email; staff sign in to view them. Assignment commits before SMTP runs. Invitation delivery failure leaves the account Pending Setup and gives the administrator an accurate retry notice without exposing the token.
 
 ## Staff notifications and insights
 
@@ -89,13 +89,19 @@ C:\xampp\php\php.exe C:\xampp\htdocs\MaintainPro\tools\notify-deadlines.php
 
 The notification bell polls once per minute while visible. Existing Gmail configuration is still needed only for assignment email and OTP delivery. See [staff feature details](staff-insights-upgrade.md) for priority weights, workload logic, recurrence limitations, schema and file inventory.
 
+## Cloudflare Turnstile
+
+Sign in, resident registration, and the initial password-recovery request use Cloudflare Turnstile in Managed mode. The public site key is configured through `TURNSTILE_SITE_KEY`; the private `TURNSTILE_SECRET_KEY` must exist only in the PHP process environment. MaintainPro never loads a web-readable `.env` file and refuses production startup when Turnstile is not fully configured.
+
+In the Cloudflare dashboard, allow both `maintainprosystem.online` and `www.maintainprosystem.online` on the widget. Siteverify is mandatory and the server checks the returned hostname and per-form action. Tokens expire after five minutes and are single-use; a failed AJAX request keeps entered fields and resets the widget for a fresh token. Local development may omit both variables to disable the external widget, or use Cloudflare's official test site and secret keys for integration testing. Never use the production secret in a development checkout.
+
 ## Recovery behavior
 
 Codes expire after 10 minutes and allow five attempts. Verification grants last another 10 minutes and remain in the requesting browser's server session. Only hashes are stored. Resending invalidates the previous challenge. Limits are one request per email per 60 seconds, three per email per 15 minutes and ten per client IP per 15 minutes.
 
 Registered and unknown addresses receive the same public request response. Inactive and unknown accounts receive no email. Missing sender configuration produces a temporary-unavailability message. SMTP failures invalidate the challenge and write a generic PHP diagnostic without exposing email addresses, codes or credentials.
 
-Successful resets revoke previous login sessions and preserve complaint data. The account's current email and authentication version are checked again before changing its password. Resetting also satisfies the initial temporary-password replacement requirement. The verification page shows a 60-second resend countdown; the database separately enforces the cooldown even if JavaScript is bypassed. When troubleshooting, use the CLI check and inspect the recipient's spam folder.
+Successful resets revoke previous login sessions and preserve complaint data. The account's current email and authentication version are checked again before changing its password. Pending Setup accounts cannot use password recovery to bypass invitation acceptance; compatible legacy temporary-password accounts can still recover access. The verification page shows a 60-second resend countdown; the database separately enforces the cooldown even if JavaScript is bypassed. When troubleshooting, use the CLI check and inspect the recipient's spam folder.
 
 ## Secure first official setup
 
@@ -107,7 +113,7 @@ Generate a 64-character random value locally:
 C:\xampp\php\php.exe -r "echo bin2hex(random_bytes(32)), PHP_EOL;"
 ```
 
-Open Sign in, enter the setup key and create the first official. Remove the environment key after setup. Browser setup is rate limited and requires both zero officials and the absence of the persistent `setup_complete` marker. Deactivating or removing officials does not reopen public setup. Existing installations are marked complete during migration and need no key. Account creation afterward stays inside official User management.
+Open Sign in, enter the setup key and create the first official. Remove the environment key after setup. Browser setup is rate limited and requires both zero officials and the absence of the persistent `setup_complete` marker. Deactivating or removing officials does not reopen public setup. Existing installations are marked complete during migration and need no key. Account creation afterward stays inside system-administrator User management.
 
 ## Target dates, duplicates and backups
 

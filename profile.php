@@ -15,8 +15,8 @@ br_heading($pageTitle, 'Manage your photo, account details, and password.');
       <div class="profile-photo-picker">
         <div class="profile-photo-preview" data-preview="profile-photo" data-initials="<?= h(br_initials($actor['name'])) ?>" data-has-photo="<?= !empty($actor['profile_photo_path']) ? '1' : '0' ?>"><?= br_avatar($actor, 'avatar me profile-photo-avatar', true) ?></div>
         <div class="profile-photo-controls"><label class="form-label" for="profile-photo">Update your photo</label><div class="profile-photo-actions"><button class="btn btn-primary" type="button" data-choose-profile-photo><?= br_icon('camera') ?><span>Choose photo</span></button>
-          <?php if (!empty($actor['profile_photo_path'])): ?><button class="btn btn-light profile-photo-remove-button" type="button" data-remove-profile-photo><?= br_icon('trash') ?><span>Remove photo</span></button><?php endif ?></div>
-          <input class="visually-hidden" id="profile-photo" name="photoFile" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="profile-photo-help profile-photo-status"><input id="profile-photo-remove" type="hidden" name="remove_photo" value="0"><p class="form-text" id="profile-photo-help">JPG, PNG, or WebP · Up to 1 MB. A square photo works best.</p><p class="form-text profile-photo-status" id="profile-photo-status" role="status" aria-live="polite"></p>
+          <?php if (!empty($actor['profile_photo_path'])): ?><button class="btn btn-danger profile-photo-remove-button" type="button" data-remove-profile-photo><?= br_icon('trash') ?><span>Remove photo</span></button><?php endif ?></div>
+          <input class="visually-hidden" id="profile-photo" name="photoFile" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="profile-photo-help profile-photo-status"><input id="profile-photo-remove" type="hidden" name="remove_photo" value="0"><p class="form-text" id="profile-photo-help">JPG, PNG, or WebP · Up to 5 MB. A square photo works best.</p><p class="form-text profile-photo-status" id="profile-photo-status" role="status" aria-live="polite"></p>
         </div>
       </div>
     </section>

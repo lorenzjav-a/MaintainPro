@@ -11,6 +11,7 @@ $add('Bundled PDF renderer',is_file(dirname(__DIR__).'/vendor/dompdf/autoload.in
 $app=br_app_config();
 $add('Application environment',in_array($app['environment'],['development','staging','production','test'],true),$app['environment']);
 $add('Production HTTPS configuration',!$app['production'] || ($app['force_https'] && parse_url($app['url'],PHP_URL_SCHEME)==='https'));
+$add('Cloudflare Turnstile configured',!$app['production'] || !empty($app['turnstile']['enabled']));
 try {
     $db=new MaintainProDatabase(br_database());
     $migrationCount=$db->migrationCount();

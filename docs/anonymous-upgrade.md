@@ -2,7 +2,7 @@
 
 > Historical behavior: this document records the September 2026 anonymous-reporting release. Resident registration and sign-in were restored by the later account-reporting upgrade. For current behavior, use `README.md`, `docs/architecture.md`, and `docs/requirements.md`.
 
-The existing multi-page MaintainPro application was extended in place. Its Bootstrap design, MySQL records, staff login, OTP recovery, temporary passwords, version checks, assessment, priority, history, referrals, reports and historical Solution Library remain.
+The existing multi-page MaintainPro application was extended in place. Its Bootstrap design, MySQL records, staff login, OTP recovery, version checks, assessment, priority, history, reports and historical Solution Library remain. New administrator-created accounts now use secure email invitations; the former temporary-password step remains only for legacy accounts already in that state. Historical referral outcomes remain readable for compatibility, but officials cannot create new referrals.
 
 ## Files created
 
@@ -52,15 +52,15 @@ There is no name, email, account, password or title input. The server generates 
 
 Staff login → dashboard/all concerns → read structured points, private location and evidence → assess and prioritize → record official recommendation → choose an individual personnel account → review work/evidence → close or reopen. Temporary resident guidance is available as a separate historical reference, never as a requested staff task.
 
-Officials can edit information/priority at any stage, reassign active work, manage staff names/emails/roles/teams/status, maintain recommendation rules, view all history and export structured analytics. Authorization is checked in the service and API, not just in templates. Existing return-for-information now means staff gather follow-up information; there is no anonymous reporter account to contact. Rejection and referral remain supported.
+Officials can edit information/priority at any stage, reassign active work, manage staff names/emails/roles/teams/status, maintain recommendation rules, view all history and export structured analytics. Authorization is checked in the service and API, not just in templates. Existing return-for-information now means staff gather follow-up information; there is no anonymous reporter account to contact. Rejection remains supported. Historical referrals remain visible and reopenable, while new referral submissions are rejected by the server.
 
 **Legacy team-only assignments:** an official must choose a specific personnel account. The original team/status/history stay intact. Personnel cannot view a private address solely because they belong to the same team. Reassignment removes the old person's access, returns active work to Assigned and retains previous evidence. Reopened cases need reassessment/reassignment.
 
 ## Personnel workflow and evidence
 
-Login → replace temporary password if prompted → dashboard/work queue → assigned concern → select work status and action(s) → upload evidence → start/update/complete.
+Accept the emailed invitation and create a password → sign in → dashboard/work queue → assigned concern → select work status and action(s) → upload evidence → start/update/complete. A legacy account may still be prompted to replace its old temporary password.
 
-Work statuses include arrival, inspection, materials, ongoing work, temporary repair and completed repair. Notes are optional except when selecting Other. Completion requires Fully repaired. Every start, progress update and resolution requires a server-validated JPEG/PNG/WebP image, up to 1 MiB and 20 megapixels. Empty files, unsupported types, scripts pretending to be images and incorrect claimed MIME types are rejected.
+Work statuses include arrival, inspection, materials, ongoing work, temporary repair and completed repair. Notes are optional except when selecting Other. Completion requires Fully repaired. Every start, progress update and resolution requires a server-validated JPEG/PNG/WebP image, up to 5 MiB and 20 megapixels. Empty files, unsupported types, scripts pretending to be images and incorrect claimed MIME types are rejected.
 
 Images reuse the existing private database storage; they are not written as executable webroot files. No original upload filename is trusted or stored. Timeline entries include random `evidenceId`, uploader `actorId`, actor name, time, image, work status and action array, inside the associated concern. `evidence.php` checks the current session, completed password setup and exact concern assignment; it serves only fixed image MIME types with a generated `evidence-RANDOM.ext` filename and restrictive headers. Supporting and completion photos remain visible alongside timeline evidence to authorized staff only.
 

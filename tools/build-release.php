@@ -10,7 +10,7 @@ $archive = new PharData($output, 0, null, Phar::ZIP);
 $files = [];
 
 // Explicit entry points keep future development scripts out of releases.
-$entrypoints = ['action-plans','admin','api','audit','auth','backup','blocked','complaint',
+$entrypoints = ['account-setup','action-plans','admin','api','audit','auth','backup','blocked','complaint',
     'complaints','concern','concerns','evidence','history','index','landing','login',
     'messages','my-action-plans','new-complaint','notifications','official-solutions','profile','profile-photo',
     'public-api','report-concern','reports','reports-pdf','router','settings','solutions','track',
@@ -26,7 +26,7 @@ foreach (['assets', 'includes', 'database', 'vendor/phpmailer', 'vendor/dompdf']
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS));
     foreach ($iterator as $file) if ($file->isFile() && !$file->isLink()) $files[] = $file->getPathname();
 }
-foreach (['.htaccess', '.env.example', 'README.md', 'DEPLOYMENT.md', 'uploads/.htaccess', 'config/app.php', 'config/database.php', 'config/features.php', 'config/mail.example.php', 'tools/notify-deadlines.php', 'tools/cleanup-security.php', 'tools/health-check.php', 'tools/audit-uploads.php', 'docs/PRODUCTION_READINESS_REPORT.md', 'deployment/apache-vhost.conf.example', 'deployment/nginx.conf.example'] as $relative) {
+foreach (['.htaccess', '.env.example', 'README.md', 'DEPLOYMENT.md', 'uploads/.htaccess', 'config/app.php', 'config/database.php', 'config/features.php', 'config/mail.example.php', 'tools/check-mail.php', 'tools/notify-deadlines.php', 'tools/notify-deactivated-accounts.php', 'tools/cleanup-security.php', 'tools/health-check.php', 'tools/audit-uploads.php', 'docs/PRODUCTION_READINESS_REPORT.md', 'deployment/apache-vhost.conf.example', 'deployment/nginx.conf.example'] as $relative) {
     $path = $root . '/' . $relative;
     if (!is_file($path)) throw new RuntimeException('Missing production file: ' . $relative);
     $files[] = $path;
@@ -51,7 +51,7 @@ foreach (new RecursiveIteratorIterator($inspect) as $file) {
         || (str_ends_with(strtolower($relative),'.sql') && !str_starts_with($relative,'database/migrations/'));
     if ($forbidden) throw new RuntimeException('Forbidden release entry: '.$relative);
 }
-if (!in_array('.env.example',$entries,true) || !in_array('DEPLOYMENT.md',$entries,true)) throw new RuntimeException('Release configuration documentation is incomplete.');
+if (!in_array('.env.example',$entries,true) || !in_array('DEPLOYMENT.md',$entries,true) || !in_array('account-setup.php',$entries,true) || !in_array('includes/turnstile.php',$entries,true) || !in_array('database/migrations/20261010_account_invitations.sql',$entries,true)) throw new RuntimeException('Release invitation, Turnstile or configuration support is incomplete.');
 unset($inspect);
 
 // Release ZIPs are reproducible artifacts, not database backups. Keep a small

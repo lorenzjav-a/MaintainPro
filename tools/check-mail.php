@@ -9,6 +9,6 @@ try {
     $mail->smtpClose();
     echo "SMTP connection and authentication succeeded. No email was sent.\n";
 } catch (Throwable $e) {
-    fwrite(STDERR, "SMTP is not ready. Check config/mail.local.php, the Gmail App Password, and the network connection.\n");
+    fwrite(STDERR, "SMTP is not ready. Check the configured mail host, port, encryption, mailbox credentials, sender address, and network connection.\n");
     exit(1);
 }

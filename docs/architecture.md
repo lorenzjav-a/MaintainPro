@@ -45,7 +45,7 @@ MaintainPro/
 | --- | --- | --- |
 | `index.php` | Role dashboard; redirects guests to landing | Completed accounts |
 | `complaints.php`, `concerns.php` | All Concerns / Work Queue / My reported concerns | Official, assigned personnel or own reports |
-| `history.php` | Resolution attempts, verification, rejections and referrals | Visible complaint records |
+| `history.php` | Resolution attempts, verification, rejections and historical referrals | Visible complaint records |
 | `complaint.php`, `concern.php` with `id` | Private record, timeline, photos and permitted actions | Official, assigned personnel or account reporter |
 | `new-complaint.php` | Redirect to public `report-concern.php` | Public |
 | `reports.php` | Reports and insights | Official |
@@ -54,8 +54,9 @@ MaintainPro/
 | `action-plans.php` | Weekly plan creation, updates and history | Official |
 | `transparency.php` | Aggregate community progress | Public |
 | `users.php` | Account management | Official |
-| `user-create.php` | Create an account; display its temporary password once | Official |
-| `user-edit.php?id=USER_ID` | Update name, email, role, team or active status | Official |
+| `user-create.php` | Create a Pending Setup account and email its secure invitation | System administrator |
+| `user-edit.php?id=USER_ID` | Update account settings or resend a Pending Setup invitation | System administrator |
+| `account-setup.php` | Accept a single-use invitation and create the initial password | Public invitation recipient |
 | `profile.php` | Own name, email and password | Completed accounts |
 | `login.php` | All-role sign-in, resident registration, initial setup and OTP recovery | Public; signed-in accounts are redirected appropriately |
 
@@ -63,14 +64,14 @@ MaintainPro/
 
 1. A workspace page calls `br_page()` in `includes/page.php` before writing HTML.
 2. `includes/bootstrap.php` starts the normal `maintainpro` PHP session. `br_actor()` checks the active account and its authentication version.
-3. Page guards redirect anonymous or temporary-password users and reject unauthorized roles with HTTP 403. Paged SQL queries scope list records; direct concern lookup and workflow guards enforce individual record access. Missing or inaccessible complaints return HTTP 404.
+3. Page guards reject anonymous, Pending Setup and unauthorized users. Legacy temporary-password accounts are redirected to their compatibility password-change step. Paged SQL queries scope list records; direct concern lookup and workflow guards enforce individual record access. Missing or inaccessible complaints return HTTP 404.
 4. PHP renders the shared layout and page content. Links use normal PHP URLs. Searches and filters use GET parameters, so refresh, Back/Forward and bookmarks preserve them.
 5. JavaScript submits JSON actions to `api.php` or `auth.php` with the CSRF header. The server independently checks permissions and validates the action.
 6. Complaint writes include the version originally rendered on the page. A conflict returns HTTP 409; the user can keep the draft or reload the latest record. Old drafts are never automatically retried with a fresh version.
 
 `includes/store.php` validates inputs and enforces account and workflow rules. It calls named methods on `MaintainProDatabase` in `database/database.php`; that file owns every SQL statement, the schema and PDO transactions. `config/database.php` contains connection settings and the connection factory only. CLI setup and test helpers also call the central database file. Test fixture writes and database removal are restricted to disposable test database names and the CLI.
 
-The database transaction locks the complaint counter before writes to preserve complaint numbering, setup rules and consistent version checks. Passwords and recovery codes are hashed. Account creation shows a generated temporary password only in its creation response; it is not kept in browser storage and is cleared from the page on departure.
+The database transaction locks the complaint counter before writes to preserve complaint numbering, setup rules and consistent version checks. Passwords, recovery codes and invitation tokens are stored only as hashes. Account creation returns no password or raw invitation token to the browser. The random setup link is sent by email, expires after 24 hours and is atomically consumed once.
 
 There is no SPA page renderer or shared feature modal. JavaScript handles form submission, confirmations, image previews, the mobile menu and alerts. Browse/search pages work without JavaScript; account actions and submissions require it. Sensitive forms explicitly use POST even if JavaScript fails.
 

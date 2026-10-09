@@ -29,7 +29,7 @@ try {
     reportCheck($resident['role'] === 'resident' && $resident['team'] === '', 'registration cannot elevate account');
     $personnel = $store->createUser($official['id'], ['name' => 'Report Personnel', 'email' => 'personnel@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew']);
     reportDenied(fn() => $store->submitAccount($personnel['id'], $report), 'temporary account cannot report');
-    $personnel = $store->changeTemporaryPassword($personnel['id'], ['current_password' => $personnel['temporary_password'], 'password' => $password, 'confirm_password' => $password]);
+    $personnel = activateInvitedUser($store,$personnel,$password);
     reportCheck($store->login($resident['email'], $password, 'resident-login')['id'] === $resident['id'], 'resident can sign in');
     $ids = [];
     foreach ([$resident, $personnel, $official] as $account) {
@@ -69,9 +69,11 @@ try {
     $store->updateUser($official['id'], $personnel['id'], ['role' => 'personnel', 'team' => 'Maintenance crew', 'active' => '1']);
     $target = $ids['personnel'][0];
     $worker = $store->createUser($official['id'], ['name' => 'Other Worker', 'email' => 'other@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew']);
+    $worker = activateInvitedUser($store,$worker,$password);
     $store->mutate($official['id'], 'assess', $target, ['priority' => 'High', 'recommendation' => 'Inspect the light.'], 1);
-    $store->mutate($official['id'], 'assign', $target, ['personnelId' => $worker['id']], 2);
-    reportDenied(fn() => $store->mutate($personnel['id'], 'start', $target, [], 3), 'reporter cannot work on another assignee task');
+    $store->mutate($official['id'], 'assign', $target, ['team' => 'Maintenance crew'], 2);
+    $store->mutate($worker['id'], 'accept_work', $target, [], null);
+    reportDenied(fn() => $store->mutate($personnel['id'], 'start', $target, [], 4), 'reporter cannot work on another assignee task');
     reportCheck(!$store->concernForActor($personnel['id'], $target)['canWork'], 'reporter UI receives no work permission');
     $store->mutate($official['id'], 'request_information', $ids['resident'][1], ['notes' => 'Which light?'], 1);
     $store->mutate($resident['id'], 'information', $ids['resident'][1], ['description' => 'The light beside the crossing.'], 2);

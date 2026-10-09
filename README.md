@@ -15,7 +15,7 @@ Staff features now include persistent in-app notifications, workload-aware assig
 1. Start **Apache** and **MySQL** in the XAMPP Control Panel.
 2. On a new installation, run `C:\xampp\php\php.exe database\setup.php` from the project folder. The database on this PC is already configured.
 3. Open **http://localhost/MaintainPro/** for the public landing page. On an empty installation, configure `APP_SETUP_KEY` in the PHP/Apache environment before using **Sign in** to create the first official account. See [secure first setup](docs/configuration.md#secure-first-official-setup). Existing installations do not need a setup key.
-4. Residents can register through **Sign in → Resident registration**, or use guest reporting. Officials create accounts under **User management → Create account**. All signed-in roles use **Report Concern** from their dashboard.
+4. Residents can register through **Sign in → Resident registration**, or use guest reporting. System administrators create staff accounts under **User management → Create Account**. All signed-in roles use **Report Concern** from their dashboard.
 
 PHP 8.2+ requires `PDO`, `pdo_mysql`, `mbstring`, `openssl`, `json`, `fileinfo`, `session`, and `Phar`. The test suites also use `curl` and `dom`. XAMPP supplies these. Bootstrap CSS, SweetAlert and PHPMailer are bundled locally; no build step or CDN connection is required. Production installation and security requirements are documented in [DEPLOYMENT.md](DEPLOYMENT.md).
 
@@ -28,14 +28,14 @@ C:\xampp\php\php.exe -S 127.0.0.1:8080 router.php
 ## Accounts and workflow
 
 - **Guests** select category, type and key points; enter a private location; optionally attach details/photo; read three temporary steps to follow while waiting for staff; save the generated reference, tracking code and guidance. No solution selection is required.
-- **Barangay officials** can open **Administration** to access every system area. They assess, edit, prioritize, recommend, assign/reassign individual personnel, manage the Solution Library and accounts, configure the workspace, review reports and audit history, create backups, and review/close/reopen completed work.
+- **Barangay officials** assess, prioritize, recommend, assign/reassign personnel, review reports, manage official actions, and review/close/reopen completed work. Officials granted **system administrator** access additionally manage accounts, workspace settings, audit history, backups, and other Administration tools. Ordinary officials cannot access those administrator-only areas.
 - **Personnel** see only individually assigned concerns, choose structured work updates and attach required image evidence. Accounts require a name, valid email and team.
 
-The normal journey is **Submitted → Under Review → Assigned → In Progress → Resolved → Closed**. The final state retains the internal `Verified` value for compatibility. Officials can request more information; the reporter responds using the original reference and tracking code. Rejection, referral, reopening, history, reports and CSV export remain available.
+The normal journey is **Submitted → Under Review → Assigned → In Progress → Resolved → Closed**. The final state retains the internal `Verified` value for compatibility. Officials can request more information; the reporter responds using the original reference and tracking code. Rejection, reopening, history and reports remain available. New referrals to another office are disabled; historical referred records remain readable and can be reopened.
 
 Personnel can report blocked work and receive official instructions. Officials can link reports describing the same issue, manage Purok/Sitio choices in **Workspace settings**, review **Audit history**, and download a database backup. Linked reports retain their original tracking codes and follow the primary concern's progress.
 
-Resident registration and sign-in are available, including existing active resident accounts. Generated temporary passwords appear once on `user-create.php` and must be replaced at first sign-in. Share those credentials privately. Assignment notifications and password-reset OTPs use PHPMailer; staff invitations are not emailed.
+Resident registration and sign-in are available, including existing active resident accounts. Administrator-created accounts remain **Pending Setup** until the recipient uses a random, single-use email invitation within 24 hours to create their own password. MaintainPro never displays or emails a temporary password or exposes the setup token in an API response. Existing legacy accounts already marked for an initial password change retain that compatibility path. Invitations, assignment notifications and password-reset OTPs use PHPMailer.
 
 Account permissions, CSRF tokens, password hashing, login throttling, transaction integrity and stale-edit protection are enforced by the server. Independent accounts can be tested simultaneously using separate browser profiles, as described in the testing guide.
 

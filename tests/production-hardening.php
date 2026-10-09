@@ -23,7 +23,13 @@ try {
     $counts=$database->cleanupExpiredSecurityRecords(time()+86400);
     $check(isset($counts['email_changes'],$counts['login_attempts']),'scheduled cleanup covers temporary security records');
     $check(str_contains(file_get_contents(dirname(__DIR__).'/.env.example'),'DB_USER=maintainpro_app') && !str_contains(file_get_contents(dirname(__DIR__).'/config/mail.example.php'),'gmail.com'),'release configuration contains placeholders only');
-    echo "PASS: $checks production configuration, reauthentication, email verification and cleanup checks.\n";
+    $canonical=['url'=>'https://www.maintainprosystem.online','production'=>true,'force_https'=>true];
+    $check(br_normalize_app_url('https://maintainprosystem.online/')==='https://www.maintainprosystem.online','legacy configured non-www URL normalizes to canonical production origin');
+    $legacyTarget=br_canonical_redirect_target($canonical,'maintainprosystem.online','/account-setup?token='.str_repeat('a',64),true);
+    $check($legacyTarget==='https://www.maintainprosystem.online/account-setup?token='.str_repeat('a',64),'legacy non-www redirect preserves invitation route and token');
+    $check(br_canonical_redirect_target($canonical,'www.maintainprosystem.online','/account-setup?token='.str_repeat('b',64),true)===null,'canonical HTTPS invitation avoids redirect');
+    $check(br_canonical_redirect_target($canonical,'www.maintainprosystem.online','/account-setup?token='.str_repeat('c',64),false)==='https://www.maintainprosystem.online/account-setup?token='.str_repeat('c',64),'HTTPS redirect preserves invitation token');
+    echo "PASS: $checks production configuration, canonical routing, reauthentication, email verification and cleanup checks.\n";
 } finally {
     unset($store);
     $testDatabase->drop();

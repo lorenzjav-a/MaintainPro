@@ -17,7 +17,7 @@ Source: the user's pasted community complaint management brief and instruction t
 | Resolution and resident verification | Work performed and photo, feedback, verified closure or reopening |
 | Dashboard and history | Overview, register, outcome history, category/location/status reports, CSV |
 | Optional solution knowledge base | Verified category matches; previous recommendation copied as an editable draft |
-| Additional statuses | Return for information and resubmit, reject with reason, refer with receiving office |
+| Additional statuses | Return for information and resubmit; reject with reason. Historical referral records remain readable, but new referrals are disabled. |
 | User management | First-official setup, resident registration, sign-in, role-based accounts, personnel teams, profile/password updates, deactivation |
 | Persistent records | MySQL/MariaDB complaints and histories with concurrent-edit conflict detection |
 | Page architecture | Dedicated PHP pages, reusable layouts, native desktop/mobile links, URL filters and server-side page authorization |
@@ -30,6 +30,6 @@ Unsuccessful resident verification:
 
 Resolved → Reopened → Under Review → Assigned → In Progress → Resolved → Verified
 
-The current workspace uses real authenticated accounts and MySQL/MariaDB persistence, with five assignable personnel teams. There are no seeded demo accounts or role-switching controls. The first official is created during setup, public registration creates residents, and officials issue other accounts with temporary passwords. Separate browser profiles provide isolated sessions for local workflow testing.
+The current workspace uses real authenticated accounts and MySQL/MariaDB persistence, with five assignable personnel teams. There are no seeded demo accounts or role-switching controls. The first official is created during setup, public registration verifies residents by email, and system administrators issue other accounts through 24-hour single-use email invitations. Pending Setup accounts cannot sign in or receive work. Separate browser profiles provide isolated sessions for local workflow testing.
 
 Password-recovery email, in-app concern/deadline notifications, structured recurring-issue detection, and the aggregate public transparency page are implemented. Still out of scope are SMS notifications, maps/heatmaps, QR codes, mobile apps, autonomous AI decisions, LGU integration, and advanced predictive analytics.

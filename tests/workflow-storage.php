@@ -14,8 +14,7 @@ try {
     $admin = $store->setup(['name' => 'Storage Official', 'email' => 'official@example.test', 'password' => 'Storage-password-42']);
     $makeStaff = function (string $name) use ($store, $admin): array {
         $user = $store->createUser($admin['id'], ['name' => $name, 'email' => strtolower($name) . '@example.test', 'role' => 'personnel', 'team' => 'Maintenance crew']);
-        $store->changeTemporaryPassword($user['id'], ['current_password' => $user['temporary_password'], 'password' => 'Storage-password-42', 'confirm_password' => 'Storage-password-42']);
-        return $store->user($user['id']);
+        return activateInvitedUser($store,$user,'Storage-password-42');
     };
     $staff = $makeStaff('Alpha'); $other = $makeStaff('Beta');
     $report = ['category' => 'Roads and Infrastructure', 'concernType' => 'Pothole', 'keyPoints' => ['Deep'], 'purok' => 'Original area', 'street' => 'Private street', 'exactArea' => 'Private gate'];
@@ -38,18 +37,21 @@ try {
     check($store->evidenceRecord($staff['id'], $evidenceId) === null, 'unassigned personnel cannot read evidence');
     $mutate($admin, $id, 'request_information', ['notes' => 'Which side of the gate?']);
     $tracked = $store->track($id, $receipt['trackingCode'], 'track-one');
-    check($tracked['canFollowUp'] && $tracked['informationRequest']['message'] === 'Which side of the gate?', 'information request available only through tracking');
+    check($find($id)['status'] === 'Submitted' && $tracked['canFollowUp'] && $tracked['informationRequest']['message'] === 'Which side of the gate?', 'information request stays available without pausing concern status');
+    $mutate($admin, $id, 'assess', ['priority' => 'High', 'recommendation' => 'Inspect and repair']);
+    $mutate($admin, $id, 'assign', ['team' => 'Maintenance crew']);
+    $store->mutate($staff['id'], 'accept_work', $id, [], null);
+    $tracked = $store->track($id, $receipt['trackingCode'], 'track-assigned');
+    check($find($id)['status'] === 'Assigned' && $tracked['canFollowUp'], 'official can assess and assign while reporter information is pending');
     denied(fn() => $store->submitFollowup(array_replace($receipt, ['description' => 'Response', 'trackingCode' => 'bad']), 'followup-bad'), 'invalid followup token');
     // array_replace is intentional: the forged token must replace the receipt value.
     denied(fn() => $store->submitFollowup(array_replace($receipt, ['description' => 'Response', 'trackingCode' => str_repeat('0', 48)]), 'followup-wrong'), 'wrong well-formed token');
     $result = $store->submitFollowup($receipt + ['description' => 'The eastern side.', 'photo' => $png], 'followup-valid');
-    check($result['status'] === 'Submitted' && !$result['canFollowUp'] && $result['followUps'][0]['description'] === 'The eastern side.', 'reporter response returns to assessment');
+    check($result['status'] === 'Assigned' && !$result['canFollowUp'] && $result['followUps'][0]['description'] === 'The eastern side.', 'reporter response preserves assignment progress');
     $followup = end($find($id)['timeline']);
     check($followup['publicReporterFollowup'] && $store->evidenceRecord($admin['id'], $followup['evidenceId'])['evidence_type'] === 'resident_followup', 'followup image tied to event');
     check(!str_contains(json_encode($result), 'Private') && !str_contains(json_encode($result), 'evidenceId'), 'followup tracking excludes private address and photos');
     denied(fn() => $store->submitFollowup($receipt + ['description' => 'Repeated'], 'followup-repeat'), 'response cannot replay after assessment resumes');
-    $mutate($admin, $id, 'assess', ['priority' => 'High', 'recommendation' => 'Inspect and repair']);
-    $mutate($admin, $id, 'assign', ['personnelId' => $staff['id']]);
     check($store->evidenceRecord($staff['id'], $evidenceId) !== null && $store->evidenceRecord($other['id'], $evidenceId) === null, 'evidence access follows individual assignment');
     $work = ['workStatus' => 'Inspection completed', 'actions' => ['Inspection'], 'photo' => $png];
     $version = $find($id)['version'];
@@ -81,7 +83,8 @@ try {
     $mutate($staff, $id, 'note', $work);
     check(empty($find($id)['blocked']), 'recording work resumes a blocked concern');
     $mutate($staff, $id, 'block', $block);
-    $mutate($admin, $id, 'assign', ['personnelId' => $other['id']]);
+    $mutate($admin, $id, 'assign', ['team' => 'Maintenance crew']);
+    $store->mutate($other['id'], 'accept_work', $id, [], null);
     check(empty($find($id)['blocked']) && $store->evidenceRecord($staff['id'], $evidenceId) === null, 'reassignment clears delay and revokes old access');
     $duplicate = $store->submitGuest($report, 'duplicate');
     $duplicateId = $duplicate['reference'];
@@ -106,7 +109,7 @@ try {
     check($store->hasLocations(), 'managed-location mode enabled by configuration');
     denied(fn() => $store->createLocation($staff['id'], ['name' => 'Forged']), 'only official manages locations');
     denied(fn() => $store->createLocation($admin['id'], ['name' => 'purok 5']), 'duplicate location names rejected');
-    denied(fn() => $store->submitGuest($report, 'unknown-area'), 'unknown typed location rejected once registry configured');
+    denied(fn() => $store->submitGuest($report, 'typed-area'), 'typed location is rejected when managed choices exist');
     denied(fn() => $store->submitGuest($report + ['locationId' => []], 'forged-area'), 'malformed location ID rejected');
     $managed = $store->submitGuest($report + ['locationId' => (string)$locationId], 'managed');
     check($find($managed['reference'])['locationDetails']['purokId'] === $locationId && $find($managed['reference'])['locationDetails']['purok'] === 'Purok 5', 'server uses configured ID and name, ignores forged typed name');

@@ -1,5 +1,15 @@
 # Testing MaintainPro
 
+## October 9, 2026 non-blocking information requests
+
+Requesting additional reporter information is tracked independently from the operational concern status. Officials can continue assessment, assign specific personnel, and proceed with work while the response is pending. A later reporter response is appended to the timeline without undoing assignment or work progress. Existing concerns stored with the legacy `Returned for Information` status remain compatible and can resume assessment or assignment.
+
+## October 9, 2026 tracking access verification
+
+Tracking access is restored in the landing hero, public header, authentication pages, every account dashboard, and the shared workspace navigation. Guests continue to use their reference and private tracking code. Residents, officials, and personnel can open their own reported concerns without a code, including anonymous account reports. The signed-in tracking page retains the private-code path for guest submissions and uses a single concern conversation launcher that clears the mobile dock.
+
+Verification passed **124 PHP syntax checks**, SQL-boundary validation across 123 PHP files, **1,989 functional/HTTP checks**, and **517 isolated Chrome checks**. Coverage includes role-specific entry points, account-scoped tracking, guest privacy, active navigation, conversations, light/dark themes, and desktop/mobile layouts. Screenshots were reviewed under `tests/tmp/`. All fixtures use disposable databases; no live accounts or concerns were created. The browser action-plan assertion now waits for the completed page to load before checking its saved version.
+
 ## October 8, 2026 production-readiness verification
 
 The current cleanup validation passed **118 PHP syntax checks**, SQL-boundary validation across 116 PHP files, **1,846 functional/HTTP checks**, and **394 isolated Chrome checks** covering desktop and mobile layouts. The browser run also verifies that assessment, assignment, progress, blocked-work decisions, resolution, and closure return users to the workflow section they were using. Generated screenshots remain ignored under `tests/tmp/` and may be removed after review.
@@ -105,16 +115,16 @@ Coverage includes real UI form submission, onboarding, all role dashboards, comp
 
 Use three separate browser profiles with `http://localhost/MaintainPro/`. For example, create profiles named **MaintainPro Official**, **MaintainPro Resident** and **MaintainPro Personnel**. Separate browsers such as Chrome, Edge and Firefox also work.
 
-1. In the Official profile, sign in to your existing official account. Use **User management → Create account** to issue a personnel account, assign its team and privately save its temporary password.
+1. In the Official profile, sign in to your existing administrator account. Use **User management → Create account** to issue a personnel account and assign its team. Confirm that the account shows **Pending Setup** and that its invitation email arrives.
 2. In the Guest profile, open `landing.php` and report anonymously. Save the reference and tracking code.
-3. In the Personnel profile, sign in and replace the temporary password when prompted.
+3. In the Personnel profile, open the single-use invitation link, create a password, and then sign in normally.
 4. Keep all profiles open. Submit as Guest, assess and assign a specific personnel account as Official, start/update/resolve with required evidence as Personnel, then close or reopen as Official. Track safe progress using the Guest profile. Refresh the other profile's page after each action.
 
 The header shows the signed-in name and role; the workspace bar also shows the personnel team. Logging out of one profile leaves the other profiles signed in. Manual testing uses real accounts and saves records in the configured database.
 
 Ordinary tabs/windows within one profile share a session. Multiple incognito windows in one browser generally share an incognito session. Different localhost ports do not isolate cookies. Use separate profiles or browsers for independent accounts.
 
-There is no custom session system, role switch or impersonation endpoint. Normal login, hashing, CSRF checks, temporary-password rules and authorization remain active.
+There is no custom session system, role switch or impersonation endpoint. Normal login, invitation-token hashing, CSRF checks and authorization remain active. The temporary-password route remains only for compatible legacy accounts that were already awaiting their first password change.
 
 ## Staff features verification — September 21, 2026
 

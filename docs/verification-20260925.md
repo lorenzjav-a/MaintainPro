@@ -71,5 +71,5 @@ Keep MySQL running. Browser checks use installed Chrome and the existing Node-co
 - On another installation, run `C:\xampp\php\php.exe database\setup.php` before using the updated application.
 - Real Gmail delivery was **not tested**. SMTP success and failure were verified against the local test inbox. Keep Gmail credentials in ignored `config/mail.local.php` or the existing `BR_SMTP_*` environment settings; see [configuration](configuration.md). `tools/check-mail.php` checks connection/authentication without sending a message. An assignment remains saved when delivery fails.
 - Add the barangay's actual location names under Workspace settings when ready. No locations were invented or seeded.
-- SQL backups contain private records and credential hashes. Store them privately and restore only into an empty database. Back up `uploads/evidence` separately; the SQL contains file references, not the image bytes.
 - Functional testing covers the scenarios above; it does not claim production-scale load testing or delivery through an external email provider.
+- SQL backups contain private records and credential hashes. Store them privately and restore only into an empty database. Back up `uploads/evidence` separately; the SQL contains file references, not the image bytes.

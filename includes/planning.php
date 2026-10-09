@@ -108,6 +108,16 @@ trait ConcernPlanning
         return [$title,$notes,$team,$personnel ?: null,$date ?: null];
     }
 
+    private function notifyActionPlanTeam(string $team,int $planId,string $type,string $title,string $message,string $event): int
+    {
+        $sent=0;
+        foreach ($this->db->activePersonnelForTeam($team) as $person) {
+            $this->db->createPlanNotification($person['id'],$type,$title,$message,$planId,$event.':'.$person['id']);
+            $sent++;
+        }
+        return $sent;
+    }
+
     public function saveActionPlan(string $officialId, int $id, array $data): int
     {
         return $this->transaction(function() use($officialId,$id,$data) {
@@ -126,6 +136,7 @@ trait ConcernPlanning
                 $id=$this->db->createActionPlan([$rule['id'],$rule['category'],$rule['concern_type'],$rule['keypoint'],$rule['action_text'],$title,$notes,$team,$personnel,$actor['id'],ConcernInsights::week()['date'],$date,'',time(),time(),hash('sha256',$actor['id'].':'.$key)]);
                 $action='weekly_action_plan_created'; $changes=['status'=>'Planned'];
                 if ($personnel) $this->db->createPlanNotification($personnel,'plan_assignment','Action plan assigned','Action plan #'.$id.' has been assigned to you.',$id,'plan:'.$id.':assigned:1');
+                else $changes['teamNotifications']=$this->notifyActionPlanTeam($team,$id,'plan_team_assignment','New team action plan','Weekly action plan #'.$id.' is available for '.$team.'.',$id.':team-assigned:1');
             } else {
                 $before=$this->db->actionPlan($id);
                 $version=filter_var($data['version'] ?? null,FILTER_VALIDATE_INT);
@@ -142,6 +153,9 @@ trait ConcernPlanning
                 }
                 if ($personnel && ($before['assigned_user_id']!==$personnel || $before['status']!==$status || $before['target_date']!==$date || $before['notes']!==$notes)) {
                     $this->db->createPlanNotification($personnel,'plan_updated','Action plan updated','Action plan #'.$id.' has new assignment details.',$id,'plan:'.$id.':updated:'.$version);
+                }
+                if (!$personnel && ($before['assigned_user_id']!==null || $before['team']!==$team || $before['status']!==$status || $before['target_date']!==$date || $before['notes']!==$notes || $before['title']!==$title)) {
+                    $changes['teamNotifications']=$this->notifyActionPlanTeam($team,$id,'plan_team_updated','Team action plan updated','Weekly action plan #'.$id.' has updated work details for '.$team.'.',$id.':team-updated:'.$version);
                 }
             }
             $this->db->recordAudit($actor,$action,'action_plan',(string)$id,$title,$changes);
@@ -160,7 +174,9 @@ trait ConcernPlanning
         $actor=$this->actor($actorId);
         if (!$actor || $actor['must_change_password']) return null;
         $plan=$this->db->actionPlan($id);
-        if (!$plan || ($actor['role']!=='official' && ($actor['role']!=='personnel' || $plan['assigned_user_id']!==$actorId))) return null;
+        if (!$plan) return null;
+        $personnelAccess=$actor['role']==='personnel' && ($plan['assigned_user_id']===$actorId || ($plan['assigned_user_id']===null && $plan['team']===$actor['team']));
+        if ($actor['role']!=='official' && !$personnelAccess) return null;
         $plan['progress']=$this->db->actionPlanProgress($id);
         return $plan;
     }
@@ -170,7 +186,7 @@ trait ConcernPlanning
         $actor=$this->actor($personnelId);
         if (!$actor || $actor['must_change_password'] || $actor['role']!=='personnel') throw new DomainException('Personnel account required.');
         if ($status!=='' && !in_array($status,['Planned','Ongoing','Completed','Cancelled'],true)) throw new DomainException('Choose a valid status.');
-        return $this->db->personnelActionPlans($personnelId,$status,$page,20);
+        return $this->db->personnelActionPlans($personnelId,$actor['team'],$status,$page,20);
     }
 
     public function savePersonnelActionPlan(string $personnelId, int $id, array $data): void
@@ -179,7 +195,7 @@ trait ConcernPlanning
             $actor=$this->actor($personnelId);
             if (!$actor || $actor['must_change_password'] || $actor['role']!=='personnel') throw new DomainException('Personnel account required.');
             $plan=$this->db->lockedActionPlan($id);
-            if (!$plan || $plan['assigned_user_id']!==$personnelId) throw new DomainException('Action plan unavailable.');
+            if (!$plan || !($plan['assigned_user_id']===$personnelId || ($plan['assigned_user_id']===null && $plan['team']===$actor['team']))) throw new DomainException('Action plan unavailable.');
             $version=filter_var($data['version'] ?? null,FILTER_VALIDATE_INT);
             if ($version!==(int)$plan['version']) throw new ConflictException('This action plan changed. Reload before saving.');
             $step=$data['step'] ?? '';
@@ -199,11 +215,11 @@ trait ConcernPlanning
                 $this->pendingEvidence[]=$evidence['file_path'];
             }
             $outcome=$step==='complete' ? $note : null;
-            if (!$this->db->updatePersonnelPlan($id,$personnelId,$from,$to,$outcome,$version)) throw new ConflictException('This action plan changed. Reload before saving.');
+            if (!$this->db->updatePersonnelPlan($id,$personnelId,$actor['team'],$from,$to,$outcome,$version)) throw new ConflictException('This action plan changed. Reload before saving.');
             $this->db->insertPlanProgress($id,$actor,$note,$evidence);
             $this->db->recordAudit($actor,'action_plan_'.$step,'action_plan',(string)$id,$plan['title'],['statusFrom'=>$from,'statusTo'=>$to,'evidence'=>$evidence!==null]);
             if ($step==='complete') foreach ($this->db->officialIds() as $official) {
-                $this->db->createPlanNotification($official,'plan_completed','Action plan completed','Action plan #'.$id.' was completed by assigned personnel.',$id,'plan:'.$id.':completed:'.$version,false);
+                $this->db->createPlanNotification($official,'plan_completed','Action plan completed','Action plan #'.$id.' was completed by '.($plan['assigned_user_id']===null?'the responsible team':'assigned personnel').'.',$id,'plan:'.$id.':completed:'.$version,false);
             }
         });
     }

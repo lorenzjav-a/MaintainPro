@@ -11,6 +11,11 @@ DirectoryIndex index.php
 </FilesMatch>
 
 RewriteEngine On
+# Canonicalize legacy invitation links before extension cleanup. Apache keeps
+# the original query string, including the invitation token, on this redirect.
+RewriteCond %{HTTP_HOST} ^maintainprosystem\.online$ [NC]
+RewriteRule ^ https://www.maintainprosystem.online%{REQUEST_URI} [R=308,L,NE]
+
 RewriteRule "(^|/)\." "-" [F,L,NC]
 # Browser dependencies in assets/vendor are public; only the root PHP vendor
 # directory is private. Blocking every vendor segment breaks form submission.

@@ -16,7 +16,7 @@ if (!in_array($tab, $shownTabs, true)) $shownTabs[] = $tab;
 <section class="panel workspace-empty">
   <?= br_icon($actor['role'] === 'personnel' ? 'tool' : 'inbox') ?>
   <h3><?= ($scope ?? '') === 'mine' ? 'No concerns reported yet' : ($actor['role'] === 'personnel' ? 'No work assigned yet' : 'Your concern register is ready') ?></h3>
-  <p><?= h(($scope ?? '') === 'mine' ? 'Use Report Concern to submit a concern with your identity or anonymously.' : ($actor['role'] === 'personnel' ? 'Concerns assigned directly to you will appear here.' : 'Community reports appear here for assessment and assignment.')) ?></p>
+  <p><?= h(($scope ?? '') === 'mine' ? 'Use Report Concern to submit a concern with your identity or anonymously.' : ($actor['role'] === 'personnel' ? 'Accepted team assignments and active work will appear here.' : 'Community reports appear here for assessment and team assignment.')) ?></p>
   <?php if ($actor['role'] === 'official'): ?><a class="btn btn-primary" href="users.php"><?= br_icon('users') ?>Manage personnel accounts</a><?php endif ?>
 </section>
 <?php else: ?>
