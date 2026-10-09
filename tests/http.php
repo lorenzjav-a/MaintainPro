@@ -28,7 +28,12 @@ function jar(): string {
 function req(string $jar, string $path, ?array $data = null, string $csrf = ''): array {
     global $base;
     $handle = curl_init($base . '/' . $path);
+    $headers = [];
     curl_setopt_array($handle, [CURLOPT_RETURNTRANSFER => true, CURLOPT_COOKIEFILE => $jar, CURLOPT_COOKIEJAR => $jar, CURLOPT_FOLLOWLOCATION => true, CURLOPT_TIMEOUT => 15]);
+    curl_setopt($handle, CURLOPT_HEADERFUNCTION, static function ($curl, string $line) use (&$headers): int {
+        if (preg_match('/^([^:]+):\s*(.*)$/',trim($line),$match)) $headers[strtolower($match[1])]=$match[2];
+        return strlen($line);
+    });
     if ($data !== null) {
         curl_setopt_array($handle, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => json_encode($data), CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'X-CSRF-Token: ' . $csrf]]);
     }
@@ -37,7 +42,7 @@ function req(string $jar, string $path, ?array $data = null, string $csrf = ''):
     $status = curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
     curl_setopt($handle, CURLOPT_COOKIELIST, 'FLUSH');
     unset($handle);
-    return ['status' => $status, 'body' => $body, 'json' => json_decode($body, true)];
+    return ['status' => $status, 'body' => $body, 'json' => json_decode($body, true), 'headers'=>$headers];
 }
 function token(string $jar, string $page = 'index.php'): string {
     $r = req($jar, $page);
@@ -251,6 +256,7 @@ try {
     httpCheck(req($limitedJar, 'api.php')['json']['users'] === [], 'standard official API does not disclose account directory');
     httpCheck(post($limitedJar, 'create_user', ['name' => 'Denied', 'email' => 'denied@example.test', 'role' => 'resident'], $limitedCsrf)['status'] === 422, 'standard official cannot create accounts through API');
     httpCheck(req($limitedJar, 'backup.php')['status'] === 403, 'standard official blocked from backup endpoint');
+    require __DIR__.'/reports-http.php';
     foreach (['.data/before-anonymous-20260921.sql', 'includes/store.php', 'config/mail.local.php', 'database/migrations/20260921_anonymous_concerns.sql', 'vendor/phpmailer/src/PHPMailer.php', 'tests/store.php', 'tools/check-mail.php', '%63onfig/mail.local.php'] as $path) httpCheck(req($guestJar, $path)['status'] === 404, 'private path ' . $path);
     $testDatabase->assertHealthyLog();
     httpCheck(!preg_match('/(?:Fatal error|Warning|Notice):/', file_get_contents($serverLog)), 'no PHP runtime diagnostics');

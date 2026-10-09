@@ -1,0 +1,27 @@
+<?php
+$filters = $report['filters']; $options = $report['options'];
+$advanced = array_filter(array_intersect_key($filters,array_flip(['type','priority','team','personnel','location','keypoint'])));
+?>
+<section class="panel report-filter-panel" aria-labelledby="report-filters-title">
+  <div class="panel-header"><div><h2 class="panel-title" id="report-filters-title"><?= br_icon('search') ?>Refine your report</h2><p class="panel-subtitle">Combine filters. Dates use original submissions in Asia/Manila.</p></div><a class="count-pill" href="#matching-concerns"><?= (int)$metrics['total'] ?> matching</a></div>
+  <form method="get" action="reports.php" id="report-filters" class="panel-body">
+    <div class="report-filter-grid">
+      <div><label class="form-label" for="report-period">Reporting period</label><select class="form-select" id="report-period" name="period"><?php foreach(ConcernReportFilters::PRESETS as $value=>$label): ?><option value="<?= h($value) ?>"<?= $filters['period']===$value?' selected':'' ?>><?= h($label) ?></option><?php endforeach ?></select></div>
+      <div><label class="form-label" for="report-start">Start date</label><input type="date" class="form-control" id="report-start" name="start" value="<?= h($filters['start']) ?>" min="1900-01-01" max="9998-12-31"></div>
+      <div><label class="form-label" for="report-end">End date (inclusive)</label><input type="date" class="form-control" id="report-end" name="end" value="<?= h($filters['end']) ?>" min="1900-01-01" max="9998-12-31"></div>
+      <div><label class="form-label" for="report-category">Category</label><select class="form-select" id="report-category" name="category"><?php br_options($options['categories'],$filters['category'],'All categories'); ?></select></div>
+      <div><label class="form-label" for="report-status">Status</label><select class="form-select" id="report-status" name="status"><option value="">All statuses</option><?php foreach($options['statuses'] as $status): ?><option value="<?= h($status) ?>"<?= $filters['status']===$status?' selected':'' ?>><?= h(br_status_label($status)) ?></option><?php endforeach ?></select></div>
+      <div><label class="form-label" for="report-search">Search concerns</label><input type="search" class="form-control" id="report-search" name="search" maxlength="120" value="<?= h($filters['search']) ?>" placeholder="Concern ID, title or type"></div>
+    </div>
+    <details class="report-more-filters"<?= $advanced?' open':'' ?>><summary>More Filters</summary><div class="report-filter-grid mt-3">
+      <div><label class="form-label" for="report-type">Concern type</label><select class="form-select" id="report-type" name="type"><option value="">All types</option><?php $types=$filters['category']!==''?(ConcernCatalog::TYPES[$filters['category']] ?? []):array_values(array_unique(array_merge(...array_values(ConcernCatalog::TYPES)))); br_options($types,$filters['type']); ?></select></div>
+      <div><label class="form-label" for="report-priority">Priority</label><select class="form-select" id="report-priority" name="priority"><?php br_options($options['priorities'],$filters['priority'],'All priorities'); ?></select></div>
+      <div><label class="form-label" for="report-team">Assigned team</label><select class="form-select" id="report-team" name="team"><option value="">All teams</option><option value="unassigned"<?= $filters['team']==='unassigned'?' selected':'' ?>>Unassigned</option><?php br_options($options['teams'],$filters['team']); ?></select></div>
+      <div><label class="form-label" for="report-personnel">Assigned personnel</label><select class="form-select" id="report-personnel" name="personnel"><option value="">All personnel</option><option value="unassigned"<?= $filters['personnel']==='unassigned'?' selected':'' ?>>Unassigned</option><?php foreach($options['personnel'] as $person): ?><option value="<?= h($person['id']) ?>"<?= $filters['personnel']===$person['id']?' selected':'' ?>><?= h($person['name'].(!$person['active']?' (inactive)':'')) ?></option><?php endforeach ?></select></div>
+      <div><label class="form-label" for="report-location">Purok / Sitio</label><select class="form-select" id="report-location" name="location"><option value="">All locations (including legacy)</option><?php foreach($options['location'] as $location): ?><option value="<?= (int)$location['id'] ?>"<?= $filters['location']===(string)$location['id']?' selected':'' ?>><?= h($location['name'].(!$location['active']?' (inactive)':'')) ?></option><?php endforeach ?></select></div>
+      <div><label class="form-label" for="report-keypoint">Key point</label><select class="form-select" id="report-keypoint" name="keypoint"><?php br_options($filters['category']!==''?(ConcernCatalog::POINTS[$filters['category']] ?? []):$options['keypoints'],$filters['keypoint'],'All key points'); ?></select></div>
+    </div></details>
+    <div class="report-filter-actions"><button type="submit" class="btn btn-primary"><?= br_icon('search') ?>Apply Filters</button><a class="btn btn-light" href="reports.php"><?= br_icon('refresh') ?>Reset Filters</a><p class="form-text mb-0">Preview is paginated. PDF includes every match; very large reports may need narrower filters on shared hosting.</p></div>
+    <script type="application/json" id="report-filter-catalog"><?= json_encode(['types'=>ConcernCatalog::TYPES,'points'=>ConcernCatalog::POINTS], JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?></script>
+  </form>
+</section>

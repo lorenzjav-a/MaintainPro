@@ -5,12 +5,12 @@ $links[] = ['new-complaint', 'report-concern.php', 'Report Concern', 'plus', nul
 if ($page === 'complaints' && ($scope ?? '') === 'mine' && $actor['role'] !== 'resident') $activePage = 'my-reports';
 $links[] = ['notifications', 'notifications.php', 'Notifications', 'bell', null];
 if ($actor['role'] !== 'resident') $links[] = ['messages', 'messages.php', 'Messages', 'inbox', $messageCounts['staff'] ?? 0];
+if ($actor['role'] === 'official') $links[] = ['reports', 'reports.php', 'Reports & insights', 'fileText', null];
 $links[] = ['user-guide', 'user-guide.php', 'User Guide', 'help', null];
 $records = [['history', 'history.php', 'Concern history', 'clock', null]];
 if ($actor['role'] !== 'resident') $records[] = ['my-reports', 'complaints.php?scope=mine', 'My reported concerns', 'clipboard', null];
 if ($actor['role'] === 'personnel') $records[] = ['my-action-plans', 'my-action-plans.php', 'My action plans', 'clipboard', null];
 if ($actor['role'] === 'official') {
-    $records[] = ['reports', 'reports.php', 'Reports & insights', 'fileText', null];
     $records[] = ['solutions', 'solutions.php', 'Solution library', 'book', null];
     $records[] = ['official-solutions', 'official-solutions.php', 'Official action library', 'book', null];
     $records[] = ['action-plans', 'action-plans.php', 'Weekly action plans', 'clipboard', null];

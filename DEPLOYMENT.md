@@ -1,6 +1,14 @@
 # MaintainPro production deployment
 
-MaintainPro 1.0.0 requires PHP 8.2+, MariaDB 10.6+ or MySQL 8.0+, HTTPS, and a production SMTP service. Runtime PHP extensions are `PDO`, `pdo_mysql`, `mbstring`, `openssl`, `json`, `fileinfo`, `session`, and `Phar`. Browser assets and PHPMailer are bundled locally.
+MaintainPro 1.0.0 requires PHP 8.2+, MariaDB 10.6+ or MySQL 8.0+, HTTPS, and a production SMTP service. Runtime PHP extensions are `PDO`, `pdo_mysql`, `mbstring`, `openssl`, `json`, `fileinfo`, `session`, `Phar`, and `dom`. Browser assets, PHPMailer and the PDF renderer are bundled locally.
+
+### Reports & Insights PDF deployment
+
+Reports use bundled Dompdf 3.1.6 (including its dependency autoloader and DejaVu fonts) under `vendor/dompdf`. No Composer installation or internet access is required on Hostinger or during a download. See `docs/REPORTING.md` for the pinned package checksum, dependency versions and upgrade process. Deploy the complete release archive, not only `reports.php`: the builder includes `reports-pdf.php`, reporting helpers, the new browser script and the full PDF dependency tree.
+
+Enable `dom` and `mbstring` in Hostinger's PHP extensions. `zlib` is recommended for compression; GD is not required by this vector-SVG report. The PHP system temporary directory must be writable: a private `maintainpro-pdf-cache` child stores font/cache intermediates, never persistent downloadable reports. Keep `vendor` blocked by the existing Apache/Nginx rules. PDF generation has no remote resources, PHP execution or embedded JavaScript.
+
+PDFs contain every matching concern or fail explicitly; they never silently truncate. Capacity checks use the host's `memory_limit`, first before collecting export rows and again before rendering with the actual HTML size. When PHP is configured with unlimited memory, a conservative 512 MB application budget protects the host. On smaller shared-hosting plans, narrow the filters when prompted. There is no fixed record-count cutoff. Do not raise memory limits from web requests. Hostinger production download/time-limit checks must be completed after deployment; local tests do not establish hosting capacity. No schema migration is needed for reporting.
 
 ## 1. Prepare and back up
 

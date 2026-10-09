@@ -31,7 +31,7 @@ function br_page(string $page, array $roles = []): array
     if ($roles && !in_array($actor['role'], $roles, true)) br_page_error($context, 403, 'Access denied', 'Your account does not have access to this page.');
     if (in_array($page, ['admin','users','user-create','user-edit','settings','audit'], true) && !$actor['is_system_admin']) br_page_error($context, 403, 'Access denied', 'System administrator access is required.');
     // Apply the same individual-assignment rules as the API.
-    $lightweight = !in_array($page, ['reports','solutions'], true);
+    $lightweight = $page !== 'solutions';
     $context['cases'] = $lightweight ? [] : br_store()->visibleConcerns($actor['id']);
     $context['scope'] = br_query('scope') === 'mine' || $actor['role'] === 'resident' ? 'mine' : 'work';
     if ($page==='overview') $context['cases']=br_store()->pagedConcerns($actor['id'],['scope'=>$context['scope']],1,20)['items'];

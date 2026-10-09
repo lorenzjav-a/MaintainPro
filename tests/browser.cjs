@@ -526,6 +526,27 @@ async function tab() {
     await official.go('reports.php');
     check(await official.evaluate('document.querySelector(".report-section .reports-stats-grid") && document.querySelectorAll(".report-ranking-row progress").length > 0 && document.querySelector(".reports-stats-grid").getBoundingClientRect().top < document.getElementById("weekly-concerns").getBoundingClientRect().top'), 'reports lead with outcome summary and visual comparisons');
     await official.screenshot('reports-overview-desktop');
+    check(await official.evaluate('!!document.getElementById("report-filters") && document.querySelector(".heading-actions a").textContent.includes("Export to PDF") && !Array.from(document.querySelectorAll("a")).some(a => a.href.includes("export=csv"))'), 'Reports uses filters and PDF-only export');
+    await official.fill('#report-category', 'Street Lighting');
+    check(await official.evaluate('!Array.from(document.getElementById("report-type").options).some(option => option.value === "Pothole")'), 'report types depend on category');
+    await official.fill('#report-search', 'NONEXISTENT-REPORT-ONLY');
+    await official.click('#report-filters button[type=submit]');
+    await until(() => official.evaluate('location.search.includes("NONEXISTENT-REPORT-ONLY") && document.readyState === "complete" && !!document.querySelector("#matching-concerns .report-empty-state")'), 'zero-match filtered report');
+    check(await official.evaluate('document.querySelector("#report-search").value === "NONEXISTENT-REPORT-ONLY" && document.querySelector(".report-filter-panel .count-pill").textContent.includes("0 matching") && document.querySelector(".heading-actions a").href.includes("NONEXISTENT-REPORT-ONLY")'), 'filter persistence, zero count and matching PDF URL');
+    await official.send('Page.reload', {});
+    await official.ready('/reports.php', '#report-filters');
+    check(await official.evaluate('document.getElementById("report-search").value === "NONEXISTENT-REPORT-ONLY"'), 'report filters survive refresh');
+    await official.click('.report-filter-actions a');
+    await until(() => official.evaluate('location.search === "" && document.readyState === "complete" && document.getElementById("report-search")?.value === ""'), 'report reset');
+    for (const width of [375,430,768,1024,1440]) {
+      await official.send('Emulation.setDeviceMetricsOverride', {width,height:1000,deviceScaleFactor:1,mobile:width<768});
+      for (const theme of ['light','dark']) {
+        await official.evaluate('if(document.documentElement.dataset.theme!=='+JSON.stringify(theme)+') document.querySelector("[data-theme-toggle]").click()');
+        check(await official.evaluate('document.documentElement.scrollWidth <= innerWidth && document.getElementById("report-filters").getBoundingClientRect().width <= innerWidth'), 'report filter layout '+width+' '+theme);
+        await official.screenshot('report-filters-'+width+'-'+theme);
+      }
+    }
+    await official.send('Emulation.setDeviceMetricsOverride', {width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     await official.evaluate('document.getElementById("weekly-concerns").scrollIntoView({block:"start"})');
     check(await official.evaluate('document.getElementById("weekly-concerns").textContent.includes("Uncollected garbage") && document.getElementById("weekly-concerns").textContent.includes("Common keypoints") && document.getElementById("weekly-concerns").textContent.includes("Suggested solutions") && document.querySelectorAll("#weekly-concerns .weekly-concern:first-of-type > ol > li").length === 3'), 'weekly concerns and three keypoint solutions shown');
     await official.screenshot('weekly-concerns-desktop');

@@ -8,6 +8,7 @@ require_once __DIR__ . '/profile-photo-storage.php';
 require_once __DIR__ . '/planning.php';
 require_once __DIR__ . '/messaging.php';
 require_once __DIR__ . '/security.php';
+require_once __DIR__ . '/reporting.php';
 
 final class ConflictException extends DomainException {}
 
@@ -821,6 +822,37 @@ final class ComplaintStore
     public function publicStatistics(): array
     {
         return $this->db->publicStatistics();
+    }
+
+    public function reportOptions(string $officialId): array
+    {
+        $this->authorizeOfficial($officialId);
+        return ['categories'=>array_values(array_unique([...array_keys(ConcernCatalog::TYPES),...ComplaintWorkflow::CATEGORIES])),
+            'statuses'=>ComplaintWorkflow::STATUSES,'priorities'=>ComplaintWorkflow::PRIORITIES,
+            'teams'=>ComplaintWorkflow::TEAMS,'keypoints'=>array_values(array_unique(array_merge(...array_values(ConcernCatalog::POINTS)))),
+            'personnel'=>$this->db->workloads(),'location'=>$this->db->locations(true)];
+    }
+
+    public function concernReport(string $officialId, array $input, int $page = 1, bool $export = false): array
+    {
+        $actor = $this->authorizeOfficial($officialId);
+        $options = $this->reportOptions($officialId);
+        $filters = ConcernReportFilters::validate($input,$options);
+        return $this->db->reportSnapshot(function () use ($actor,$options,$filters,$page,$export) {
+            $total = $this->db->reportCount($actor,$filters);
+            // Check host capacity before collecting export rows; never silently cap records.
+            if ($export) ConcernReportCapacity::check($total);
+            $page = min(max(1,$page), max(1,(int)ceil($total / 20)));
+            $summary = new ConcernReportSummary(); $preview = []; $index = 0;
+            foreach ($this->db->reportRows($actor,$filters) as $c) {
+                $summary->add($c);
+                if ($export || ($index >= ($page-1)*20 && $index < $page*20)) $preview[] = $c;
+                $index++;
+            }
+            return $summary->result() + ['filters'=>$filters,'options'=>$options,'labels'=>ConcernReportFilters::labels($filters,$options),
+                'preview'=>['items'=>$preview,'total'=>$total,'page'=>$page,'perPage'=>20],
+                'satisfaction'=>$this->db->reportFeedback($actor,$filters)];
+        });
     }
 
     public function mutate(string $userId, string $action, string $id, array $data, mixed $expectedVersion): string

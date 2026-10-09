@@ -48,6 +48,7 @@ httpCheck(post($reportStaffJar,'submit_feedback',['rating'=>'5'],$reportStaffCsr
 httpCheck(post($reporterJar,'submit_feedback',['rating'=>'5','comment'=>'<script>feedback private</script>'],$reporterCsrf,$reportId)['status']===200,'feedback endpoint');
 httpCheck(post($reporterJar,'submit_feedback',['rating'=>'5'],$reporterCsrf,$reportId)['status']===422,'feedback endpoint replay denied');
 $feedbackPage=req($adminJar,'reports.php');
+httpCheck($feedbackPage['status']===200,'feedback report renders');
 httpCheck(str_contains($feedbackPage['body'],'&lt;script&gt;feedback private&lt;/script&gt;'),'feedback comments escaped');
 $publicStats=pageDocument($guestJar,'transparency.php')->evaluate('string(//main)');
 foreach(['PRIVATE','feedback private','Reporting Resident HTTP','Reporting Personnel HTTP','@example.test'] as $secret) httpCheck(!str_contains($publicStats,$secret),'public dashboard excludes '.$secret);

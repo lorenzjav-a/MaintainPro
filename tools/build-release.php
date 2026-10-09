@@ -13,14 +13,14 @@ $files = [];
 $entrypoints = ['action-plans','admin','api','audit','auth','backup','blocked','complaint',
     'complaints','concern','concerns','evidence','history','index','landing','login',
     'messages','my-action-plans','new-complaint','notifications','official-solutions','profile','profile-photo',
-    'public-api','report-concern','reports','router','settings','solutions','track',
+    'public-api','report-concern','reports','reports-pdf','router','settings','solutions','track',
     'transparency','user-create','user-edit','user-guide','users'];
 foreach ($entrypoints as $entrypoint) {
     $path = $root . '/' . $entrypoint . '.php';
     if (!is_file($path)) throw new RuntimeException('Missing production page: ' . $entrypoint);
     $files[] = $path;
 }
-foreach (['assets', 'includes', 'database', 'vendor/phpmailer'] as $directory) {
+foreach (['assets', 'includes', 'database', 'vendor/phpmailer', 'vendor/dompdf'] as $directory) {
     $path = $root . '/' . $directory;
     if (!is_dir($path)) throw new RuntimeException('Missing production directory: ' . $directory);
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS));
@@ -32,6 +32,7 @@ foreach (['.htaccess', '.env.example', 'README.md', 'DEPLOYMENT.md', 'uploads/.h
     $files[] = $path;
 }
 $files[]=$root.'/docs/SYSTEM_DEMO_GUIDE.md';
+$files[]=$root.'/docs/REPORTING.md';
 sort($files, SORT_STRING);
 foreach (array_unique($files) as $path) {
     $relative = str_replace('\\', '/', substr($path, strlen($root) + 1));

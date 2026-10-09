@@ -5,6 +5,97 @@ require_once dirname(__DIR__) . '/config/database.php';
 // All SQL belongs in this file. Callers pass values to named operations.
 final class MaintainProDatabase
 {
+    /** Consistent, read-only reporting snapshot; no workflow locks or writes. */
+    public function reportSnapshot(callable $work): mixed
+    {
+        $this->connection->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        $this->connection->exec('START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY');
+        try { $result = $work(); $this->connection->commit(); return $result; }
+        catch (Throwable $error) { if ($this->connection->inTransaction()) $this->connection->rollBack(); throw $error; }
+    }
+
+    private function reportCondition(array $actor, array $filters): array
+    {
+        $where = ["?='official'"]; $values = [$actor['role']];
+        if ($filters['start'] !== '') { $where[] = 'c.created_at>=?'; $values[] = $filters['start'].'T00:00:00+08:00'; }
+        if ($filters['end'] !== '') {
+            $end = new DateTimeImmutable($filters['end'], new DateTimeZone('Asia/Manila'));
+            $where[] = 'c.created_at<?'; $values[] = $end->modify('+1 day')->format(DATE_ATOM);
+        }
+        foreach (['category'=>'category_name','type'=>'concern_type','status'=>'status'] as $key=>$column) if ($filters[$key] !== '') { $where[] = 'c.'.$column.'=?'; $values[] = $filters[$key]; }
+        if ($filters['priority'] !== '') { $where[] = "JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.priority'))=?"; $values[] = $filters['priority']; }
+        foreach (['team'=>'team','personnel'=>'assigned_user_id'] as $key=>$column) if ($filters[$key] !== '') {
+            if ($filters[$key] === 'unassigned') $where[] = '(c.'.$column." IS NULL OR c.".$column."='')";
+            else { $where[] = 'c.'.$column.'=?'; $values[] = $filters[$key]; }
+        }
+        if ($filters['location'] !== '') {
+            // Legacy name-only records join the registry without losing historical records.
+            $where[] = "(JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.locationDetails.purokId'))=? OR ((JSON_EXTRACT(c.payload,'$.locationDetails.purokId') IS NULL OR JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.locationDetails.purokId')) IN ('','null')) AND JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.locationDetails.purok'))=(SELECT name FROM locations WHERE id=?)))";
+            array_push($values, $filters['location'], $filters['location']);
+        }
+        if ($filters['keypoint'] !== '') { $where[] = "JSON_CONTAINS(COALESCE(JSON_EXTRACT(c.payload,'$.keyPoints'),JSON_ARRAY()),JSON_QUOTE(?))"; $values[] = $filters['keypoint']; }
+        if ($filters['search'] !== '') {
+            // Deliberately exclude reporter identities, exact addresses and internal notes.
+            $where[] = "LOCATE(?,CONCAT_WS(' ',c.id,JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.title')),c.category_name,c.concern_type))>0";
+            $values[] = $filters['search'];
+        }
+        return [implode(' AND ', $where), $values];
+    }
+
+    public function reportCount(array $actor, array $filters): int
+    {
+        [$where,$values] = $this->reportCondition($actor,$filters);
+        return (int)$this->run('SELECT COUNT(*) FROM complaints c WHERE '.$where,$values)->fetchColumn();
+    }
+
+    public function reportRows(array $actor, array $filters): Generator
+    {
+        [$where,$values] = $this->reportCondition($actor,$filters);
+        $last = '';
+        do {
+            // Only reporting fields: never materialize photos, tracking codes or reporter identities.
+            $rows = $this->run("SELECT c.id,c.created_at,c.status,c.team,c.assigned_user_id,
+                JSON_OBJECT('id',c.id,'createdAt',c.created_at,'status',c.status,'team',COALESCE(c.team,''),
+                    'category',COALESCE(c.category_name,''),'concernType',COALESCE(c.concern_type,''),
+                    'title',JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.title')),
+                    'description',COALESCE(JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.description')),''),
+                    'location',COALESCE(JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.location')),''),
+                    'locationDetails',COALESCE(JSON_EXTRACT(c.payload,'$.locationDetails'),JSON_OBJECT()),
+                    'priority',COALESCE(JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.priority')),'Low'),
+                    'keyPoints',COALESCE(JSON_EXTRACT(c.payload,'$.keyPoints'),JSON_ARRAY()),
+                    'resolution',JSON_OBJECT('date',JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.resolution.date'))),
+                    'reopenCount',COALESCE(JSON_EXTRACT(c.payload,'$.reopenCount'),0),
+                    'priorityDecision',JSON_EXTRACT(c.payload,'$.priorityDecision'),
+                    'assignedName',COALESCE(JSON_UNQUOTE(JSON_EXTRACT(c.payload,'$.assignedName')),'')) AS report_payload
+                FROM complaints c WHERE $where AND c.id>? ORDER BY c.id LIMIT 250", [...$values,$last])->fetchAll();
+            foreach ($rows as $row) {
+                $last = $row['id'];
+                $c = json_decode($row['report_payload'],true,64,JSON_THROW_ON_ERROR);
+                // MariaDB can encode nested JSON expressions as strings inside
+                // JSON_OBJECT; normalize both engines to the same report contract.
+                foreach (['locationDetails','keyPoints','resolution','priorityDecision'] as $field) {
+                    if (is_string($c[$field])) $c[$field] = json_decode($c[$field],true,64,JSON_THROW_ON_ERROR);
+                }
+                $c['locationDetails'] = is_array($c['locationDetails']) ? $c['locationDetails'] : [];
+                $c['keyPoints'] = is_array($c['keyPoints']) ? $c['keyPoints'] : [];
+                if (($c['resolution']['date'] ?? null) === 'null') $c['resolution']['date'] = null;
+                foreach (['title','description','location','assignedName'] as $field) if ($c[$field] === 'null' || $c[$field] === null) $c[$field] = '';
+                $c['locationDetails']['purok'] ??= '';
+                $c['assignedUserId'] = $row['assigned_user_id'];
+                yield $c;
+            }
+        } while (count($rows) === 250);
+    }
+
+    public function reportFeedback(array $actor, array $filters): array
+    {
+        [$where,$values] = $this->reportCondition($actor,$filters);
+        $join = ' FROM concern_feedback f JOIN complaints c ON c.id=f.complaint_id WHERE '.$where;
+        return ['summary'=>$this->run('SELECT COUNT(*) responses,ROUND(AVG(f.rating),1) average'.$join,$values)->fetch(),
+            'categories'=>$this->run('SELECT c.category_name category,COUNT(*) responses,ROUND(AVG(f.rating),1) average'.$join.' GROUP BY c.category_name ORDER BY responses DESC,category',$values)->fetchAll(),
+            'recent'=>$this->run('SELECT f.complaint_id,f.rating,f.comment'.$join." AND f.comment<>'' ORDER BY f.created_at DESC,f.complaint_id LIMIT 20",$values)->fetchAll()];
+    }
+
     public function duplicateCandidates(string $id, string $since): array
     {
         return $this->run("SELECT c.id,c.status,c.created_at,c.street_normalized,
