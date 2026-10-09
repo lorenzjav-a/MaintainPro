@@ -30,7 +30,7 @@ br_heading($pageTitle, 'Manage your photo, account details, and password.');
       <p class="form-text mt-2">New passwords must contain at least 10 characters.</p>
     </section>
     <section class="profile-confirmation" aria-labelledby="profile-confirm-heading"><div><h3 class="section-title" id="profile-confirm-heading">Confirm changes</h3><p class="form-text">Enter your current password before saving any profile changes.</p></div><label class="form-label" for="current-password">Current password</label><input class="form-control" id="current-password" name="current_password" type="password" autocomplete="current-password" required></section>
-    <div class="profile-form-actions"><button class="btn btn-primary" type="submit"><?= br_icon('check') ?>Save profile</button></div>
+    <div class="profile-form-actions"><button class="btn btn-primary" type="submit"><?= br_icon('save') ?>Save profile</button></div>
   </form></div>
 </section>
 <?php require __DIR__ . '/includes/layout/footer.php'; ?>

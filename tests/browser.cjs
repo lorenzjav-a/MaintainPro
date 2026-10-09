@@ -116,10 +116,59 @@ async function tab() {
     const photo = async (client, selector) => client.evaluate('(() => {const bytes=Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII="),c=>c.charCodeAt(0));const transfer=new DataTransfer();transfer.items.add(new File([bytes],"evidence.png",{type:"image/png"}));const input=document.querySelector(' + JSON.stringify(selector) + ');input.files=transfer.files;input.dispatchEvent(new Event("change",{bubbles:true}));})()');
     // A known valid one-pixel PNG; file type and contents are both checked server-side.
     const setPhoto = async (client, selector) => client.evaluate('(() => {const bytes=Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII="),c=>c.charCodeAt(0));const transfer=new DataTransfer();transfer.items.add(new File([bytes],"evidence.png",{type:"image/png"}));const input=document.querySelector(' + JSON.stringify(selector) + ');input.files=transfer.files;input.dispatchEvent(new Event("change",{bubbles:true}));})()');
+    // Theme behavior is shared by public, authentication and role workspaces.
+    for (const width of [375,430,768,1024,1440]) {
+      await guest.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});
+      await guest.go('landing.php');
+      check(await guest.evaluate('document.querySelectorAll("[data-theme-toggle]").length===1 && document.documentElement.scrollWidth<=innerWidth && (()=>{const button=document.querySelector("[data-theme-toggle]");return !!(button.getAttribute("aria-label")&&button.getAttribute("title")&&button.querySelectorAll("svg").length===2&&getComputedStyle(button.querySelector(".theme-toggle-thumb")).transitionDuration!=="0s")})()'), 'animated theme toggle is accessible and fits at '+width);
+      const beforeTheme = await guest.evaluate('document.documentElement.dataset.theme');
+      await guest.click('[data-theme-toggle]');
+      check(await guest.evaluate('document.documentElement.dataset.theme!==' + JSON.stringify(beforeTheme) + ' && localStorage.getItem("maintainpro:theme")===document.documentElement.dataset.theme'), 'one click changes theme at '+width);
+      if (beforeTheme === 'dark') await guest.click('[data-theme-toggle]');
+      check(await guest.evaluate('document.documentElement.dataset.theme==="dark" && document.querySelector("[data-theme-toggle]").getAttribute("aria-pressed")==="true" && getComputedStyle(document.body).colorScheme==="dark"'), 'dark theme applies at '+width);
+      if (width===375 || width===1440) await guest.screenshot('landing-dark-'+width);
+    }
+    await guest.go('report-concern.php');
+    check(await guest.evaluate('(()=>{const zone=document.querySelector("[data-upload-zone]"),input=zone?.querySelector("input[type=file]"),button=zone?.querySelector(".upload-button");return !!(zone&&input&&button&&button.textContent.includes("Choose photo")&&zone.textContent.includes("Drag and drop or browse"))})()'), 'shared evidence upload has a clear modern picker');
+    await setPhoto(guest, '#report-photo');
+    await until(()=>guest.evaluate('!!document.querySelector("#report-photo").files[0] && !!document.querySelector("[data-preview=report-photo] img")'),'guest upload preview');
+    check(await guest.evaluate('document.querySelector("[data-upload-zone]").classList.contains("has-file") && document.querySelector("[data-upload-name]").textContent==="evidence.png" && !document.querySelector("[data-upload-clear]").hidden'), 'selected evidence shows filename, state and preview');
+    await guest.evaluate('document.querySelector("[data-upload-zone]").scrollIntoView({block:"center"})');
+    await guest.screenshot('evidence-upload-selected-desktop');
+    await guest.click('[data-upload-clear]');
+    check(await guest.evaluate('!document.querySelector("#report-photo").files.length && !document.querySelector("[data-preview=report-photo] img") && document.querySelector("[data-upload-name]").textContent==="No photo selected"'), 'selected evidence can be cleared without resetting the form');
+    await guest.fill('[name="landmark"]','Unsaved theme draft');
+    await guest.click('[data-theme-toggle]');
+    check(await guest.evaluate('document.querySelector("[name=landmark]").value==="Unsaved theme draft" && document.documentElement.dataset.theme==="light"'), 'theme switching preserves an unsaved public form');
+    await guest.go('track.php');
+    await guest.send('Page.reload'); await guest.ready('/track.php');
+    check(await guest.evaluate('document.documentElement.dataset.theme==="light" && localStorage.getItem("maintainpro:theme")==="light"'), 'theme persists across navigation and refresh');
+    await guest.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+    await guest.go('landing.php');
+    check(await guest.evaluate('parseFloat(getComputedStyle(document.querySelector(".public-main > *")).animationDuration)<=0.001 && parseFloat(getComputedStyle(document.querySelector(".public-nav-link")).transitionDuration)<=0.001'), 'reduced-motion preference suppresses interface motion');
+    await guest.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
+    await guest.send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     await official.go('login.php');
     await official.auth('setup', {name: 'Browser Official', email: 'official@example.test', password, confirm_password: password, setup_key: process.env.APP_SETUP_KEY});
     await official.ready('/index.php');
+    await official.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
     check(await official.evaluate('document.querySelector("h1").textContent === "Official dashboard"'), 'official dashboard');
+    check(await official.evaluate('!!document.querySelector(".theme-switcher-workspace[data-theme-toggle]") && getComputedStyle(document.querySelector(".topbar")).backgroundColor!=="rgba(0, 0, 0, 0)"'), 'official workspace uses the shared theme control');
+    check(await official.evaluate('(()=>{const controls=Array.from(document.querySelectorAll(".btn,.icon-btn,.link-button,.nav-link,.filter-tab,.open-case-btn")).filter(el=>el.getClientRects().length&&!el.disabled);return controls.length>5&&controls.every(el=>parseFloat(getComputedStyle(el).transitionDuration)>0)})()'), 'visible workspace buttons and navigation use shared smooth transitions');
+    const hoverPoint = await official.evaluate('(()=>{const box=document.querySelector(".btn-primary").getBoundingClientRect();return {x:box.left+box.width/2,y:box.top+box.height/2}})()');
+    await official.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:hoverPoint.x,y:hoverPoint.y}); await delay(380);
+    const hoverState = await official.evaluate('(()=>{const css=getComputedStyle(document.querySelector(".btn-primary"));return {transform:css.transform,shadow:css.boxShadow,delay:css.transitionDelay}})()');
+    check(hoverState.transform!=="none" && hoverState.shadow!=="none" && parseFloat(hoverState.delay)>0, 'primary button has delayed smooth lift and shadow hover feedback');
+    await official.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:1,y:1});
+    await official.click('[data-theme-toggle]');
+    await delay(320);
+    check(await official.evaluate('document.documentElement.dataset.theme==="dark" && getComputedStyle(document.querySelector(".topbar")).backgroundColor!=="rgb(255, 255, 255)" && getComputedStyle(document.querySelector(".panel")).color===getComputedStyle(document.body).color'), 'official dashboard components use dark theme colors');
+    await official.click('[data-logout]'); await official.waitFor('.swal2-popup');
+    check(await official.evaluate('getComputedStyle(document.querySelector(".swal2-popup")).backgroundColor===getComputedStyle(document.querySelector(".panel")).backgroundColor'), 'SweetAlert dialog follows dark theme');
+    await official.screenshot('official-dashboard-dark-dialog');
+    await official.click('.swal2-cancel');
+    await official.click('[data-theme-toggle]');
+    await official.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
     check(await official.evaluate('Array.from(document.querySelectorAll(".open-case-btn")).every(link=>{const label=link.firstChild,range=document.createRange();range.selectNodeContents(label);return range.getBoundingClientRect().height<=parseFloat(getComputedStyle(link).lineHeight)*1.25 && getComputedStyle(link).whiteSpace==="nowrap"})'), 'concern open actions keep the label on one line');
     await official.go('profile.php');
     await setPhoto(official, '#profile-photo');
@@ -129,6 +178,7 @@ async function tab() {
     await official.click('[data-remove-profile-photo]');
     check(await official.evaluate('document.querySelector("#profile-photo-remove").value === "1" && document.querySelector("[data-remove-profile-photo]").hidden && !document.querySelector("[data-preview=profile-photo] img") && document.querySelector("#profile-photo-status").textContent.includes("permanently removed")'), 'remove photo is a one-way pending action with clear status');
     await setPhoto(official, '#profile-photo');
+    await until(()=>official.evaluate('document.querySelector("#profile-photo-remove").value === "0" && !!document.querySelector("[data-preview=profile-photo] img")'), 'replacement profile photo preview');
     check(await official.evaluate('document.querySelector("#profile-photo-remove").value === "0" && !document.querySelector("[data-remove-profile-photo]").hidden && !!document.querySelector("[data-preview=profile-photo] img")'), 'choosing a replacement intentionally cancels pending removal');
     await guest.go('landing.php');
     check(await guest.evaluate('(async()=>{const response=await fetch("profile-photo.php");return response.status})()')===403, 'profile photo endpoint requires an account');
@@ -141,6 +191,7 @@ async function tab() {
     await personnel.ready('/login.php', '#temporary-password');
     check(await personnel.evaluate('document.querySelector("#auth-form").dataset.action === "change_password"'), 'temporary password gate');
     await personnel.auth('change_password', {current_password: temporary, password, confirm_password: password}); await personnel.ready('/index.php');
+    check(await personnel.evaluate('!!document.querySelector(".theme-switcher-workspace[data-theme-toggle]")'), 'personnel workspace uses the shared theme control');
     if (process.env.BR_TEST_ACCOUNTS_ONLY === '1') {
       check(await official.evaluate('location.pathname === "/user-create.php" && !document.getElementById("created-account").hidden'), 'account result stays inside MaintainPro');
       await official.screenshot('account-created-desktop');
@@ -199,13 +250,16 @@ async function tab() {
     check(await personnel.evaluate('document.querySelector("h1").textContent === "My work dashboard"'), 'personnel dashboard');
     await guest.go('landing.php');
     check(await guest.evaluate('!!document.querySelector("a[href=\\"report-concern.php\\"]")'), 'public landing action');
-    check(await guest.evaluate('(()=>{const links=Array.from(document.querySelectorAll(".public-header nav .public-nav-link")),heights=links.map(link=>link.getBoundingClientRect().height),tops=links.map(link=>link.getBoundingClientRect().top),secondary=getComputedStyle(links[0]),cta=getComputedStyle(links[3]);return links.length===4 && Math.max(...heights)-Math.min(...heights)<=1 && Math.max(...tops)-Math.min(...tops)<=1 && secondary.textDecorationLine==="none" && secondary.cursor==="pointer" && secondary.borderTopStyle==="solid" && parseFloat(secondary.minHeight)>=44 && cta.backgroundColor!==secondary.backgroundColor})()'), 'public navigation uses aligned secondary links and a distinct sign-in CTA');
+    check(await guest.evaluate('(()=>{const links=Array.from(document.querySelectorAll(".public-header nav .public-nav-link")),heights=links.map(link=>link.getBoundingClientRect().height),tops=links.map(link=>link.getBoundingClientRect().top),secondary=getComputedStyle(links[0]),cta=getComputedStyle(links[4]);return links.length===5 && Math.max(...heights)-Math.min(...heights)<=1 && Math.max(...tops)-Math.min(...tops)<=1 && secondary.textDecorationLine==="none" && secondary.cursor==="pointer" && parseFloat(secondary.minHeight)>=44 && cta.backgroundColor!==secondary.backgroundColor})()'), 'public navigation uses aligned section links and a distinct login CTA');
+    check(await guest.evaluate('document.querySelectorAll(".landing-benefit").length===3 && document.querySelectorAll(".process-step").length===4 && document.querySelectorAll(".landing-feature-card").length===4 && document.querySelectorAll(".landing-role").length===3 && document.querySelectorAll(".faq-item").length===6'), 'landing page includes the complete benefits, workflow, features, roles and FAQ content');
     await guest.evaluate('document.querySelector(".public-nav-link").focus()');
     check(await guest.evaluate('(()=>{const link=document.activeElement,style=getComputedStyle(link);return link.matches(".public-nav-link") && style.outlineStyle!=="none" && parseFloat(style.outlineWidth)>=3})()'), 'public navigation has a visible keyboard focus state');
     await guest.screenshot('landing-desktop');
     await guest.send('Emulation.setDeviceMetricsOverride', {width:768,height:900,deviceScaleFactor:1,mobile:false});
     await guest.go('landing.php');
-    check(await guest.evaluate('(()=>{const header=document.querySelector(".public-header").getBoundingClientRect(),links=Array.from(document.querySelectorAll(".public-nav-link")),tops=links.map(link=>link.getBoundingClientRect().top);return document.documentElement.scrollWidth<=innerWidth && Math.max(...tops)-Math.min(...tops)<=1 && links.every(link=>{const box=link.getBoundingClientRect();return box.left>=header.left && box.right<=header.right && box.height>=40})})()'), 'tablet public navigation shares one aligned row without overflow');
+    check(await guest.evaluate('(()=>{const toggle=document.querySelector("[data-public-menu-toggle]"),nav=document.querySelector("[data-public-navigation]");return document.documentElement.scrollWidth<=innerWidth && getComputedStyle(toggle).display==="grid" && getComputedStyle(nav.querySelector(".public-nav-link")).display==="none" && nav.querySelector("[data-theme-toggle]").getClientRects().length===1})()'), 'tablet navigation collapses while keeping the theme switch accessible');
+    await guest.click('[data-public-menu-toggle]');
+    check(await guest.evaluate('document.querySelector("[data-public-navigation]").classList.contains("is-open") && document.querySelector("[data-public-menu-toggle]").getAttribute("aria-expanded")==="true" && Array.from(document.querySelectorAll(".public-nav-link")).every(link=>link.getClientRects().length===1)'), 'tablet navigation opens with all links visible');
     await guest.screenshot('landing-tablet');
     await guest.send('Emulation.setDeviceMetricsOverride', {width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     await guest.go('report-concern.php');
@@ -228,7 +282,7 @@ async function tab() {
     check(reference.startsWith('CON-') && trackingCode.length===48, 'private receipt');
     check(await guest.evaluate('document.querySelectorAll("#receipt-guidance li").length===3'), 'guidance remains available after submission');
     await guest.screenshot('receipt-desktop');
-    check(await guest.evaluate('location.search === "" && localStorage.length === 0 && sessionStorage.length === 0'), 'tracking secret absent from URLs and storage');
+    check(await guest.evaluate('location.search === "" && Array.from({length:localStorage.length},(_,i)=>localStorage.key(i)).every(key=>key==="maintainpro:theme") && !Object.values(localStorage).includes(' + JSON.stringify(trackingCode) + ') && !Object.values(sessionStorage).includes(' + JSON.stringify(trackingCode) + ')'), 'tracking secret absent from URLs and storage');
     const detail = 'complaint.php?id=' + reference;
     await guest.go('track.php');
     await guest.fill('[name=reference]', reference); await guest.fill('[name=trackingCode]', trackingCode); await guest.click('#public-track button');
@@ -452,6 +506,7 @@ async function tab() {
     const verificationError=await resident.evaluate('document.querySelector(".swal2-html-container")?.textContent || ""');
     if (verificationError) throw new Error('Resident verification failed: '+verificationError);
     check(await resident.evaluate('document.querySelector("h1").textContent === "My dashboard"'), 'resident dashboard restored');
+    check(await resident.evaluate('!!document.querySelector(".theme-switcher-workspace[data-theme-toggle]")'), 'resident workspace uses the shared theme control');
     for (const [client, role] of [[resident,'resident'],[personnel,'personnel'],[official,'official']]) {
       await client.go('report-concern.php');
       check(await client.evaluate('!!document.querySelector(".shell") && document.querySelector("#public-report").dataset.action === "submit" && document.body.textContent.includes("0 of 3 concern submissions used today.")'), role+' shared report form and allowance');
@@ -523,7 +578,11 @@ async function tab() {
     await official.screenshot('weekly-concerns-mobile');
     for (const page of ['landing.php','report-concern.php','track.php','transparency.php','user-guide.php','login.php','login.php?view=forgot']) {
       await guest.go(page); check(await guest.evaluate('document.documentElement.scrollWidth <= innerWidth'), page + ' fits mobile');
-      if (page === 'landing.php') check(await guest.evaluate('(()=>{const nav=document.querySelector(".public-header nav"),links=Array.from(nav.querySelectorAll(".public-nav-link"));return getComputedStyle(nav).display==="grid" && links.length===4 && links.every(link=>link.getBoundingClientRect().width>0 && link.getBoundingClientRect().right<=innerWidth)})()'), 'mobile public navigation uses a contained two-column button grid');
+      if (page === 'landing.php') {
+        check(await guest.evaluate('(()=>{const nav=document.querySelector(".public-header nav"),links=Array.from(nav.querySelectorAll(".public-nav-link"));return links.length===5 && links.every(link=>getComputedStyle(link).display==="none") && nav.querySelector("[data-theme-toggle]").getClientRects().length===1})()'), 'mobile public navigation is compact and keeps theme switching available');
+        await guest.click('[data-public-menu-toggle]');
+        check(await guest.evaluate('(()=>{const nav=document.querySelector(".public-header nav");return nav.classList.contains("is-open") && Array.from(nav.querySelectorAll(".public-nav-link")).every(link=>link.getBoundingClientRect().width>0 && link.getBoundingClientRect().right<=innerWidth)})()'), 'mobile public navigation expands without overflow');
+      }
       if (page === 'report-concern.php') {
         await guest.fill('[name=category]', 'Waste Management');
         await guest.fill('[name=concernType]', 'Illegal dumping');
@@ -616,6 +675,27 @@ async function tab() {
         }
       }
     }
+    // Representative dark-theme coverage for every interface family. The
+    // broader loop above already verifies every page and target width in light mode.
+    const darkReviewPages = [
+      [guest,'public',['landing.php','report-concern.php','login.php']],
+      [official,'official',['index.php',detail,'reports.php','settings.php']],
+      [personnel,'personnel',['index.php','complaints.php']],
+      [resident,'resident',['index.php','report-concern.php']]
+    ];
+    for (const width of [1440,390]) {
+      for (const [client,role,pages] of darkReviewPages) {
+        await client.send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<768});
+        await client.evaluate('localStorage.setItem("maintainpro:theme","dark")');
+        for (const page of pages) {
+          await client.go(page);
+          const darkFits = await client.evaluate('(()=>{const root=getComputedStyle(document.documentElement),surfaces=Array.from(document.querySelectorAll(".panel,.stat-card,.action-panel,.attention-banner,.knowledge-card,.evidence-card,.case-summary,.case-timeline,.mobile-dock,.auth-form-side,.public-form-panel")).filter(el=>el.getClientRects().length);return document.documentElement.dataset.theme==="dark" && root.getPropertyValue("--bg-sidebar").trim()!=="" && root.getPropertyValue("--shadow-card").trim()!=="" && document.documentElement.scrollWidth<=innerWidth && surfaces.every(el=>getComputedStyle(el).backgroundColor!=="rgb(255, 255, 255)")})()');
+          check(darkFits, role+' '+page+' uses dark design tokens and fits at '+width);
+          await client.screenshot('ui-dark-'+role+'-'+page.split('?')[0].replace('.php','')+'-'+width);
+        }
+      }
+    }
+    for (const [client] of darkReviewPages) await client.evaluate('localStorage.setItem("maintainpro:theme","light")');
     await official.go('index.php');
     await official.evaluate('document.querySelector(".mobile-dock button[data-menu]").focus()');
     await official.click('.mobile-dock button[data-menu]');

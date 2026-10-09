@@ -88,8 +88,26 @@ function br_icon(string $name): string
         'flag' => '<path d="M5 22V3m0 1c5-5 9 5 15 0v10c-6 5-10-5-15 0"/>',
         'tool' => '<path d="M14 6a5 5 0 0 0-6 6l-5 5a2 2 0 0 0 4 4l5-5a5 5 0 0 0 6-6l-3 3-4-4 3-3Z"/>',
         'refresh' => '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.5 7a8 8 0 0 1 13 0L20 12M4 12l1.5 5a8 8 0 0 0 13 0"/>',
+        'sun' => '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/>',
+        'moon' => '<path d="M21 12.8A8.5 8.5 0 1 1 11.2 3 6.5 6.5 0 0 0 21 12.8Z"/>',
+        'monitor' => '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',
+        'fileText' => '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2"/>',
+        'clipboardList' => '<rect x="5" y="4" width="14" height="17" rx="2"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M9 11h.01M12 11h4M9 15h.01M12 15h4"/>',
+        'settings' => '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 9 19.37a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.63 15 1.7 1.7 0 0 0 3.08 14H3v-4h.08A1.7 1.7 0 0 0 4.63 9a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.63 1.7 1.7 0 0 0 10 3.08V3h4v.08A1.7 1.7 0 0 0 15 4.63a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.37 9 1.7 1.7 0 0 0 20.92 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/>',
+        'logout' => '<path d="M10 17l5-5-5-5M15 12H3M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>',
+        'save' => '<path d="M4 3h14l2 2v16H4V3Z"/><path d="M8 3v6h8V3M8 21v-7h8v7"/>',
+        'upload' => '<path d="M12 16V4m-5 5 5-5 5 5M4 17v4h16v-4"/>',
     ];
     return '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">' . ($paths[$name] ?? $paths['inbox']) . '</svg>';
+}
+
+function br_theme_switcher(string $classes = ''): string
+{
+    $className = trim('theme-switcher ' . $classes);
+    return '<button class="' . h($className) . '" type="button" data-theme-toggle aria-label="Switch color theme" title="Switch color theme" aria-pressed="false">'
+        . '<span class="theme-toggle-track" aria-hidden="true"><span class="theme-toggle-icon theme-toggle-sun">' . br_icon('sun') . '</span>'
+        . '<span class="theme-toggle-icon theme-toggle-moon">' . br_icon('moon') . '</span><span class="theme-toggle-thumb"></span></span>'
+        . '<span class="visually-hidden theme-toggle-label">Light theme</span></button>';
 }
 
 function br_status(array $case): string
@@ -196,5 +214,15 @@ function br_photo(string $photo, string $label): void
 function br_upload(string $id, string $label, bool $required = false): void
 { ?>
     <label class="form-label" for="<?= h($id) ?>"><?= h($label) ?> <span class="text-muted fw-normal">(<?= $required ? 'required' : 'optional' ?>)</span></label>
-    <div class="upload-zone"><input class="form-control form-control-sm" type="file" id="<?= h($id) ?>" name="photoFile" accept="image/jpeg,image/png,image/webp" <?= $required ? 'required' : '' ?> aria-describedby="<?= h($id) ?>-help"><p class="form-text" id="<?= h($id) ?>-help">JPG, PNG, or WebP · Up to 1 MB · Private evidence saved with the concern record.</p><div data-preview="<?= h($id) ?>"></div></div>
+    <div class="upload-zone" data-upload-zone>
+      <input class="visually-hidden upload-input" type="file" id="<?= h($id) ?>" name="photoFile" accept="image/jpeg,image/png,image/webp" <?= $required ? 'required' : '' ?> aria-describedby="<?= h($id) ?>-help <?= h($id) ?>-status">
+      <div class="upload-control">
+        <label class="upload-button" for="<?= h($id) ?>"><?= br_icon('upload') ?><span>Choose photo</span></label>
+        <div class="upload-selection"><strong data-upload-name>No photo selected</strong><span data-upload-meta>Drag and drop or browse</span></div>
+        <button class="upload-clear" type="button" data-upload-clear aria-label="Remove selected photo" title="Remove selected photo" hidden><?= br_icon('trash') ?></button>
+      </div>
+      <p class="form-text" id="<?= h($id) ?>-help">JPG, PNG, or WebP · Up to 1 MB · Private evidence saved with the concern record.</p>
+      <p class="visually-hidden" id="<?= h($id) ?>-status" data-upload-status role="status" aria-live="polite">No photo selected.</p>
+      <div class="upload-preview-area" data-preview="<?= h($id) ?>"></div>
+    </div>
 <?php }

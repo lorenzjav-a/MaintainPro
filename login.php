@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 require __DIR__ . '/includes/bootstrap.php';
+require_once __DIR__ . '/includes/view.php';
 $signedIn = br_actor();
 $changingPassword = $signedIn && $signedIn['must_change_password'];
 if ($signedIn && !$changingPassword) {
@@ -57,6 +58,7 @@ unset($_SESSION['br_session_expired']);
   <meta name="theme-color" content="#102b32">
   <title><?= htmlspecialchars($title, ENT_QUOTES, 'UTF-8') ?> · MaintainPro</title>
   <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">
+  <script src="assets/js/theme.js?v=<?= filemtime(__DIR__ . '/assets/js/theme.js') ?>"></script>
   <link rel="stylesheet" href="assets/vendor/bootstrap.min.css">
   <link rel="stylesheet" href="assets/css/app.css?v=<?= filemtime(__DIR__ . '/assets/css/app.css') ?>">
   <script src="assets/vendor/sweetalert2.all.min.js" defer></script>
@@ -79,6 +81,7 @@ unset($_SESSION['br_session_expired']);
       <div class="auth-story-footer"><span class="auth-status-dot"></span>Community services, with a complete record.</div>
     </section>
     <section class="auth-form-side">
+      <?= br_theme_switcher('theme-switcher-auth') ?>
       <div class="auth-card">
         <span class="eyebrow text-muted"><?= $setup ? 'FIRST-TIME SETUP' : ($recovery ? 'PASSWORD RECOVERY' : ($registrationVerification ? 'RESIDENT VERIFICATION' : 'SAVED WORKSPACE')) ?></span>
         <h2><?= htmlspecialchars($title, ENT_QUOTES, 'UTF-8') ?></h2>

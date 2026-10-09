@@ -16,6 +16,89 @@
   function node(tag, text, className) {
     var el = document.createElement(tag); el.textContent = text; if (className) el.className = className; return el;
   }
+  var publicMenu = document.querySelector('[data-public-navigation]');
+  var publicMenuToggle = document.querySelector('[data-public-menu-toggle]');
+  function closePublicMenu() {
+    if (!publicMenu || !publicMenuToggle) return;
+    publicMenu.classList.remove('is-open');
+    publicMenuToggle.setAttribute('aria-expanded', 'false');
+    publicMenuToggle.setAttribute('aria-label', 'Open navigation');
+  }
+  if (publicMenu && publicMenuToggle) {
+    publicMenuToggle.addEventListener('click', function () {
+      var open = !publicMenu.classList.contains('is-open');
+      publicMenu.classList.toggle('is-open', open);
+      publicMenuToggle.setAttribute('aria-expanded', String(open));
+      publicMenuToggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+    });
+    publicMenu.querySelectorAll('a').forEach(function (link) { link.addEventListener('click', closePublicMenu); });
+    document.addEventListener('keydown', function (event) { if (event.key === 'Escape') { closePublicMenu(); publicMenuToggle.focus(); } });
+    window.addEventListener('resize', function () { if (window.innerWidth > 850) closePublicMenu(); });
+  }
+  function uploadSize(bytes) {
+    return bytes < 1024 ? bytes + ' B' : (bytes / 1024).toFixed(bytes < 102400 ? 1 : 0) + ' KB';
+  }
+  document.querySelectorAll('[data-upload-zone]').forEach(function (zone) {
+    var input = zone.querySelector('.upload-input');
+    var name = zone.querySelector('[data-upload-name]');
+    var meta = zone.querySelector('[data-upload-meta]');
+    var status = zone.querySelector('[data-upload-status]');
+    var preview = zone.querySelector('[data-preview]');
+    var clear = zone.querySelector('[data-upload-clear]');
+    if (!input || !name || !meta || !preview || !clear) return;
+
+    function reset(message) {
+      zone.classList.remove('has-file', 'has-error', 'is-dragging');
+      name.textContent = 'No photo selected';
+      meta.textContent = 'Drag and drop or browse';
+      clear.hidden = true;
+      preview.replaceChildren();
+      if (status) status.textContent = message || 'No photo selected.';
+    }
+
+    function render(event) {
+      var file = input.files && input.files[0];
+      if (!file) { reset(); return; }
+      if (['image/jpeg', 'image/png', 'image/webp'].indexOf(file.type) < 0 || file.size > 1048576) {
+        input.value = '';
+        reset('The selected photo was removed. Choose a JPG, PNG, or WebP image up to 1 MB.');
+        zone.classList.add('has-error');
+        name.textContent = 'Photo not accepted';
+        meta.textContent = 'Use JPG, PNG, or WebP up to 1 MB';
+        if (event) event.stopPropagation();
+        return;
+      }
+      zone.classList.remove('has-error', 'is-dragging');
+      zone.classList.add('has-file');
+      name.textContent = file.name;
+      meta.textContent = uploadSize(file.size) + ' · Ready to upload';
+      clear.hidden = false;
+      if (status) status.textContent = file.name + ' selected and ready to upload.';
+      var reader = new FileReader();
+      reader.onload = function () {
+        if (!input.files[0] || input.files[0] !== file) return;
+        var image = document.createElement('img');
+        image.className = 'upload-preview'; image.src = reader.result; image.alt = 'Preview of ' + file.name;
+        preview.replaceChildren(image);
+      };
+      reader.readAsDataURL(file);
+    }
+
+    input.addEventListener('change', render);
+    clear.addEventListener('click', function () { input.value = ''; reset('Selected photo removed.'); input.focus(); });
+    ['dragenter', 'dragover'].forEach(function (type) {
+      zone.addEventListener(type, function (event) { event.preventDefault(); if (!input.disabled) zone.classList.add('is-dragging'); });
+    });
+    ['dragleave', 'drop'].forEach(function (type) {
+      zone.addEventListener(type, function () { zone.classList.remove('is-dragging'); });
+    });
+    zone.addEventListener('drop', function (event) {
+      event.preventDefault();
+      if (input.disabled || !event.dataTransfer.files.length) return;
+      var transfer = new DataTransfer(); transfer.items.add(event.dataTransfer.files[0]); input.files = transfer.files;
+      input.dispatchEvent(new Event('change', {bubbles: true}));
+    });
+  });
   function showGuidance(container, steps, heading) {
     container.replaceChildren();
     if (!Array.isArray(steps) || steps.length !== 3) return;

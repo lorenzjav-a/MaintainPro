@@ -384,11 +384,10 @@
     var target = event.target;
     if (target.id === 'exception-status' || target.id === 'user-role') updateConditionalFields();
     else if (target.type === 'file') {
+      if (target.id !== 'profile-photo') return; // Shared evidence uploads are handled by public.js on every role.
       var preview = document.querySelector('[data-preview="' + target.id + '"]');
       var selected = target.files[0];
-      if (target.id === 'profile-photo' && selected) {
-        updateProfilePhotoRemoval(false);
-      }
+      if (selected) updateProfilePhotoRemoval(false);
       if (!selected) return;
       readPhoto(selected).then(function (photo) {
         if (!preview || target.files[0] !== selected) return;

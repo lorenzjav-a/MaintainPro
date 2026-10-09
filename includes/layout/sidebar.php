@@ -1,6 +1,6 @@
 <?php
 $activePage = match ($page) {'complaint' => 'complaints', 'user-create', 'user-edit' => 'users', default => $page};
-$links = [['overview', 'index.php', 'Dashboard', 'grid', null], ['complaints', 'complaints.php', $actor['role']==='personnel'?'My Work':'Concerns', 'inbox', $metrics['total']]];
+$links = [['overview', 'index.php', 'Dashboard', 'grid', null], ['complaints', 'complaints.php', $actor['role']==='personnel'?'My Work':'Concerns', 'clipboardList', $metrics['total']]];
 $links[] = ['new-complaint', 'report-concern.php', 'Report Concern', 'plus', null];
 if ($page === 'complaints' && ($scope ?? '') === 'mine' && $actor['role'] !== 'resident') $activePage = 'my-reports';
 $links[] = ['notifications', 'notifications.php', 'Notifications', 'bell', null];
@@ -10,7 +10,7 @@ $records = [['history', 'history.php', 'Concern history', 'clock', null]];
 if ($actor['role'] !== 'resident') $records[] = ['my-reports', 'complaints.php?scope=mine', 'My reported concerns', 'clipboard', null];
 if ($actor['role'] === 'personnel') $records[] = ['my-action-plans', 'my-action-plans.php', 'My action plans', 'clipboard', null];
 if ($actor['role'] === 'official') {
-    $records[] = ['reports', 'reports.php', 'Reports & insights', 'chart', null];
+    $records[] = ['reports', 'reports.php', 'Reports & insights', 'fileText', null];
     $records[] = ['solutions', 'solutions.php', 'Solution library', 'book', null];
     $records[] = ['official-solutions', 'official-solutions.php', 'Official action library', 'book', null];
     $records[] = ['action-plans', 'action-plans.php', 'Weekly action plans', 'clipboard', null];
@@ -18,7 +18,7 @@ if ($actor['role'] === 'official') {
 }
 $administration=$actor['is_system_admin'] ? [
     ['admin','admin.php','Administration','shield',null],['users','users.php','User management','users',null],
-    ['settings','settings.php','Workspace settings','building',null],['audit','audit.php','Audit history','clock',null],
+    ['settings','settings.php','Workspace settings','settings',null],['audit','audit.php','Audit history','clock',null],
     ['backup','settings.php#database-backup','Database backup','download',null],
 ] : [];
 ?>
@@ -34,6 +34,6 @@ $administration=$actor['is_system_admin'] ? [
   </nav>
   <div class="sidebar-bottom">
     <div class="sidebar-footer"><?= br_icon('building') ?><?= h(br_role($actor['role'])) ?><?= $actor['team']?' · '.h($actor['team']):'' ?></div>
-    <button class="btn btn-danger sidebar-signout" type="button" data-logout>Sign Out</button>
+    <button class="btn btn-danger sidebar-signout" type="button" data-logout><?= br_icon('logout') ?>Sign Out</button>
   </div>
 </aside>

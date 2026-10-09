@@ -18,7 +18,7 @@ if (PHP_SAPI !== 'cli' && $app['maintenance']) {
     header('Retry-After: 900');
     header('Cache-Control: no-store');
     header('Content-Type: text/html; charset=utf-8');
-    echo '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maintenance · MaintainPro</title><link rel="stylesheet" href="assets/css/app.css"><main class="container py-5"><section class="panel p-4 mx-auto" style="max-width:720px"><h1 class="section-title">Scheduled maintenance</h1><p>MaintainPro is temporarily unavailable while maintenance is being completed.</p></section></main></html>';
+    echo '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maintenance · MaintainPro</title><script src="assets/js/theme.js"></script><link rel="stylesheet" href="assets/css/app.css"><main class="container py-5"><section class="panel p-4 mx-auto" style="max-width:720px"><h1 class="section-title">Scheduled maintenance</h1><p>MaintainPro is temporarily unavailable while maintenance is being completed.</p></section></main></html>';
     exit;
 }
 $sessionDirectory = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'maintainpro-sessions';

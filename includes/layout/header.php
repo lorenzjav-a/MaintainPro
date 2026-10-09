@@ -10,6 +10,7 @@
   <meta name="account-version" content="<?= (int)$actor['auth_version'] ?>">
   <title><?= h($pageTitle) ?> · MaintainPro</title>
   <link rel="icon" href="assets/images/favicon.svg" type="image/svg+xml">
+  <script src="assets/js/theme.js?v=<?= filemtime(__DIR__ . '/../../assets/js/theme.js') ?>"></script>
   <link rel="stylesheet" href="assets/vendor/bootstrap.min.css">
   <link rel="stylesheet" href="assets/css/app.css?v=<?= filemtime(__DIR__ . '/../../assets/css/app.css') ?>">
   <script src="assets/vendor/sweetalert2.all.min.js" defer></script>

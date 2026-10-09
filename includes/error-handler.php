@@ -60,9 +60,10 @@ function br_error_respond(Throwable $error, string $requestId): never
     $title = $debug ? 'MaintainPro development error' : 'Unable to complete this request';
     $message = $debug ? $error->getMessage() : $friendly;
     $assetVersion = (string)(@filemtime(dirname(__DIR__) . '/assets/css/app.css') ?: 1);
+    $themeVersion = (string)(@filemtime(dirname(__DIR__) . '/assets/js/theme.js') ?: 1);
     $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-        . '<title>' . $escape($title) . '</title><link rel="stylesheet" href="assets/vendor/bootstrap.min.css">'
+        . '<title>' . $escape($title) . '</title><script src="assets/js/theme.js?v=' . $escape($themeVersion) . '"></script><link rel="stylesheet" href="assets/vendor/bootstrap.min.css">'
         . '<link rel="stylesheet" href="assets/css/app.css?v=' . $escape($assetVersion) . '"></head><body>'
         . '<main class="container py-5"><section class="panel p-4 mx-auto" style="max-width:720px">'
         . '<h1 class="section-title">' . $escape($title) . '</h1><p>' . $escape($message) . '</p>'
